@@ -1,0 +1,66 @@
+package io.github.veelume.postroad
+
+import io.github.veelume.postroad.command.PostroadCommands
+import io.github.veelume.postroad.depot.DepotEvents
+import io.github.veelume.postroad.loot.FreshLootTooltip
+import io.github.veelume.postroad.names.CultureRegistry
+import io.github.veelume.postroad.registry.PostroadBlockEntities
+import io.github.veelume.postroad.registry.PostroadBlocks
+import io.github.veelume.postroad.registry.PostroadComponents
+import io.github.veelume.postroad.registry.PostroadCreativeTabs
+import io.github.veelume.postroad.registry.PostroadDataMaps
+import io.github.veelume.postroad.registry.PostroadItems
+import io.github.veelume.postroad.registry.PostroadLootModifiers
+import io.github.veelume.postroad.worldgen.CourierPostInjector
+import net.minecraft.resources.ResourceLocation
+import net.neoforged.api.distmarker.Dist
+import net.neoforged.fml.ModLoadingContext
+import net.neoforged.fml.common.Mod
+import net.neoforged.fml.config.ModConfig
+import net.neoforged.fml.loading.FMLEnvironment
+import net.neoforged.neoforge.event.AddReloadListenerEvent
+import net.neoforged.neoforge.event.RegisterCommandsEvent
+import net.neoforged.neoforge.event.server.ServerAboutToStartEvent
+import net.neoforged.neoforge.registries.datamaps.RegisterDataMapTypesEvent
+import org.apache.logging.log4j.LogManager
+import org.apache.logging.log4j.Logger
+import thedarkcolour.kotlinforforge.neoforge.forge.FORGE_BUS
+import thedarkcolour.kotlinforforge.neoforge.forge.MOD_BUS
+import java.util.function.Consumer
+
+/**
+ * Mod entry point. Kotlin for Forge loads `object` declarations annotated with [Mod].
+ *
+ * Working id `postroad`; gradle.properties carries the same id for the manifest.
+ */
+@Mod(Postroad.MOD_ID)
+object Postroad {
+    const val MOD_ID = "postroad"
+
+    val LOGGER: Logger = LogManager.getLogger(MOD_ID)
+
+    fun id(path: String): ResourceLocation = ResourceLocation.fromNamespaceAndPath(MOD_ID, path)
+
+    init {
+        PostroadBlocks.REGISTER.register(MOD_BUS)
+        PostroadItems.REGISTER.register(MOD_BUS)
+        PostroadBlockEntities.REGISTER.register(MOD_BUS)
+        PostroadComponents.REGISTER.register(MOD_BUS)
+        PostroadCreativeTabs.REGISTER.register(MOD_BUS)
+        PostroadLootModifiers.REGISTER.register(MOD_BUS)
+        MOD_BUS.addListener(RegisterDataMapTypesEvent::class.java, Consumer(PostroadDataMaps::register))
+
+        ModLoadingContext.get().activeContainer.registerConfig(ModConfig.Type.COMMON, PostroadConfig.SPEC)
+
+        FORGE_BUS.addListener(AddReloadListenerEvent::class.java, Consumer { it.addListener(CultureRegistry) })
+        FORGE_BUS.addListener(RegisterCommandsEvent::class.java, Consumer(PostroadCommands::register))
+        FORGE_BUS.addListener(ServerAboutToStartEvent::class.java, Consumer(CourierPostInjector::onServerAboutToStart))
+        DepotEvents.register()
+
+        if (FMLEnvironment.dist == Dist.CLIENT) {
+            FreshLootTooltip.register()
+        }
+
+        LOGGER.info("Postroad initialised")
+    }
+}

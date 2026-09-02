@@ -1,7 +1,7 @@
 # /// script
 # dependencies = ["nbtlib"]
 # ///
-"""Generate data/packcore/structure/arena.nbt: the game-test arena (7x5x7, stone floor).
+"""Generate data/postroad/structure/arena.nbt: the game-test arena (7x5x7, stone floor).
 
 Run from the repo root:  uv run tools/gen_test_arena.py
 """
@@ -11,7 +11,7 @@ import nbtlib
 from nbtlib.tag import Compound, Int, List, String
 
 SIZE = (7, 5, 7)
-OUT = Path(__file__).resolve().parent.parent / "src/main/resources/data/packcore/structure/arena.nbt"
+OUT = Path(__file__).resolve().parent.parent / "src/main/resources/data/postroad/structure/arena.nbt"
 
 palette = List[Compound]([
     Compound({"Name": String("minecraft:stone")}),

@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "postroad:block/depot" },
+    "facing=east": { "model": "postroad:block/depot", "y": 90 },
+    "facing=south": { "model": "postroad:block/depot", "y": 180 },
+    "facing=west": { "model": "postroad:block/depot", "y": 270 }
+  }
+}

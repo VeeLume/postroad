@@ -8,7 +8,7 @@ Run from the repo root: uv run tools/gen_textures.py
 from pathlib import Path
 from PIL import Image, ImageDraw
 
-ROOT = Path(__file__).resolve().parent.parent / "src/main/resources/assets/packcore/textures"
+ROOT = Path(__file__).resolve().parent.parent / "src/main/resources/assets/postroad/textures"
 
 
 def img():

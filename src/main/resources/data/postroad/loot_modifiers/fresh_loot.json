@@ -1,0 +1,9 @@
+{
+  "type": "postroad:fresh_loot",
+  "conditions": [],
+  "rules": [
+    { "prefix": "blocks/", "origin": "none" },
+    { "prefix": "shearing/", "origin": "none" },
+    { "prefix": "gameplay/sniffer_digging", "origin": "none" }
+  ]
+}

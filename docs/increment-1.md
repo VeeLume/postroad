@@ -21,8 +21,8 @@ In:
 - **Fresh loot** — a data component stamped on items generated from container
   loot and mob drops; it expires ("settles") after a configurable number of
   in-game days.
-- **Commands** — `/packcore places|balance|ledger|inspect|rates` for everyone,
-  `/packcore grant` for ops (testing only).
+- **Commands** — `/postroad places|balance|ledger|inspect|rates` for everyone,
+  `/postroad grant` for ops (testing only).
 
 Out (later increments): postal network, mailboxes, delivery lanes, signs,
 teleport, roads, advancements, custom screens.
@@ -35,7 +35,7 @@ teleport, roads, advancements, custom screens.
   courier-post building is a structure NBT, fresh-loot origins are a global loot
   modifier JSON. The code is the mechanism, the data is the tuning.
 - **One server-side network object.** All state below lives in a single
-  `SavedData` on the overworld (`packcore_network`). It is the only mutable
+  `SavedData` on the overworld (`postroad_network`). It is the only mutable
   state; block entities hold only their place id.
 - **Server thread only.** Nothing in this increment runs off-thread. That
   discipline starts to matter in increment 5.
@@ -45,7 +45,7 @@ teleport, roads, advancements, custom screens.
 ## Data model
 
 ```
-Network (SavedData "packcore_network")
+Network (SavedData "postroad_network")
 ├── places: Map<PlaceId, Place>
 │     Place { id, name, culture, type, dimension, pos, discoveredDay }
 ├── depots: Map<GlobalPos, PlaceId>          // depot block → its town
@@ -64,21 +64,21 @@ Network (SavedData "packcore_network")
   structure id the depot was generated inside, through a keyword table
   (`meadow_swiss` → `alpine`, `flower_forest_japanese` → `japanese`,
   `snowy_taiga_viking` → `norse`, vanilla `village_plains` → `plains`, …) with a
-  `common` fallback. The table is a data file (`data/packcore/cultures.json`)
+  `common` fallback. The table is a data file (`data/postroad/cultures.json`)
   so the modpack can extend it without a mod release.
 
 ## Naming
 
 Names are deterministic: `hash(worldSeed, placeId)` seeds a small PRNG that
 picks from the culture's syllable lists. Each culture is a JSON file
-(`data/packcore/names/<culture>.json`) with `prefixes`, `middles`, `suffixes`
+(`data/postroad/names/<culture>.json`) with `prefixes`, `middles`, `suffixes`
 and a `pattern` list; a name is one pattern instance. Collisions within a
 world are resolved by appending a distinguishing suffix from the culture's
 `disambiguators` list. Names are never editable in game.
 
 ## Fresh loot
 
-- Data component `packcore:fresh_loot { origin: "container" | "entity", day: int }`.
+- Data component `postroad:fresh_loot { origin: "container" | "entity", day: int }`.
 - Stamped by a global loot modifier. It classifies by the loot context, not
   the table id: a block state means a block drop (not stamped), a damage
   source means a mob drop (`entity`), everything else is container loot
@@ -99,11 +99,11 @@ world are resolved by appending a distinguishing suffix from the culture's
 
 ## Coins and the ledger
 
-- Item `packcore:coin`, stack size 64, no recipe. A creative-tab entry only.
+- Item `postroad:coin`, stack size 64, no recipe. A creative-tab entry only.
 - Pay-in: sneak-use the depot with coins in the main hand → the whole stack is
   consumed and credited to `player:<name>`; ledger entry `pay_in`.
 - Buyback: sneak-use the depot with a fresh-loot item that has a data-map
-  entry (`packcore:buyback`, item → coins per unit) → the stack is consumed and
+  entry (`postroad:buyback`, item → coins per unit) → the stack is consumed and
   credited; ledger entry `buyback` with the item id in `note`. Items that are
   not fresh, or not in the data map, are refused with a message.
 - Sneak-use with an empty hand → chat shows the town name, wallet balance,
@@ -119,11 +119,11 @@ world are resolved by appending a distinguishing suffix from the culture's
   scale where a diamond beats a stack of iron. Food and farmables (bread,
   wheat, potatoes, apples) and junk (arrows, string, bones, rotten flesh) are
   deliberately absent: a village barrel is a snack, not an income.
-  `/packcore rates` prints the live table.
+  `/postroad rates` prints the live table.
 
 ## Courier post
 
-- Structure NBTs `data/packcore/structure/courier_post_<style>.nbt`, one per
+- Structure NBTs `data/postroad/structure/courier_post_<style>.nbt`, one per
   palette style (oak, spruce, birch, acacia, jungle, cherry, dark_oak, desert,
   badlands, iberian), all generated from one shape by
   `tools/gen_courier_post.py` (no in-game structure-block workflow needed to
@@ -160,7 +160,7 @@ Town storage opens as a vanilla 6-row chest menu backed by the network's
 container for that place. No custom screen in this increment; the 54-slot
 limit is the one this increment ships with.
 
-## Config (`packcore-common.toml`)
+## Config (`postroad-common.toml`)
 
 - `freshLoot.settleDays` (default 3)
 - `courierPost.targetPools` (list of pool ids)
@@ -171,12 +171,12 @@ limit is the one this increment ships with.
 
 On a fresh world with the modpack's seed:
 
-1. Two villages visited → two courier posts, two distinct names, `/packcore
+1. Two villages visited → two courier posts, two distinct names, `/postroad
    places` lists both with cultures matching their village style.
 2. Deposit in village A's depot; the items are visible in A and absent in B.
 3. Open a Lootr chest; the items show the fresh-loot tooltip; a crafted item
    does not.
-4. Sneak-use with coins → balance increases; `/packcore ledger` shows the entry.
+4. Sneak-use with coins → balance increases; `/postroad ledger` shows the entry.
 5. Sneak-use with a fresh emerald (data map entry) → coins credited; the same
    emerald after `/time add` past the settle window is refused.
 6. Server restart preserves places, storage, balances and ledger.

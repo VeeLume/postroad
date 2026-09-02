@@ -1,7 +1,7 @@
 # /// script
 # dependencies = ["nbtlib"]
 # ///
-"""Generate data/packcore/structure/courier_post_<style>.nbt, one per palette style.
+"""Generate data/postroad/structure/courier_post_<style>.nbt, one per palette style.
 
 A 7x7x7 village house in the vanilla plains idiom: a 5x5 building centred in
 the box with a one-block ring of air, floor at y=0, a `building_entrance`
@@ -18,7 +18,7 @@ from nbtlib.tag import Compound, Int, List, String
 
 DATA_VERSION = 3955  # Minecraft 1.21.1
 SIZE = (7, 7, 7)
-OUT_DIR = Path(__file__).resolve().parent.parent / "src/main/resources/data/packcore/structure"
+OUT_DIR = Path(__file__).resolve().parent.parent / "src/main/resources/data/postroad/structure"
 
 # Palette keys: base (y=0 ring and y=1 wall), corner (log, axis=y), wall (y=2..3),
 # floor, roof (full layer), roof_stairs, roof_slab, door (None = open doorway),
@@ -147,7 +147,7 @@ def build(style: str, p: dict[str, str | None]) -> Path:
             put(x, 2, z, AIR)
 
     # Interior: depot against the east wall, a barrel, one lantern.
-    put(4, 1, 3, "packcore:depot", facing="west")
+    put(4, 1, 3, "postroad:depot", facing="west")
     put(4, 1, 2, "minecraft:barrel", facing="up", open="false")
     put(3, 3, 3, "minecraft:lantern", hanging="true", waterlogged="false")
     # Two torches outside, flanking the door on the street side.

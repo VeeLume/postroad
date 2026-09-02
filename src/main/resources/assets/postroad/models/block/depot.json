@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "top": "postroad:block/depot_top",
+    "front": "postroad:block/depot_front",
+    "side": "postroad:block/depot_side"
+  }
+}

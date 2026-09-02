@@ -1,4 +1,4 @@
-# packcore
+# postroad
 
 Companion mod for a NeoForge 1.21.1 modpack. It implements the pack's own
 mechanics — the *civilization layer*: named places, courier depots, mail that
