@@ -4,6 +4,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType
 import com.mojang.brigadier.arguments.LongArgumentType
 import com.mojang.brigadier.arguments.StringArgumentType
 import com.mojang.brigadier.context.CommandContext
+import io.github.veelume.postroad.advancement.PostroadAdvancements
 import io.github.veelume.postroad.depot.DepotInteraction
 import io.github.veelume.postroad.loot.FreshLoot
 import io.github.veelume.postroad.network.LedgerEntry
@@ -27,6 +28,16 @@ object PostroadCommands {
                 .then(Commands.literal("places").executes { places(it) })
                 .then(Commands.literal("inspect").executes { inspect(it) })
                 .then(Commands.literal("rates").executes { rates(it) })
+                .then(Commands.literal("mail").executes { mail(it) })
+                .then(
+                    Commands.literal("home")
+                        .executes { home(it, null) }
+                        .then(
+                            Commands.argument("town", StringArgumentType.greedyString())
+                                .executes { home(it, StringArgumentType.getString(it, "town")) },
+                        ),
+                )
+                .then(Commands.literal("unlock").requires { it.hasPermission(2) }.executes { unlock(it) })
                 .then(
                     Commands.literal("balance")
                         .executes { balance(it, it.source.playerOrException.gameProfile.name) }
@@ -79,6 +90,63 @@ object PostroadCommands {
             }, false)
         }
         return network.places.size
+    }
+
+    private fun mail(ctx: CommandContext<CommandSourceStack>): Int {
+        val player = ctx.source.playerOrException
+        val network = Network.get(ctx.source.server)
+        val today = FreshLoot.dayOf(ctx.source.level)
+        val name = player.gameProfile.name
+        var lines = 0
+        for (placeId in network.mailboxPlaces(name)) {
+            val box = network.mailbox(name, placeId)
+            val stacks = (0 until box.containerSize).count { !box.getItem(it).isEmpty }
+            ctx.source.sendSuccess({ Component.translatable("command.postroad.mail.waiting", stacks, network.places[placeId]?.name ?: placeId) }, false)
+            lines++
+        }
+        for (parcel in network.parcelsFor(name)) {
+            val town = network.places[parcel.to]?.name ?: parcel.to
+            val from = network.knownPlayers[parcel.sender] ?: parcel.sender
+            val key = if (parcel.isDue(today)) "command.postroad.mail.held" else "command.postroad.mail.transit"
+            ctx.source.sendSuccess({ Component.translatable(key, parcel.items.size, from, town, parcel.arrivalDay - today) }, false)
+            lines++
+        }
+        if (lines == 0) ctx.source.sendSuccess({ Component.translatable("command.postroad.mail.none") }, false)
+        return lines
+    }
+
+    private fun home(ctx: CommandContext<CommandSourceStack>, town: String?): Int {
+        val player = ctx.source.playerOrException
+        val network = Network.get(ctx.source.server)
+        if (town == null) {
+            val home = network.homeOf(player.gameProfile.name)
+            ctx.source.sendSuccess({
+                if (home == null) Component.translatable("command.postroad.home.none")
+                else Component.translatable("command.postroad.home.current", home.name)
+            }, false)
+            return if (home == null) 0 else 1
+        }
+        val place = network.placeByName(town)
+        if (place == null || !network.hasDepot(place.id)) {
+            ctx.source.sendFailure(Component.translatable("command.postroad.home.unknown", town))
+            return 0
+        }
+        network.setHome(player.gameProfile.name, place.id)
+        PostroadAdvancements.award(player, PostroadAdvancements.HOME_SET)
+        ctx.source.sendSuccess({ Component.translatable("command.postroad.home.set", place.name) }, false)
+        return 1
+    }
+
+    private fun unlock(ctx: CommandContext<CommandSourceStack>): Int {
+        val network = Network.get(ctx.source.server)
+        if (network.postalUnlocked) {
+            ctx.source.sendSuccess({ Component.translatable("message.postroad.charter.already") }, false)
+            return 0
+        }
+        network.postalUnlocked = true
+        network.record(LedgerEntry(FreshLoot.dayOf(ctx.source.level), ctx.source.textName, LedgerEntry.OP_CHARTER, 0, "network", "command"))
+        ctx.source.sendSuccess({ Component.translatable("message.postroad.charter.unlocked", ctx.source.textName, "command") }, true)
+        return 1
     }
 
     /** Every item the depot buys, cheapest first. Literal text: it is data, and it must not depend on client lang files. */

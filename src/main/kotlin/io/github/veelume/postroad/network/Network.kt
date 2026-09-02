@@ -11,14 +11,17 @@ import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.MinecraftServer
 import net.minecraft.world.ContainerHelper
 import net.minecraft.world.SimpleContainer
+import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.saveddata.SavedData
 import java.util.function.BiFunction
 import java.util.function.Supplier
+import kotlin.math.sqrt
 
 /**
  * The one server-side state object of the civilization layer: places, depots, town storage,
- * accounts and the ledger. Stored on the overworld as `postroad_network`.
+ * accounts, ledger, and — since increment 2 — the postal network: homes, mailboxes, parcels.
+ * Stored on the overworld as `postroad_network`.
  */
 class Network : SavedData() {
     val places: MutableMap<String, Place> = LinkedHashMap()
@@ -26,6 +29,7 @@ class Network : SavedData() {
     /** Depot key ([depotKey]) → place id. */
     val depots: MutableMap<String, String> = HashMap()
 
+    /** Town storage per place; after the postal unlock these are the pages of the network storage. */
     private val storage: MutableMap<String, TownContainer> = HashMap()
 
     /** Account id ("player:<name>", "fund:road") → balance in coins. */
@@ -33,7 +37,32 @@ class Network : SavedData() {
 
     val ledger: ArrayDeque<LedgerEntry> = ArrayDeque()
 
-    // ---- places -----------------------------------------------------------------------------
+    // ---- postal network -----------------------------------------------------------------------
+
+    var postalUnlocked: Boolean = false
+        set(value) {
+            field = value
+            setDirty()
+        }
+
+    /** player (lower-case) → home place id. */
+    val homes: MutableMap<String, String> = HashMap()
+
+    /** player (lower-case) → last seen cased name; everyone who ever used a depot. */
+    val knownPlayers: MutableMap<String, String> = LinkedHashMap()
+
+    /** [mailboxKey] → mailbox. Created on first delivery, dropped when empty on save. */
+    private val mailboxes: MutableMap<String, TownContainer> = HashMap()
+
+    val parcels: MutableList<Parcel> = ArrayList()
+
+    var lastDeliveryDay: Long = -1L
+        set(value) {
+            field = value
+            setDirty()
+        }
+
+    // ---- places -------------------------------------------------------------------------------
 
     fun addPlace(place: Place) {
         places[place.id] = place
@@ -50,12 +79,75 @@ class Network : SavedData() {
 
     fun hasDepot(placeId: String): Boolean = depots.values.contains(placeId)
 
-    // ---- storage ----------------------------------------------------------------------------
+    /** Places that have a depot, in discovery order. */
+    fun towns(): List<Place> = places.values.filter { hasDepot(it.id) }
+
+    fun placeByName(name: String): Place? = places.values.firstOrNull { it.name.equals(name, ignoreCase = true) }
+
+    /** Horizontal distance between two places' anchors, in blocks. */
+    fun distanceBetween(a: String, b: String): Double {
+        val pa = places[a]?.pos ?: return 0.0
+        val pb = places[b]?.pos ?: return 0.0
+        val dx = (pa.x - pb.x).toDouble()
+        val dz = (pa.z - pb.z).toDouble()
+        return sqrt(dx * dx + dz * dz)
+    }
+
+    // ---- storage ------------------------------------------------------------------------------
 
     fun storageFor(placeId: String): SimpleContainer =
-        storage.getOrPut(placeId) { TownContainer(this) }
+        storage.getOrPut(placeId) { TownContainer(this, TownContainer.TOWN_SIZE) }
 
-    // ---- accounts and ledger ----------------------------------------------------------------
+    /**
+     * The remote-unstackable rule: an unstackable may only be taken from, or put into, the page
+     * of the town the player is standing in. Stackables move freely once the network is unlocked.
+     */
+    fun mayMoveRemotely(stack: ItemStack): Boolean = stack.isEmpty || stack.isStackable
+
+    fun mayAccessPage(currentPlaceId: String, pageId: String): Boolean =
+        currentPlaceId == pageId || postalUnlocked
+
+    // ---- homes and players --------------------------------------------------------------------
+
+    fun seenPlayer(name: String) {
+        val key = name.lowercase()
+        if (knownPlayers[key] != name) {
+            knownPlayers[key] = name
+            setDirty()
+        }
+    }
+
+    fun setHome(player: String, placeId: String) {
+        homes[player.lowercase()] = placeId
+        setDirty()
+    }
+
+    fun homeOf(player: String): Place? = homes[player.lowercase()]?.let { places[it] }
+
+    // ---- mailboxes and parcels ----------------------------------------------------------------
+
+    fun mailbox(player: String, placeId: String): SimpleContainer =
+        mailboxes.getOrPut(mailboxKey(player, placeId)) { TownContainer(this, TownContainer.MAILBOX_SIZE) }
+
+    fun mailboxIfExists(player: String, placeId: String): SimpleContainer? = mailboxes[mailboxKey(player, placeId)]
+
+    /** Places where [player] has a non-empty mailbox. */
+    fun mailboxPlaces(player: String): List<String> {
+        val prefix = "${player.lowercase()}|"
+        return mailboxes.entries.filter { it.key.startsWith(prefix) && !it.value.isEmpty }.map { it.key.removePrefix(prefix) }
+    }
+
+    fun addParcel(parcel: Parcel) {
+        parcels.add(parcel)
+        setDirty()
+    }
+
+    fun parcelsFor(player: String): List<Parcel> {
+        val key = player.lowercase()
+        return parcels.filter { it.recipient == key }
+    }
+
+    // ---- accounts and ledger ------------------------------------------------------------------
 
     fun balance(account: String): Long = accounts[normalizeAccount(account)] ?: 0L
 
@@ -74,7 +166,7 @@ class Network : SavedData() {
         setDirty()
     }
 
-    // ---- persistence ------------------------------------------------------------------------
+    // ---- persistence --------------------------------------------------------------------------
 
     override fun save(tag: CompoundTag, registries: HolderLookup.Provider): CompoundTag {
         tag.put("Places", ListTag().also { list -> places.values.forEach { list.add(it.toTag()) } })
@@ -98,6 +190,22 @@ class Network : SavedData() {
 
         tag.put("Accounts", CompoundTag().also { accounts.forEach { (id, bal) -> it.putLong(id, bal) } })
         tag.put("Ledger", ListTag().also { list -> ledger.forEach { list.add(it.toTag()) } })
+
+        tag.putBoolean("PostalUnlocked", postalUnlocked)
+        tag.putLong("LastDeliveryDay", lastDeliveryDay)
+        tag.put("Homes", CompoundTag().also { homes.forEach { (p, place) -> it.putString(p, place) } })
+        tag.put("KnownPlayers", CompoundTag().also { knownPlayers.forEach { (k, v) -> it.putString(k, v) } })
+        tag.put("Mailboxes", ListTag().also { list ->
+            mailboxes.forEach { (key, container) ->
+                if (!container.isEmpty) {
+                    val entry = CompoundTag()
+                    entry.putString("Key", key)
+                    ContainerHelper.saveAllItems(entry, container.items, registries)
+                    list.add(entry)
+                }
+            }
+        })
+        tag.put("Parcels", ListTag().also { list -> parcels.forEach { if (it.items.isNotEmpty()) list.add(it.toTag(registries)) } })
         return tag
     }
 
@@ -111,7 +219,7 @@ class Network : SavedData() {
         }
         tag.getList("Storage", Tag.TAG_COMPOUND.toInt()).forEach { t ->
             val c = t as CompoundTag
-            val container = TownContainer(this)
+            val container = TownContainer(this, TownContainer.TOWN_SIZE)
             ContainerHelper.loadAllItems(c, container.items, registries)
             storage[c.getString("Place")] = container
         }
@@ -123,6 +231,22 @@ class Network : SavedData() {
         }
         tag.getList("Ledger", Tag.TAG_COMPOUND.toInt()).forEach { t ->
             ledger.addLast(LedgerEntry.fromTag(t as CompoundTag))
+        }
+
+        postalUnlocked = tag.getBoolean("PostalUnlocked")
+        lastDeliveryDay = if (tag.contains("LastDeliveryDay")) tag.getLong("LastDeliveryDay") else -1L
+        val homesTag = tag.getCompound("Homes")
+        homesTag.allKeys.forEach { homes[it] = homesTag.getString(it) }
+        val knownTag = tag.getCompound("KnownPlayers")
+        knownTag.allKeys.forEach { knownPlayers[it] = knownTag.getString(it) }
+        tag.getList("Mailboxes", Tag.TAG_COMPOUND.toInt()).forEach { t ->
+            val c = t as CompoundTag
+            val container = TownContainer(this, TownContainer.MAILBOX_SIZE)
+            ContainerHelper.loadAllItems(c, container.items, registries)
+            mailboxes[c.getString("Key")] = container
+        }
+        tag.getList("Parcels", Tag.TAG_COMPOUND.toInt()).forEach { t ->
+            Parcel.fromTag(t as CompoundTag, registries)?.let { if (it.items.isNotEmpty()) parcels.add(it) }
         }
     }
 
@@ -138,6 +262,8 @@ class Network : SavedData() {
         fun depotKey(dimension: ResourceKey<Level>, pos: BlockPos): String =
             "${dimension.location()}|${pos.asLong()}"
 
+        fun mailboxKey(player: String, placeId: String): String = "${player.lowercase()}|$placeId"
+
         val FACTORY: Factory<Network> = Factory(
             Supplier { Network() },
             BiFunction { tag, registries -> Network().also { it.load(tag, registries) } },
@@ -149,15 +275,16 @@ class Network : SavedData() {
     }
 }
 
-/** Town storage; marks the network dirty on every change so it is saved with the world. */
-class TownContainer(private val network: Network) : SimpleContainer(SIZE) {
+/** A container owned by the network; marks it dirty on every change so it is saved with the world. */
+class TownContainer(private val network: Network, size: Int) : SimpleContainer(size) {
     override fun setChanged() {
         super.setChanged()
         network.setDirty()
     }
 
     companion object {
-        const val SIZE = 54
+        const val TOWN_SIZE = 54
+        const val MAILBOX_SIZE = 27
     }
 }
 

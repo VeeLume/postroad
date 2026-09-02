@@ -47,6 +47,8 @@ object PostroadConfig {
     private val LEDGER_MAX_ENTRIES: ModConfigSpec.IntValue
     private val COURIER_POST_WEIGHT: ModConfigSpec.IntValue
     private val TARGET_POOLS: ModConfigSpec.ConfigValue<List<out String>>
+    private val VALUABLES_BASE_DAYS: ModConfigSpec.IntValue
+    private val VALUABLES_BLOCKS_PER_DAY: ModConfigSpec.IntValue
 
     val SPEC: ModConfigSpec
 
@@ -73,6 +75,15 @@ object PostroadConfig {
             .defineListAllowEmpty("targetPools", DEFAULT_TARGET_POOLS) { it is String } as ModConfigSpec.ConfigValue<List<out String>>
         BUILDER.pop()
 
+        BUILDER.push("mail")
+        VALUABLES_BASE_DAYS = BUILDER
+            .comment("In-game days a parcel with unstackables takes before the distance term.")
+            .defineInRange("valuablesBaseDays", 1, 0, 100)
+        VALUABLES_BLOCKS_PER_DAY = BUILDER
+            .comment("Blocks of distance between two towns per extra day for parcels with unstackables.")
+            .defineInRange("valuablesBlocksPerDay", 1000, 1, 100000)
+        BUILDER.pop()
+
         SPEC = BUILDER.build()
     }
 
@@ -80,4 +91,6 @@ object PostroadConfig {
     val ledgerMaxEntries: Int get() = LEDGER_MAX_ENTRIES.get()
     val courierPostWeight: Int get() = COURIER_POST_WEIGHT.get()
     val targetPools: List<String> get() = TARGET_POOLS.get().toList()
+    val valuablesBaseDays: Long get() = VALUABLES_BASE_DAYS.get().toLong()
+    val valuablesBlocksPerDay: Double get() = VALUABLES_BLOCKS_PER_DAY.get().toDouble()
 }

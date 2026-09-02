@@ -3,6 +3,8 @@ package io.github.veelume.postroad.gametest
 import io.github.veelume.postroad.Postroad
 import io.github.veelume.postroad.depot.DepotBlockEntity
 import io.github.veelume.postroad.loot.FreshLoot
+import io.github.veelume.postroad.mail.MailService
+import io.github.veelume.postroad.network.Parcel
 import io.github.veelume.postroad.names.Culture
 import io.github.veelume.postroad.names.NameGenerator
 import io.github.veelume.postroad.network.LedgerEntry
@@ -164,6 +166,116 @@ class PostroadGameTests {
             helper.assertTrue(network.isDirty, "network not marked dirty after storage change")
             helper.succeed()
         }
+    }
+
+    /** Two founded places a few blocks apart, registered and returned by id. */
+    private fun twoTowns(helper: GameTestHelper, then: (String, String) -> Unit) {
+        val a = BlockPos(1, 1, 1)
+        val b = BlockPos(5, 1, 5)
+        helper.setBlock(a, PostroadBlocks.DEPOT.get())
+        helper.setBlock(b, PostroadBlocks.DEPOT.get())
+        helper.runAfterDelay(5) {
+            val idA = helper.getBlockEntity<DepotBlockEntity>(a).placeId ?: return@runAfterDelay helper.fail("depot A not registered")
+            val idB = helper.getBlockEntity<DepotBlockEntity>(b).placeId ?: return@runAfterDelay helper.fail("depot B not registered")
+            then(idA, idB)
+        }
+    }
+
+    @GameTest(template = ARENA)
+    fun charter_unlocks_the_network_once(helper: GameTestHelper) {
+        helper.setBlock(depotPos, PostroadBlocks.DEPOT.get())
+        val player = sneakingPlayer(helper)
+        helper.runAfterDelay(5) {
+            val network = Network.get(helper.level.server)
+            network.postalUnlocked = false
+            player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack(PostroadItems.POSTAL_CHARTER.get()))
+            helper.useBlock(depotPos, player)
+            helper.assertTrue(network.postalUnlocked, "charter did not unlock the network")
+            helper.assertTrue(player.mainHandItem.isEmpty, "charter was not consumed")
+            helper.assertValueEqual(network.ledger.last().op, LedgerEntry.OP_CHARTER, "ledger op")
+
+            player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack(PostroadItems.POSTAL_CHARTER.get()))
+            helper.useBlock(depotPos, player)
+            helper.assertTrue(!player.mainHandItem.isEmpty, "second charter must not be consumed")
+            helper.succeed()
+        }
+    }
+
+    @GameTest(template = ARENA)
+    fun mixed_outbox_splits_into_bulk_and_valuables(helper: GameTestHelper) {
+        twoTowns(helper) { a, b ->
+            val server = helper.level.server
+            val network = Network.get(server)
+            network.postalUnlocked = true
+            val today = FreshLoot.dayOf(helper.level)
+            val recipient = "mail-test-recipient"
+            val outbox = listOf(ItemStack(Items.COBBLESTONE, 40), ItemStack(Items.IRON_SWORD))
+
+            val parcels = MailService.send(server, "mail-test-sender", recipient, a, b, outbox)
+            helper.assertValueEqual(parcels.size, 2, "parcels created")
+            val valuables = parcels.first { it.lane == Parcel.LANE_VALUABLES }
+            val expectedDays = MailService.valuablesDays(network.distanceBetween(a, b))
+            helper.assertValueEqual(valuables.arrivalDay, today + expectedDays, "valuables arrival day")
+
+            // Bulk is delivered on send; the sword is still in transit.
+            val box = network.mailbox(recipient, b)
+            helper.assertValueEqual(box.countItem(Items.COBBLESTONE), 40, "cobblestone delivered at once")
+            helper.assertValueEqual(box.countItem(Items.IRON_SWORD), 0, "sword must not be delivered yet")
+            helper.assertTrue(network.parcelsFor(recipient).any { it.lane == Parcel.LANE_VALUABLES }, "valuables parcel in transit")
+
+            MailService.deliverDue(server, today + expectedDays)
+            helper.assertValueEqual(box.countItem(Items.IRON_SWORD), 1, "sword delivered on its day")
+            helper.assertTrue(network.parcelsFor(recipient).isEmpty(), "no parcels left")
+            helper.succeed()
+        }
+    }
+
+    @GameTest(template = ARENA)
+    fun full_mailbox_holds_the_parcel_until_space(helper: GameTestHelper) {
+        twoTowns(helper) { a, b ->
+            val server = helper.level.server
+            val network = Network.get(server)
+            network.postalUnlocked = true
+            val recipient = "mail-test-hoarder"
+            val box = network.mailbox(recipient, b)
+            for (slot in 0 until box.containerSize) box.setItem(slot, ItemStack(Items.STONE_SWORD))
+
+            MailService.send(server, "mail-test-sender", recipient, a, b, listOf(ItemStack(Items.COBBLESTONE, 5)))
+            val held = network.parcelsFor(recipient)
+            helper.assertValueEqual(held.size, 1, "parcel held while mailbox is full")
+
+            box.setItem(0, ItemStack.EMPTY)
+            MailService.deliverDue(server, FreshLoot.dayOf(helper.level))
+            helper.assertValueEqual(box.countItem(Items.COBBLESTONE), 5, "delivered after space freed")
+            helper.assertTrue(network.parcelsFor(recipient).isEmpty(), "held parcel cleared")
+            helper.succeed()
+        }
+    }
+
+    @GameTest(template = ARENA)
+    fun home_town_is_the_default_destination(helper: GameTestHelper) {
+        twoTowns(helper) { a, b ->
+            val network = Network.get(helper.level.server)
+            val who = "mail-test-homebody"
+            helper.assertValueEqual(MailService.defaultDestination(network, who, a), a, "no home: current town")
+            network.setHome(who, b)
+            helper.assertValueEqual(MailService.defaultDestination(network, who, a), b, "home town wins")
+            helper.assertValueEqual(network.homeOf(who.uppercase())?.id, b, "home lookup is case-insensitive")
+            helper.succeed()
+        }
+    }
+
+    @GameTest(template = ARENA)
+    fun remote_unstackable_rule(helper: GameTestHelper) {
+        val network = Network.get(helper.level.server)
+        helper.assertTrue(network.mayMoveRemotely(ItemStack(Items.COBBLESTONE, 3)), "stackables move remotely")
+        helper.assertTrue(!network.mayMoveRemotely(ItemStack(Items.IRON_SWORD)), "unstackables stay put")
+        network.postalUnlocked = false
+        helper.assertTrue(network.mayAccessPage("x", "x"), "own page always accessible")
+        helper.assertTrue(!network.mayAccessPage("x", "y"), "remote page locked before the charter")
+        network.postalUnlocked = true
+        helper.assertTrue(network.mayAccessPage("x", "y"), "remote page open after the charter")
+        helper.succeed()
     }
 
     @GameTest(template = ARENA)

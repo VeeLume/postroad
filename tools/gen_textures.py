@@ -58,7 +58,20 @@ def depot_front():
     im.save(ROOT / "block/depot_front.png")
 
 
+def charter():
+    im = img()
+    d = ImageDraw.Draw(im)
+    # rolled parchment with a wax seal
+    d.rectangle((2, 1, 12, 14), fill=(232, 214, 168, 255), outline=(150, 120, 70, 255))
+    for y in (4, 6, 8):
+        d.line((4, y, 10, y), fill=(120, 95, 60, 255))
+    d.ellipse((8, 9, 13, 14), fill=(170, 40, 40, 255), outline=(110, 20, 20, 255))
+    d.point((10, 11), fill=(220, 90, 90, 255))
+    im.save(ROOT / "item/postal_charter.png")
+
+
 coin()
+charter()
 depot_side()
 depot_top()
 depot_front()

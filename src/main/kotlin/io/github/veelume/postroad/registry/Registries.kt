@@ -14,6 +14,7 @@ import net.minecraft.world.item.BlockItem
 import net.minecraft.world.item.CreativeModeTab
 import net.minecraft.world.item.Item
 import net.minecraft.world.item.ItemStack
+import net.minecraft.world.item.Rarity
 import net.minecraft.world.level.block.SoundType
 import net.minecraft.world.level.block.entity.BlockEntityType
 import net.minecraft.world.level.block.state.BlockBehaviour
@@ -45,6 +46,10 @@ object PostroadItems {
     val COIN: DeferredItem<Item> = REGISTER.registerSimpleItem("coin", Item.Properties())
 
     val DEPOT: DeferredItem<BlockItem> = REGISTER.registerSimpleBlockItem(PostroadBlocks.DEPOT)
+
+    /** Unlocks the postal network for the whole group when used on a depot. Quest reward, no recipe. */
+    val POSTAL_CHARTER: DeferredItem<Item> =
+        REGISTER.registerSimpleItem("postal_charter", Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON))
 }
 
 object PostroadBlockEntities {
@@ -80,6 +85,7 @@ object PostroadCreativeTabs {
                 .displayItems { _, output ->
                     output.accept(PostroadItems.COIN.get())
                     output.accept(PostroadItems.DEPOT.get())
+                    output.accept(PostroadItems.POSTAL_CHARTER.get())
                 }
                 .build()
         },

@@ -1,13 +1,16 @@
 package io.github.veelume.postroad.depot
 
+import io.github.veelume.postroad.advancement.PostroadAdvancements
 import io.github.veelume.postroad.loot.FreshLoot
 import io.github.veelume.postroad.network.LedgerEntry
 import io.github.veelume.postroad.network.Network
+import io.github.veelume.postroad.network.Place
 import io.github.veelume.postroad.registry.PostroadDataMaps
 import io.github.veelume.postroad.registry.PostroadItems
 import net.minecraft.ChatFormatting
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.InteractionResult
 import net.minecraft.world.ItemInteractionResult
 import net.minecraft.world.SimpleMenuProvider
@@ -18,27 +21,42 @@ import net.minecraft.world.item.ItemStack
 /** Server-side behaviour behind the depot block's clicks. */
 object DepotInteraction {
 
+    /** Everything a depot click has in common: the player is now known, and has used a depot. */
+    private fun touch(level: ServerLevel, player: Player): Network {
+        val network = Network.get(level.server)
+        network.seenPlayer(player.gameProfile.name)
+        (player as? ServerPlayer)?.let { PostroadAdvancements.award(it, PostroadAdvancements.DEPOT_USED) }
+        return network
+    }
+
+    private fun unregistered(player: Player) {
+        player.displayClientMessage(Component.translatable("message.postroad.depot.unregistered"), true)
+    }
+
     fun openStorage(level: ServerLevel, depot: DepotBlockEntity, player: Player): InteractionResult {
-        val place = depot.place(level) ?: run {
-            player.displayClientMessage(Component.translatable("message.postroad.depot.unregistered"), true)
-            return InteractionResult.CONSUME
-        }
-        val container = Network.get(level.server).storageFor(place.id)
+        val place = depot.place(level) ?: run { unregistered(player); return InteractionResult.CONSUME }
+        val network = touch(level, player)
+        val container = network.storageFor(place.id)
         val title = Component.translatable("container.postroad.depot", place.name)
         player.openMenu(SimpleMenuProvider({ id, inventory, _ -> ChestMenu.sixRows(id, inventory, container) }, title))
         return InteractionResult.CONSUME
     }
 
     fun showSummary(level: ServerLevel, depot: DepotBlockEntity, player: Player): InteractionResult {
-        val place = depot.place(level) ?: run {
-            player.displayClientMessage(Component.translatable("message.postroad.depot.unregistered"), true)
-            return InteractionResult.CONSUME
-        }
-        val network = Network.get(level.server)
+        val place = depot.place(level) ?: run { unregistered(player); return InteractionResult.CONSUME }
+        val network = touch(level, player)
         val wallet = network.balance(Network.playerAccount(player.gameProfile.name))
         val fund = network.balance(Network.ROAD_FUND)
         player.displayClientMessage(
             Component.translatable("message.postroad.depot.summary", place.name, wallet, fund).withStyle(ChatFormatting.GOLD),
+            false,
+        )
+        val home = network.homeOf(player.gameProfile.name)
+        player.displayClientMessage(
+            Component.translatable(
+                if (network.postalUnlocked) "message.postroad.depot.network_on" else "message.postroad.depot.network_off",
+                home?.name ?: Component.translatable("message.postroad.depot.no_home"),
+            ).withStyle(ChatFormatting.GRAY),
             false,
         )
         network.ledger.takeLast(5).forEach { player.displayClientMessage(describe(it), false) }
@@ -47,14 +65,15 @@ object DepotInteraction {
 
     fun useItem(level: ServerLevel, depot: DepotBlockEntity, player: Player, stack: ItemStack): ItemInteractionResult {
         if (stack.isEmpty) return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION
-        val place = depot.place(level) ?: run {
-            player.displayClientMessage(Component.translatable("message.postroad.depot.unregistered"), true)
-            return ItemInteractionResult.CONSUME
-        }
-        val network = Network.get(level.server)
+        val place = depot.place(level) ?: run { unregistered(player); return ItemInteractionResult.CONSUME }
+        val network = touch(level, player)
         val day = FreshLoot.dayOf(level)
         val actor = player.gameProfile.name
         val account = Network.playerAccount(actor)
+
+        if (stack.`is`(PostroadItems.POSTAL_CHARTER.get())) {
+            return applyCharter(network, place, player, stack, day)
+        }
 
         if (stack.`is`(PostroadItems.COIN.get())) {
             val amount = stack.count.toLong()
@@ -87,13 +106,33 @@ object DepotInteraction {
         val count = stack.count
         val amount = rate.toLong() * count
         val itemId = stack.itemHolder.registeredName
+        val name = stack.hoverName
         stack.shrink(count)
         if (amount > 0) {
             network.credit(account, amount, day, actor, LedgerEntry.OP_BUYBACK, "$count×$itemId @ ${place.name}")
         }
         player.displayClientMessage(
-            Component.translatable("message.postroad.depot.bought", count, stack.hoverName, amount, network.balance(account)),
+            Component.translatable("message.postroad.depot.bought", count, name, amount, network.balance(account)),
             true,
+        )
+        return ItemInteractionResult.CONSUME
+    }
+
+    private fun applyCharter(network: Network, place: Place, player: Player, stack: ItemStack, day: Long): ItemInteractionResult {
+        if (network.postalUnlocked) {
+            player.displayClientMessage(
+                Component.translatable("message.postroad.charter.already").withStyle(ChatFormatting.YELLOW),
+                false,
+            )
+            return ItemInteractionResult.CONSUME
+        }
+        stack.shrink(1)
+        network.postalUnlocked = true
+        network.record(LedgerEntry(day, player.gameProfile.name, LedgerEntry.OP_CHARTER, 0, "network", place.name))
+        (player as? ServerPlayer)?.let { PostroadAdvancements.award(it, PostroadAdvancements.POSTAL_NETWORK) }
+        player.server?.playerList?.broadcastSystemMessage(
+            Component.translatable("message.postroad.charter.unlocked", player.gameProfile.name, place.name).withStyle(ChatFormatting.GOLD),
+            false,
         )
         return ItemInteractionResult.CONSUME
     }

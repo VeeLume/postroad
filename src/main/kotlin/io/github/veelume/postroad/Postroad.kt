@@ -3,6 +3,7 @@ package io.github.veelume.postroad
 import io.github.veelume.postroad.command.PostroadCommands
 import io.github.veelume.postroad.depot.DepotEvents
 import io.github.veelume.postroad.loot.FreshLootTooltip
+import io.github.veelume.postroad.mail.MailService
 import io.github.veelume.postroad.names.CultureRegistry
 import io.github.veelume.postroad.registry.PostroadBlockEntities
 import io.github.veelume.postroad.registry.PostroadBlocks
@@ -21,6 +22,8 @@ import net.neoforged.fml.loading.FMLEnvironment
 import net.neoforged.neoforge.event.AddReloadListenerEvent
 import net.neoforged.neoforge.event.RegisterCommandsEvent
 import net.neoforged.neoforge.event.server.ServerAboutToStartEvent
+import net.neoforged.neoforge.event.server.ServerStartedEvent
+import net.neoforged.neoforge.event.tick.ServerTickEvent
 import net.neoforged.neoforge.registries.datamaps.RegisterDataMapTypesEvent
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
@@ -56,6 +59,8 @@ object Postroad {
         FORGE_BUS.addListener(RegisterCommandsEvent::class.java, Consumer(PostroadCommands::register))
         FORGE_BUS.addListener(ServerAboutToStartEvent::class.java, Consumer(CourierPostInjector::onServerAboutToStart))
         DepotEvents.register()
+        FORGE_BUS.addListener(ServerStartedEvent::class.java, Consumer(MailService::onServerStarted))
+        FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(MailService::onServerTick))
 
         if (FMLEnvironment.dist == Dist.CLIENT) {
             FreshLootTooltip.register()
