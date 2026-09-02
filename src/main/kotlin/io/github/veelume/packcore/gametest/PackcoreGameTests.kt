@@ -97,7 +97,7 @@ class PackcoreGameTests {
             val fresh = ItemStack(Items.EMERALD, 3).also { FreshLoot.stamp(it, FreshLoot.ORIGIN_CONTAINER, today) }
             player.setItemInHand(InteractionHand.MAIN_HAND, fresh)
             helper.useBlock(depotPos, player)
-            helper.assertValueEqual(network.balance(account), before + 12L, "3 fresh emeralds at 4 coins")
+            helper.assertValueEqual(network.balance(account), before + 24L, "3 fresh emeralds at 8 coins")
             helper.assertTrue(player.mainHandItem.isEmpty, "fresh loot was not consumed")
             helper.assertValueEqual(network.ledger.last().op, LedgerEntry.OP_BUYBACK, "ledger op")
             helper.succeed()

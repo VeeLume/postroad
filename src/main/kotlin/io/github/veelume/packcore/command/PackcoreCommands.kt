@@ -10,6 +10,7 @@ import io.github.veelume.packcore.network.LedgerEntry
 import io.github.veelume.packcore.network.Network
 import io.github.veelume.packcore.registry.PackcoreDataMaps
 import net.minecraft.commands.CommandSourceStack
+import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.commands.Commands
 import net.minecraft.network.chat.Component
 import net.neoforged.neoforge.event.RegisterCommandsEvent
@@ -25,6 +26,7 @@ object PackcoreCommands {
             Commands.literal("packcore")
                 .then(Commands.literal("places").executes { places(it) })
                 .then(Commands.literal("inspect").executes { inspect(it) })
+                .then(Commands.literal("rates").executes { rates(it) })
                 .then(
                     Commands.literal("balance")
                         .executes { balance(it, it.source.playerOrException.gameProfile.name) }
@@ -77,6 +79,23 @@ object PackcoreCommands {
             }, false)
         }
         return network.places.size
+    }
+
+    /** Every item the depot buys, cheapest first. Literal text: it is data, and it must not depend on client lang files. */
+    private fun rates(ctx: CommandContext<CommandSourceStack>): Int {
+        val map = BuiltInRegistries.ITEM.getDataMap(PackcoreDataMaps.BUYBACK)
+        if (map.isEmpty()) {
+            ctx.source.sendSuccess({ Component.literal("The depot buys nothing (buyback data map is empty).") }, false)
+            return 0
+        }
+        val lines = map.entries
+            .sortedWith(compareBy({ it.value }, { it.key.location().toString() }))
+            .map { (key, coins) -> "$coins × ${key.location()}" }
+        ctx.source.sendSuccess({ Component.literal("Depot buys ${lines.size} items (coins per unit, fresh loot only):") }, false)
+        lines.chunked(6).forEach { chunk ->
+            ctx.source.sendSuccess({ Component.literal(chunk.joinToString("  ·  ")) }, false)
+        }
+        return lines.size
     }
 
     /** What the depot would make of the item in the main hand. */

@@ -21,7 +21,8 @@ In:
 - **Fresh loot** — a data component stamped on items generated from container
   loot and mob drops; it expires ("settles") after a configurable number of
   in-game days.
-- **Commands** — `/packcore places|balance|ledger|pay` for testing and admin.
+- **Commands** — `/packcore places|balance|ledger|inspect|rates` for everyone,
+  `/packcore grant` for ops (testing only).
 
 Out (later increments): postal network, mailboxes, delivery lanes, signs,
 teleport, roads, advancements, custom screens.
@@ -108,6 +109,14 @@ world are resolved by appending a distinguishing suffix from the culture's
   (vanilla would otherwise hand the click to the item, never the block).
 - There is no withdrawal. Balances only ever decrease through fares and road
   works in later increments.
+- **What the table covers.** The freshness stamp already restricts selling to
+  loot, so the table's job is to say which loot is *treasure*. It lists the
+  valuables that the pack's container tables actually roll (ores, gems,
+  potions, tools, keys, discs, templates, horse armour, netherite) with a
+  scale where a diamond beats a stack of iron. Food and farmables (bread,
+  wheat, potatoes, apples) and junk (arrows, string, bones, rotten flesh) are
+  deliberately absent: a village barrel is a snack, not an income.
+  `/packcore rates` prints the live table.
 
 ## Courier post
 
