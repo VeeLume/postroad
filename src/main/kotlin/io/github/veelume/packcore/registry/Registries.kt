@@ -87,9 +87,11 @@ object PackcoreCreativeTabs {
 }
 
 object PackcoreDataMaps {
-    /** Coins the depot pays per unit of a fresh-loot item. Data: `data/<ns>/data_maps/item/buyback.json`. */
+    /** Coins the depot pays per unit of a fresh-loot item. Synced to clients for tooltips. Data: `data/<ns>/data_maps/item/buyback.json`. */
     val BUYBACK: DataMapType<Item, Int> =
-        DataMapType.builder(Packcore.id("buyback"), Registries.ITEM, Codec.intRange(0, Int.MAX_VALUE)).build()
+        DataMapType.builder(Packcore.id("buyback"), Registries.ITEM, Codec.intRange(0, Int.MAX_VALUE))
+            .synced(Codec.intRange(0, Int.MAX_VALUE), false)
+            .build()
 
     fun register(event: RegisterDataMapTypesEvent) {
         event.register(BUYBACK)

@@ -2,10 +2,8 @@
   "itemGroup.packcore": "Packcore",
   "block.packcore.depot": "Courier Depot",
   "item.packcore.coin": "Coin",
-
   "container.packcore.depot": "%s — Town Storage",
   "tooltip.packcore.fresh_loot": "Fresh loot · settles in %s day(s)",
-
   "message.packcore.depot.unregistered": "This depot has not found its town yet.",
   "message.packcore.depot.summary": "%s — your wallet: %s coins · road fund: %s coins",
   "message.packcore.depot.paid_in": "Paid in %s coins. Wallet: %s",
@@ -14,7 +12,6 @@
   "message.packcore.depot.settled": "%s has settled into your kit; it is no longer fresh loot.",
   "message.packcore.depot.bought": "Sold %s × %s for %s coins. Wallet: %s",
   "message.packcore.ledger.entry": "day %s · %s · %s · %s coins → %s · %s",
-
   "command.packcore.inspect.empty": "Hold the item you want to inspect.",
   "command.packcore.inspect": "%s × %s — %s · %s",
   "command.packcore.inspect.unmarked": "no fresh-loot stamp (crafted, traded or given)",
@@ -27,5 +24,7 @@
   "command.packcore.places.entry": "%s [%s, %s] at %s %s %s in %s",
   "command.packcore.balance": "%s — wallet: %s coins · road fund: %s coins",
   "command.packcore.ledger.none": "The ledger is empty.",
-  "command.packcore.grant": "Granted %s coins to %s (now %s)"
+  "command.packcore.grant": "Granted %s coins to %s (now %s)",
+  "tooltip.packcore.buyback": "Depot pays %s coins each (%s for the stack)",
+  "tooltip.packcore.buyback_if_fresh": "Depot pays %s coins each for fresh loot"
 }

@@ -92,7 +92,10 @@ world are resolved by appending a distinguishing suffix from the culture's
 - An item is fresh while `currentDay - day < settleDays` (config, default 3).
   Nothing removes the component; it simply stops counting. Increment 2 reads
   the same predicate for the valuables lane.
-- Tooltip line while fresh: "Fresh loot · settles in N days".
+- Tooltip line while fresh: "Fresh loot · settles in N days". Items the depot
+  buys also show the rate ("Depot pays N coins each"), gold while fresh, grey
+  otherwise — the buyback data map is synced to clients for this, so nobody
+  has to test items at a depot.
 
 ## Coins and the ledger
 
