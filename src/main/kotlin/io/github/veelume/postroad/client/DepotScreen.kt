@@ -49,7 +49,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         }
         prevPage = addRenderableWidget(Button.builder(Component.literal("<"), action(DepotMenu.ACTION_PAGE, -1)).bounds(leftPos + imageWidth - 34, topPos + 4, 12, 12).build())
         nextPage = addRenderableWidget(Button.builder(Component.literal(">"), action(DepotMenu.ACTION_PAGE, 1)).bounds(leftPos + imageWidth - 20, topPos + 4, 12, 12).build())
-        homeButton = addRenderableWidget(Button.builder(Component.translatable("screen.postroad.depot.set_home"), action(DepotMenu.ACTION_SET_HOME)).bounds(leftPos + imageWidth - 62, topPos + 4, 54, 12).build())
+        homeButton = addRenderableWidget(Button.builder(Component.translatable("screen.postroad.depot.set_home"), action(DepotMenu.ACTION_SET_HOME)).bounds(leftPos + imageWidth - 70, topPos + 4, 32, 12).build())
 
         destinationPrev = addRenderableWidget(Button.builder(Component.literal("<"), action(DepotMenu.ACTION_DESTINATION, -1)).bounds(leftPos + 34, topPos + SEND_ROW, 12, 14).build())
         destinationNext = addRenderableWidget(Button.builder(Component.literal(">"), action(DepotMenu.ACTION_DESTINATION, 1)).bounds(leftPos + imageWidth - 20, topPos + SEND_ROW, 12, 14).build())
@@ -66,14 +66,13 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         val tab = menu.tab
         tabButtons.forEachIndexed { i, button ->
             val t = DepotMenu.Tab.entries[i]
-            button.active = i != tab.ordinal && (menu.unlocked || t == DepotMenu.Tab.TOWN)
+            button.active = i != tab.ordinal && (menu.unlocked || t == DepotMenu.Tab.STORAGE)
         }
-        val network = tab == DepotMenu.Tab.NETWORK
-        prevPage.visible = network
-        nextPage.visible = network
-        prevPage.active = menu.pageCount > 1
-        nextPage.active = menu.pageCount > 1
-        homeButton.visible = tab == DepotMenu.Tab.TOWN
+        val storage = tab == DepotMenu.Tab.STORAGE
+        val paged = storage && menu.unlocked && menu.pageCount > 1
+        prevPage.visible = paged
+        nextPage.visible = paged
+        homeButton.visible = storage && !menu.isRemotePage()
         homeButton.active = menu.state.homeName != menu.state.townName
         val send = tab == DepotMenu.Tab.SEND
         destinationPrev.visible = send
@@ -104,8 +103,14 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
     override fun renderLabels(graphics: GuiGraphics, mouseX: Int, mouseY: Int) {
         val state = menu.state
         val header: Component = when (menu.tab) {
-            DepotMenu.Tab.TOWN -> Component.translatable("screen.postroad.depot.title.town", state.townName)
-            DepotMenu.Tab.NETWORK -> Component.translatable("screen.postroad.depot.title.network", state.pageNames.getOrElse(menu.page) { "?" }, menu.page + 1, menu.pageCount)
+            DepotMenu.Tab.STORAGE -> {
+                val name = state.pageNames.getOrElse(menu.page) { state.townName }
+                when {
+                    !menu.unlocked || menu.pageCount <= 1 -> Component.literal(name)
+                    menu.isRemotePage() -> Component.translatable("screen.postroad.depot.title.page", name, menu.page + 1, menu.pageCount)
+                    else -> Component.translatable("screen.postroad.depot.title.page_here", name, menu.page + 1, menu.pageCount)
+                }
+            }
             DepotMenu.Tab.SEND -> Component.translatable("screen.postroad.depot.title.send", state.townName)
         }
         graphics.drawString(font, header, titleLabelX, titleLabelY, TEXT, false)

@@ -51,13 +51,9 @@
   "advancement.postroad.postal_network.description": "Charter the postal network.",
   "advancement.postroad.parcel_sent.title": "Return to Sender",
   "advancement.postroad.parcel_sent.description": "Send a parcel to another town.",
-  "screen.postroad.depot.tab.town": "Town",
-  "screen.postroad.depot.tab.network": "Network",
   "screen.postroad.depot.tab.send": "Send",
-  "screen.postroad.depot.title.town": "%s",
-  "screen.postroad.depot.title.network": "%s (%s/%s)",
   "screen.postroad.depot.title.send": "Send from %s",
-  "screen.postroad.depot.set_home": "Set home",
+  "screen.postroad.depot.set_home": "Home",
   "screen.postroad.depot.send": "Send",
   "screen.postroad.depot.to": "To",
   "screen.postroad.depot.locked": "Unstackables can only be taken at %s.",
@@ -69,5 +65,8 @@
   "block.postroad.mailbox": "Mailbox",
   "message.postroad.mailbox.placed": "Mailbox set up: %s is now a parcel destination.",
   "advancement.postroad.mailbox_placed.title": "Home Delivery",
-  "advancement.postroad.mailbox_placed.description": "Set up a mailbox at your base."
+  "advancement.postroad.mailbox_placed.description": "Set up a mailbox at your base.",
+  "screen.postroad.depot.tab.storage": "Storage",
+  "screen.postroad.depot.title.page": "%s (%s/%s)",
+  "screen.postroad.depot.title.page_here": "%s · here (%s/%s)"
 }

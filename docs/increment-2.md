@@ -19,8 +19,8 @@ In:
 - **Parcels** — items sent from a depot to another town; they land in that
   town's storage. Stackables arrive at once; unstackables take days,
   proportional to distance.
-- **Depot screen** — one custom screen with tabs: this town, network storage,
-  send.
+- **Depot screen** — one custom screen with two tabs: storage (this town,
+  paged through the network once chartered) and send.
 
 - **Mailbox block** — an earned block (quest reward, no recipe) a player
   places at their base. It registers "<Player>'s mailbox" as a destination,
@@ -58,8 +58,8 @@ road-quality multipliers on delivery time.
 - Sneak-use on any depot consumes the charter, sets `postalUnlocked` on the
   network, writes a ledger entry (`charter`, actor, town) and grants the
   `postal_network` advancement to the user.
-- Before the unlock a depot shows only its own town's page and the network
-  and send tabs are disabled. Nothing that exists before the
+- Before the unlock a depot shows only its own town's page, without page
+  arrows, and the send tab is disabled. Nothing that exists before the
   unlock changes shape afterwards: a town's storage *is* its page.
 
 ## Data model changes
@@ -89,8 +89,9 @@ Network (existing)
 
 ## Storage semantics
 
-- The network storage tab pages by town, in the order towns were discovered;
-  the current town is the default page.
+- The storage tab pages by town, in the order towns were discovered; the
+  current town is the default page. (Playtest: a separate "this town" tab
+  duplicated the first page and was merged away.)
 - **Remote unstackable rule.** A slot that holds an unstackable in a page
   other than the current town is shown but locked: it cannot be taken, and no
   unstackable can be placed into a remote page. Stackables have no
@@ -131,9 +132,10 @@ Network (existing)
 
 - One `MenuType` opened by the depot with the place id as extra data. Tabs
   are server-side state on the menu so the same menu backs every view.
-- Widgets: tab bar; page selector (previous/next plus the town name) on the
-  network tab; the destination as an arrow selector on the send tab, no
-  free-text entry; a *Set home* button on the this-town tab.
+- Widgets: tab bar; page arrows plus the town name in the title of the
+  storage tab ("Fair Gate · here (1/4)"); the destination as an arrow
+  selector on the send tab, no free-text entry; a *Home* button on the
+  storage tab while it shows the current town.
 - Actions that are not slot clicks (change tab, change page, pick
   destination, send, set home) are payloads registered with NeoForge's
   payload registrar; every one is validated server-side against the menu's

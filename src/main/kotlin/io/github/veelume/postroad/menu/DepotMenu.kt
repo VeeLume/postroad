@@ -25,7 +25,7 @@ import net.neoforged.neoforge.network.PacketDistributor
 
 /**
  * The depot screen's menu. One fixed 6×9 grid whose backing container is swapped per tab:
- * this town's storage, a network page, or the send outbox. Ints (tab, page, …) sync through
+ * a town's storage (paged through the network once chartered) or the send outbox. Ints (tab, page, …) sync through
  * data slots; names through [DepotStatePayload]. The server instance holds the network; the
  * client instance only mirrors.
  */
@@ -38,7 +38,7 @@ class DepotMenu private constructor(
 
     class ServerSide(val level: ServerLevel, val network: Network, val placeId: String)
 
-    enum class Tab(val activeSlots: Int) { TOWN(GRID), NETWORK(GRID), SEND(9) }
+    enum class Tab(val activeSlots: Int) { STORAGE(GRID), SEND(9) }
 
     private val grid = DelegatingContainer(GRID)
     private val outbox = SimpleContainer(9)
@@ -87,14 +87,14 @@ class DepotMenu private constructor(
             currentPageData.set(current)
             pageData.set(current)
             destinationIndex = destinations.indexOf(MailService.defaultDestination(server.network, playerName, server.placeId)).coerceAtLeast(0)
-            applyTab(Tab.TOWN)
+            applyTab(Tab.STORAGE)
         }
     }
 
     // ---- rules shared by both sides -------------------------------------------------------------
 
     /** The remote-unstackable rule, in a form both sides can evaluate. */
-    fun isRemotePage(): Boolean = tab == Tab.NETWORK && page != currentPage
+    fun isRemotePage(): Boolean = tab == Tab.STORAGE && page != currentPage
 
     fun mayMove(stack: ItemStack): Boolean = !isRemotePage() || stack.isEmpty || stack.isStackable
 
@@ -110,12 +110,11 @@ class DepotMenu private constructor(
 
     private fun applyTab(newTab: Tab) {
         val s = server ?: return
-        val effective = if (newTab != Tab.TOWN && !s.network.postalUnlocked) Tab.TOWN else newTab
+        val effective = if (newTab == Tab.SEND && !s.network.postalUnlocked) Tab.STORAGE else newTab
         tabData.set(effective.ordinal)
-        if (effective != Tab.NETWORK) pageData.set(currentPage)
+        if (!s.network.postalUnlocked) pageData.set(currentPage)
         grid.target = when (effective) {
-            Tab.TOWN -> s.network.storageFor(s.placeId)
-            Tab.NETWORK -> s.network.storageFor(pages.getOrElse(page) { s.placeId })
+            Tab.STORAGE -> s.network.storageFor(pages.getOrElse(page) { s.placeId })
             Tab.SEND -> outbox
         }
         sendState()
@@ -145,8 +144,8 @@ class DepotMenu private constructor(
         val s = server ?: return
         val player = playerInventory.player
         when (action) {
-            ACTION_TAB -> applyTab(Tab.entries.getOrElse(value) { Tab.TOWN })
-            ACTION_PAGE -> if (tab == Tab.NETWORK && pages.isNotEmpty()) {
+            ACTION_TAB -> applyTab(Tab.entries.getOrElse(value) { Tab.STORAGE })
+            ACTION_PAGE -> if (tab == Tab.STORAGE && s.network.postalUnlocked && pages.isNotEmpty()) {
                 pageData.set(Math.floorMod(page + value, pages.size))
                 grid.target = s.network.storageFor(pages[page])
                 sendState()
