@@ -4,6 +4,7 @@ import io.github.veelume.postroad.advancement.PostroadAdvancements
 import io.github.veelume.postroad.loot.FreshLoot
 import io.github.veelume.postroad.mail.MailService
 import io.github.veelume.postroad.network.Network
+import io.github.veelume.postroad.network.Parcel
 import io.github.veelume.postroad.registry.PostroadBlocks
 import io.github.veelume.postroad.registry.PostroadMenus
 import net.minecraft.ChatFormatting
@@ -24,9 +25,9 @@ import net.neoforged.neoforge.network.PacketDistributor
 
 /**
  * The depot screen's menu. One fixed 6×9 grid whose backing container is swapped per tab:
- * this town's storage, a network page, the player's mailbox here, or the send outbox.
- * Ints (tab, page, …) sync through data slots; names through [DepotStatePayload].
- * The server instance holds the network; the client instance only mirrors.
+ * this town's storage, a network page, or the send outbox. Ints (tab, page, …) sync through
+ * data slots; names through [DepotStatePayload]. The server instance holds the network; the
+ * client instance only mirrors.
  */
 class DepotMenu private constructor(
     id: Int,
@@ -37,7 +38,7 @@ class DepotMenu private constructor(
 
     class ServerSide(val level: ServerLevel, val network: Network, val placeId: String)
 
-    enum class Tab(val activeSlots: Int) { TOWN(GRID), NETWORK(GRID), MAILBOX(27), SEND(9) }
+    enum class Tab(val activeSlots: Int) { TOWN(GRID), NETWORK(GRID), SEND(9) }
 
     private val grid = DelegatingContainer(GRID)
     private val outbox = SimpleContainer(9)
@@ -53,8 +54,6 @@ class DepotMenu private constructor(
 
     // server-only bookkeeping
     private var pages: List<String> = emptyList()
-    private var recipients: List<String> = emptyList()
-    private var recipientIndex = 0
     private var destinationIndex = 0
 
     val tab: Tab get() = Tab.entries[tabData.get().coerceIn(0, Tab.entries.size - 1)]
@@ -82,12 +81,11 @@ class DepotMenu private constructor(
 
         if (server != null) {
             server.network.seenPlayer(playerName)
-            refreshLists()
+            refreshPages()
             val current = pages.indexOf(server.placeId).coerceAtLeast(0)
             currentPageData.set(current)
             pageData.set(current)
-            recipientIndex = recipients.indexOfFirst { it.equals(playerName, ignoreCase = true) }.coerceAtLeast(0)
-            destinationIndex = defaultDestinationIndex()
+            destinationIndex = pages.indexOf(MailService.defaultDestination(server.network, playerName, server.placeId)).coerceAtLeast(0)
             applyTab(Tab.TOWN)
         }
     }
@@ -101,36 +99,21 @@ class DepotMenu private constructor(
 
     // ---- server side ----------------------------------------------------------------------------
 
-    private fun refreshLists() {
+    private fun refreshPages() {
         val s = server ?: return
         pages = s.network.towns().map { it.id }
         pageCountData.set(pages.size)
         unlockedData.set(if (s.network.postalUnlocked) 1 else 0)
-        val names = LinkedHashMap<String, String>()
-        s.network.knownPlayers.forEach { (k, v) -> names[k] = v }
-        s.level.server.playerList.players.forEach { names[it.gameProfile.name.lowercase()] = it.gameProfile.name }
-        recipients = names.values.sortedBy { it.lowercase() }
-    }
-
-    private fun defaultDestinationIndex(): Int {
-        val s = server ?: return 0
-        val recipient = recipients.getOrNull(recipientIndex) ?: return pages.indexOf(s.placeId).coerceAtLeast(0)
-        return pages.indexOf(MailService.defaultDestination(s.network, recipient, s.placeId)).coerceAtLeast(0)
     }
 
     private fun applyTab(newTab: Tab) {
         val s = server ?: return
-        val effective = when {
-            newTab == Tab.NETWORK && !s.network.postalUnlocked -> Tab.TOWN
-            newTab == Tab.SEND && !s.network.postalUnlocked -> Tab.TOWN
-            else -> newTab
-        }
+        val effective = if (newTab != Tab.TOWN && !s.network.postalUnlocked) Tab.TOWN else newTab
         tabData.set(effective.ordinal)
         if (effective != Tab.NETWORK) pageData.set(currentPage)
         grid.target = when (effective) {
             Tab.TOWN -> s.network.storageFor(s.placeId)
             Tab.NETWORK -> s.network.storageFor(pages.getOrElse(page) { s.placeId })
-            Tab.MAILBOX -> s.network.mailbox(playerName, s.placeId)
             Tab.SEND -> outbox
         }
         sendState()
@@ -139,28 +122,17 @@ class DepotMenu private constructor(
     private fun sendState() {
         val s = server ?: return
         val today = FreshLoot.dayOf(s.level)
-        val lines = ArrayList<String>()
-        for (placeId in s.network.mailboxPlaces(playerName)) {
-            if (placeId == s.placeId) continue
-            val box = s.network.mailbox(playerName, placeId)
-            val stacks = (0 until box.containerSize).count { !box.getItem(it).isEmpty }
-            lines += Component.translatable("command.postroad.mail.waiting", stacks, s.network.places[placeId]?.name ?: placeId).string
-        }
-        for (parcel in s.network.parcelsFor(playerName)) {
+        val lines = s.network.parcelsFor(playerName).map { parcel ->
             val town = s.network.places[parcel.to]?.name ?: parcel.to
-            val from = s.network.knownPlayers[parcel.sender] ?: parcel.sender
             val key = if (parcel.isDue(today)) "command.postroad.mail.held" else "command.postroad.mail.transit"
-            lines += Component.translatable(key, parcel.items.size, from, town, parcel.arrivalDay - today).string
+            Component.translatable(key, parcel.items.size, town, parcel.arrivalDay - today).string
         }
         state = DepotState(
             townName = s.network.places[s.placeId]?.name ?: "",
             pageNames = pages.map { s.network.places[it]?.name ?: it },
-            recipients = recipients,
-            recipientIndex = recipientIndex,
-            destinations = pages.map { s.network.places[it]?.name ?: it },
             destinationIndex = destinationIndex,
             homeName = s.network.homeOf(playerName)?.name ?: "",
-            mailboxLines = lines,
+            transitLines = lines,
         )
         (playerInventory.player as? ServerPlayer)?.let { PacketDistributor.sendToPlayer(it, DepotStatePayload(state)) }
     }
@@ -174,11 +146,6 @@ class DepotMenu private constructor(
             ACTION_PAGE -> if (tab == Tab.NETWORK && pages.isNotEmpty()) {
                 pageData.set(Math.floorMod(page + value, pages.size))
                 grid.target = s.network.storageFor(pages[page])
-                sendState()
-            }
-            ACTION_RECIPIENT -> if (recipients.isNotEmpty()) {
-                recipientIndex = Math.floorMod(recipientIndex + value, recipients.size)
-                destinationIndex = defaultDestinationIndex()
                 sendState()
             }
             ACTION_DESTINATION -> if (pages.isNotEmpty()) {
@@ -202,17 +169,20 @@ class DepotMenu private constructor(
             player.displayClientMessage(Component.translatable("screen.postroad.depot.outbox_empty"), true)
             return
         }
-        val recipient = recipients.getOrNull(recipientIndex) ?: return
         val destination = pages.getOrNull(destinationIndex) ?: return
-        val parcels = MailService.send(s.level.server, playerName, recipient, s.placeId, destination, items)
+        if (destination == s.placeId) {
+            player.displayClientMessage(Component.translatable("screen.postroad.depot.same_town"), true)
+            return
+        }
+        val parcels = MailService.send(s.level.server, playerName, s.placeId, destination, items)
         outbox.clearContent()
         (player as? ServerPlayer)?.let { PostroadAdvancements.award(it, PostroadAdvancements.PARCEL_SENT) }
-        val valuables = parcels.firstOrNull { it.lane == io.github.veelume.postroad.network.Parcel.LANE_VALUABLES }
+        val valuables = parcels.firstOrNull { it.lane == Parcel.LANE_VALUABLES }
         val town = s.network.places[destination]?.name ?: destination
         val message = if (valuables == null) {
-            Component.translatable("screen.postroad.depot.sent_bulk", recipient, town)
+            Component.translatable("screen.postroad.depot.sent_bulk", town)
         } else {
-            Component.translatable("screen.postroad.depot.sent_valuables", recipient, town, valuables.arrivalDay - FreshLoot.dayOf(s.level))
+            Component.translatable("screen.postroad.depot.sent_valuables", town, valuables.arrivalDay - FreshLoot.dayOf(s.level))
         }
         player.displayClientMessage(message.withStyle(ChatFormatting.GOLD), false)
         sendState()
@@ -250,7 +220,6 @@ class DepotMenu private constructor(
 
         const val ACTION_TAB = 0
         const val ACTION_PAGE = 1
-        const val ACTION_RECIPIENT = 2
         const val ACTION_DESTINATION = 3
         const val ACTION_SEND = 4
         const val ACTION_SET_HOME = 5

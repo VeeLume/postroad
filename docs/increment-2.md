@@ -2,7 +2,7 @@
 
 Increment 1 gave every town a depot with its own storage. This increment
 connects the towns: one postal network, storage reachable from any depot,
-parcels addressed to players, and the time rule that makes treasure travel
+parcels between towns, and the time rule that makes treasure travel
 slowly. It also replaces the vanilla chest menu with a real depot screen.
 
 ## Scope
@@ -16,12 +16,17 @@ In:
   stay where they were put.
 - **Home town** — each player picks a home town at a depot; it is the default
   destination for their mail.
-- **Parcels** — items sent from a depot to a player at a town. Stackables
-  arrive at once; unstackables take days, proportional to distance.
-- **Mailboxes** — per player and town, where parcels land. Anyone can open
-  any mailbox, as decided in increment 1.
+- **Parcels** — items sent from a depot to another town; they land in that
+  town's storage. Stackables arrive at once; unstackables take days,
+  proportional to distance.
 - **Depot screen** — one custom screen with tabs: this town, network storage,
-  mailbox, send.
+  send.
+
+> **Revised in playtest (2026-09-02):** the first cut had per-player
+> mailboxes and a recipient selector. In a cooperative group that added a tab
+> and a choice without adding anything: a parcel goes to a *town*, and whoever
+> is there takes it out of the town storage. Mailboxes and recipients are gone;
+> the home town remains as the default destination.
 - **Advancements** — granted by the mod at each milestone so FTB Quests can
   use them as task triggers.
 
@@ -47,8 +52,8 @@ mailbox blocks, road-quality multipliers on delivery time.
 - Sneak-use on any depot consumes the charter, sets `postalUnlocked` on the
   network, writes a ledger entry (`charter`, actor, town) and grants the
   `postal_network` advancement to the user.
-- Before the unlock a depot shows only its own town's page and the mailbox
-  and send tabs are disabled with a hint. Nothing that exists before the
+- Before the unlock a depot shows only its own town's page and the network
+  and send tabs are disabled. Nothing that exists before the
   unlock changes shape afterwards: a town's storage *is* its page.
 
 ## Data model changes
@@ -58,16 +63,14 @@ Network (existing)
 ├── postalUnlocked: Boolean
 ├── homes: Map<player, PlaceId>
 ├── storage: Map<PlaceId, ItemContainer(54)>      // unchanged; now the pages
-├── mailboxes: Map<(player, PlaceId), ItemContainer(27)>
-└── packages: List<Package>
-      Package { id, sender, recipient, from: PlaceId, to: PlaceId,
-                items: List<ItemStack>, sentDay, arrivalDay, lane }
+└── parcels: List<Parcel>
+      Parcel { id, sender, from: PlaceId, to: PlaceId,
+               items: List<ItemStack>, sentDay, arrivalDay, lane }
 ```
 
 - Player keys are lower-cased names, as accounts already are.
-- A mailbox is created on first delivery; empty mailboxes are dropped on save.
-- `packages` holds parcels in transit and parcels that arrived but did not
-  fit into the mailbox (`held`, retried daily).
+- `parcels` holds parcels in transit and parcels that arrived but did not
+  fit into the destination's storage (`held`, retried daily).
 
 ## Storage semantics
 
@@ -83,22 +86,20 @@ Network (existing)
 
 ## Mail flow
 
-1. **Send tab** at any depot. Recipient is chosen from a list (players online
-   plus every player the network has seen), destination from the list of towns
-   with a depot. Destination defaults to the recipient's home town, else the
-   current town. A 9-slot outbox and a Send button.
+1. **Send tab** at any depot: a 9-slot outbox, the destination chosen from
+   the towns with a depot (arrow buttons, no typing), defaulting to the
+   sender's home town, and a Send button. Sending to the current town is
+   refused — that is what the town storage is for.
 2. On Send the outbox is split into two parcels if needed: one with all
    stackables (bulk lane), one with all unstackables (valuables lane). Each
-   gets `arrivalDay` per the timing rule and joins `packages`. Ledger gets no
+   gets `arrivalDay` per the timing rule and joins `parcels`. Ledger gets no
    entry (no coins moved); the log gets one line.
 3. Delivery runs once per in-game day change and on server start: every
-   parcel with `arrivalDay <= today` is moved into the recipient's mailbox at
-   the destination town; what does not fit stays `held`.
-4. **Mailbox tab** shows the mailbox for the current town and, below it, a
-   line per town where the player has parcels waiting or in transit
-   ("2 parcels at Oakstead", "1 parcel arriving in 2 days"). The mailbox is
-   a plain container: take what you want, leave the rest.
-5. The recipient gets a chat line when a parcel is delivered, if online.
+   parcel with `arrivalDay <= today` is moved into the destination town's
+   storage; what does not fit stays `held` and is retried daily.
+4. The Send tab lists the sender's parcels in transit or held, with the
+   destination and days remaining; `/postroad mail` shows the same.
+5. The sender gets a chat line when a valuables parcel lands, if online.
 
 ## Lanes and timing
 
@@ -116,11 +117,10 @@ Network (existing)
 - One `MenuType` opened by the depot with the place id as extra data. Tabs
   are server-side state on the menu so the same menu backs every view.
 - Widgets: tab bar; page selector (previous/next plus the town name) on the
-  network tab; recipient and destination as cycle/dropdown selectors on the
-  send tab, no free-text entry; a *Set as home* button on the this-town tab
-  showing the current home.
-- Actions that are not slot clicks (change tab, change page, pick recipient
-  or destination, send, set home) are payloads registered with NeoForge's
+  network tab; the destination as an arrow selector on the send tab, no
+  free-text entry; a *Set home* button on the this-town tab.
+- Actions that are not slot clicks (change tab, change page, pick
+  destination, send, set home) are payloads registered with NeoForge's
   payload registrar; every one is validated server-side against the menu's
   place and the network state.
 - The vanilla 6-row chest menu from increment 1 goes away.
@@ -133,7 +133,7 @@ Impossible-trigger advancements, hidden, granted through
 - `postroad:depot_used` — first depot interaction.
 - `postroad:home_set` — home town chosen.
 - `postroad:postal_network` — charter applied.
-- `postroad:parcel_sent`, `postroad:parcel_received`.
+- `postroad:parcel_sent` — first parcel to another town.
 
 FTB Quests uses these as advancement tasks; the questbook text and rewards
 stay in the modpack.
@@ -155,11 +155,11 @@ Game tests:
 2. Before unlock, remote page access is refused; after unlock a stackable
    placed in town A is visible and takeable from town B.
 3. An unstackable in town A's page cannot be taken from town B.
-4. Sending a mixed outbox creates two parcels; the bulk one is in the mailbox
-   after one daily pass, the valuables one after the computed days (advance
-   `dayTime` in the test).
-5. A full mailbox holds the parcel and delivers it once space is freed.
-6. Home default: sending to a player with a home pre-selects that town.
+4. Sending a mixed outbox creates two parcels; the bulk one is in the
+   destination's storage at once, the valuables one after the computed days.
+5. A full destination storage holds the parcel and delivers it once space is
+   freed.
+6. Home default: a sender with a home town gets it pre-selected.
 
 In play: the screen itself (layout, selectors, hover text), the chat
 notification, and whether the default timing feels right over a real

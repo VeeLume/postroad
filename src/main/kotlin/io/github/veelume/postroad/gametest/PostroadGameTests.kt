@@ -208,46 +208,46 @@ class PostroadGameTests {
             val network = Network.get(server)
             network.postalUnlocked = true
             val today = FreshLoot.dayOf(helper.level)
-            val recipient = "mail-test-recipient-" + java.util.UUID.randomUUID().toString().take(8)
+            val sender = "mail-test-sender-" + java.util.UUID.randomUUID().toString().take(8)
             val outbox = listOf(ItemStack(Items.COBBLESTONE, 40), ItemStack(Items.IRON_SWORD))
 
-            val parcels = MailService.send(server, "mail-test-sender", recipient, a, b, outbox)
+            val parcels = MailService.send(server, sender, a, b, outbox)
             helper.assertValueEqual(parcels.size, 2, "parcels created")
             val valuables = parcels.first { it.lane == Parcel.LANE_VALUABLES }
             val expectedDays = MailService.valuablesDays(network.distanceBetween(a, b))
             helper.assertValueEqual(valuables.arrivalDay, today + expectedDays, "valuables arrival day")
 
-            // Bulk is delivered on send; the sword is still in transit.
-            val box = network.mailbox(recipient, b)
-            helper.assertValueEqual(box.countItem(Items.COBBLESTONE), 40, "cobblestone delivered at once")
-            helper.assertValueEqual(box.countItem(Items.IRON_SWORD), 0, "sword must not be delivered yet")
-            helper.assertTrue(network.parcelsFor(recipient).any { it.lane == Parcel.LANE_VALUABLES }, "valuables parcel in transit")
+            // Bulk is delivered on send into the destination's storage; the sword is still in transit.
+            val storage = network.storageFor(b)
+            helper.assertValueEqual(storage.countItem(Items.COBBLESTONE), 40, "cobblestone delivered at once")
+            helper.assertValueEqual(storage.countItem(Items.IRON_SWORD), 0, "sword must not be delivered yet")
+            helper.assertTrue(network.parcelsFor(sender).any { it.lane == Parcel.LANE_VALUABLES }, "valuables parcel in transit")
 
             MailService.deliverDue(server, today + expectedDays)
-            helper.assertValueEqual(box.countItem(Items.IRON_SWORD), 1, "sword delivered on its day")
-            helper.assertTrue(network.parcelsFor(recipient).isEmpty(), "no parcels left")
+            helper.assertValueEqual(storage.countItem(Items.IRON_SWORD), 1, "sword delivered on its day")
+            helper.assertTrue(network.parcelsFor(sender).isEmpty(), "no parcels left")
             helper.succeed()
         }
     }
 
     @GameTest(template = ARENA)
-    fun full_mailbox_holds_the_parcel_until_space(helper: GameTestHelper) {
+    fun full_storage_holds_the_parcel_until_space(helper: GameTestHelper) {
         twoTowns(helper) { a, b ->
             val server = helper.level.server
             val network = Network.get(server)
             network.postalUnlocked = true
-            val recipient = "mail-test-hoarder-" + java.util.UUID.randomUUID().toString().take(8)
-            val box = network.mailbox(recipient, b)
-            for (slot in 0 until box.containerSize) box.setItem(slot, ItemStack(Items.STONE_SWORD))
+            val sender = "mail-test-hoarder-" + java.util.UUID.randomUUID().toString().take(8)
+            val storage = network.storageFor(b)
+            for (slot in 0 until storage.containerSize) storage.setItem(slot, ItemStack(Items.STONE_SWORD))
 
-            MailService.send(server, "mail-test-sender", recipient, a, b, listOf(ItemStack(Items.COBBLESTONE, 5)))
-            val held = network.parcelsFor(recipient)
-            helper.assertValueEqual(held.size, 1, "parcel held while mailbox is full")
+            MailService.send(server, sender, a, b, listOf(ItemStack(Items.COBBLESTONE, 5)))
+            val held = network.parcelsFor(sender)
+            helper.assertValueEqual(held.size, 1, "parcel held while the destination storage is full")
 
-            box.setItem(0, ItemStack.EMPTY)
+            storage.setItem(0, ItemStack.EMPTY)
             MailService.deliverDue(server, FreshLoot.dayOf(helper.level))
-            helper.assertValueEqual(box.countItem(Items.COBBLESTONE), 5, "delivered after space freed")
-            helper.assertTrue(network.parcelsFor(recipient).isEmpty(), "held parcel cleared")
+            helper.assertValueEqual(storage.countItem(Items.COBBLESTONE), 5, "delivered after space freed")
+            helper.assertTrue(network.parcelsFor(sender).isEmpty(), "held parcel cleared")
             helper.succeed()
         }
     }

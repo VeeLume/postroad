@@ -14,37 +14,28 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent
 data class DepotState(
     val townName: String,
     val pageNames: List<String>,
-    val recipients: List<String>,
-    val recipientIndex: Int,
-    val destinations: List<String>,
     val destinationIndex: Int,
     val homeName: String,
-    val mailboxLines: List<String>,
+    val transitLines: List<String>,
 ) {
     companion object {
-        val EMPTY = DepotState("", emptyList(), emptyList(), 0, emptyList(), 0, "", emptyList())
+        val EMPTY = DepotState("", emptyList(), 0, "", emptyList())
 
         val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, DepotState> = StreamCodec.of(
             { buf, s ->
                 buf.writeUtf(s.townName)
                 buf.writeCollection(s.pageNames) { b, v -> b.writeUtf(v) }
-                buf.writeCollection(s.recipients) { b, v -> b.writeUtf(v) }
-                buf.writeVarInt(s.recipientIndex)
-                buf.writeCollection(s.destinations) { b, v -> b.writeUtf(v) }
                 buf.writeVarInt(s.destinationIndex)
                 buf.writeUtf(s.homeName)
-                buf.writeCollection(s.mailboxLines) { b, v -> b.writeUtf(v) }
+                buf.writeCollection(s.transitLines) { b, v -> b.writeUtf(v) }
             },
             { buf ->
                 DepotState(
                     townName = buf.readUtf(),
                     pageNames = buf.readList { it.readUtf() },
-                    recipients = buf.readList { it.readUtf() },
-                    recipientIndex = buf.readVarInt(),
-                    destinations = buf.readList { it.readUtf() },
                     destinationIndex = buf.readVarInt(),
                     homeName = buf.readUtf(),
-                    mailboxLines = buf.readList { it.readUtf() },
+                    transitLines = buf.readList { it.readUtf() },
                 )
             },
         )

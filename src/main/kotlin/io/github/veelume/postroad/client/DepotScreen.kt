@@ -12,8 +12,9 @@ import net.minecraft.world.item.ItemStack
 import net.neoforged.neoforge.network.PacketDistributor
 
 /**
- * The depot screen: the vanilla 6-row chest look with a tab bar above it. Tabs with fewer
- * slots use the freed rows for text and selectors. Every button is a [DepotActionPayload].
+ * The depot screen: the vanilla 6-row chest look with a tab bar above it. The send tab uses
+ * the rows below its outbox for the destination selector and the in-transit list. Every
+ * button is a [DepotActionPayload].
  */
 class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
     AbstractContainerScreen<DepotMenu>(menu, inventory, title) {
@@ -22,8 +23,6 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
     private lateinit var prevPage: Button
     private lateinit var nextPage: Button
     private lateinit var homeButton: Button
-    private lateinit var recipientPrev: Button
-    private lateinit var recipientNext: Button
     private lateinit var destinationPrev: Button
     private lateinit var destinationNext: Button
     private lateinit var sendButton: Button
@@ -40,10 +39,11 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
 
     override fun init() {
         super.init()
+        val tabWidth = imageWidth / DepotMenu.Tab.entries.size
         tabButtons = DepotMenu.Tab.entries.mapIndexed { i, tab ->
             addRenderableWidget(
                 Button.builder(Component.translatable("screen.postroad.depot.tab.${tab.name.lowercase()}"), action(DepotMenu.ACTION_TAB, i))
-                    .bounds(leftPos + i * 44, topPos - 22, 44, 20)
+                    .bounds(leftPos + i * tabWidth, topPos - 22, tabWidth - 2, 20)
                     .build(),
             )
         }
@@ -51,12 +51,9 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         nextPage = addRenderableWidget(Button.builder(Component.literal(">"), action(DepotMenu.ACTION_PAGE, 1)).bounds(leftPos + imageWidth - 20, topPos + 4, 12, 12).build())
         homeButton = addRenderableWidget(Button.builder(Component.translatable("screen.postroad.depot.set_home"), action(DepotMenu.ACTION_SET_HOME)).bounds(leftPos + imageWidth - 62, topPos + 4, 54, 12).build())
 
-        val sendTop = topPos + 18 + 18 + 6 // below the outbox row
-        recipientPrev = addRenderableWidget(Button.builder(Component.literal("<"), action(DepotMenu.ACTION_RECIPIENT, -1)).bounds(leftPos + 34, sendTop, 12, 14).build())
-        recipientNext = addRenderableWidget(Button.builder(Component.literal(">"), action(DepotMenu.ACTION_RECIPIENT, 1)).bounds(leftPos + imageWidth - 20, sendTop, 12, 14).build())
-        destinationPrev = addRenderableWidget(Button.builder(Component.literal("<"), action(DepotMenu.ACTION_DESTINATION, -1)).bounds(leftPos + 34, sendTop + 20, 12, 14).build())
-        destinationNext = addRenderableWidget(Button.builder(Component.literal(">"), action(DepotMenu.ACTION_DESTINATION, 1)).bounds(leftPos + imageWidth - 20, sendTop + 20, 12, 14).build())
-        sendButton = addRenderableWidget(Button.builder(Component.translatable("screen.postroad.depot.send"), action(DepotMenu.ACTION_SEND)).bounds(leftPos + 8, topPos + 100, 160, 20).build())
+        destinationPrev = addRenderableWidget(Button.builder(Component.literal("<"), action(DepotMenu.ACTION_DESTINATION, -1)).bounds(leftPos + 34, topPos + SEND_ROW, 12, 14).build())
+        destinationNext = addRenderableWidget(Button.builder(Component.literal(">"), action(DepotMenu.ACTION_DESTINATION, 1)).bounds(leftPos + imageWidth - 20, topPos + SEND_ROW, 12, 14).build())
+        sendButton = addRenderableWidget(Button.builder(Component.translatable("screen.postroad.depot.send"), action(DepotMenu.ACTION_SEND)).bounds(leftPos + 8, topPos + 104, 160, 18).build())
         updateWidgets()
     }
 
@@ -69,7 +66,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         val tab = menu.tab
         tabButtons.forEachIndexed { i, button ->
             val t = DepotMenu.Tab.entries[i]
-            button.active = i != tab.ordinal && (menu.unlocked || (t != DepotMenu.Tab.NETWORK && t != DepotMenu.Tab.SEND))
+            button.active = i != tab.ordinal && (menu.unlocked || t == DepotMenu.Tab.TOWN)
         }
         val network = tab == DepotMenu.Tab.NETWORK
         prevPage.visible = network
@@ -79,8 +76,6 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         homeButton.visible = tab == DepotMenu.Tab.TOWN
         homeButton.active = menu.state.homeName != menu.state.townName
         val send = tab == DepotMenu.Tab.SEND
-        recipientPrev.visible = send
-        recipientNext.visible = send
         destinationPrev.visible = send
         destinationNext.visible = send
         sendButton.visible = send
@@ -102,40 +97,29 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         }
     }
 
+    private fun drawCentered(graphics: GuiGraphics, text: String, centerX: Int, y: Int, color: Int) {
+        graphics.drawString(font, text, centerX - font.width(text) / 2, y, color, false)
+    }
+
     override fun renderLabels(graphics: GuiGraphics, mouseX: Int, mouseY: Int) {
         val state = menu.state
         val header: Component = when (menu.tab) {
             DepotMenu.Tab.TOWN -> Component.translatable("screen.postroad.depot.title.town", state.townName)
             DepotMenu.Tab.NETWORK -> Component.translatable("screen.postroad.depot.title.network", state.pageNames.getOrElse(menu.page) { "?" }, menu.page + 1, menu.pageCount)
-            DepotMenu.Tab.MAILBOX -> Component.translatable("screen.postroad.depot.title.mailbox", state.townName)
             DepotMenu.Tab.SEND -> Component.translatable("screen.postroad.depot.title.send", state.townName)
         }
-        graphics.drawString(font, header, titleLabelX, titleLabelY, 0x404040, false)
-        graphics.drawString(font, playerInventoryTitle, inventoryLabelX, inventoryLabelY, 0x404040, false)
+        graphics.drawString(font, header, titleLabelX, titleLabelY, TEXT, false)
+        graphics.drawString(font, playerInventoryTitle, inventoryLabelX, inventoryLabelY, TEXT, false)
 
-        when (menu.tab) {
-            DepotMenu.Tab.MAILBOX -> {
-                var y = 17 + 3 * 18 + 4
-                val lines = state.mailboxLines.ifEmpty { listOf(Component.translatable("screen.postroad.depot.no_other_mail").string) }
-                for (line in lines.take(4)) {
-                    graphics.drawString(font, font.plainSubstrByWidth(line, 158), 9, y, 0x404040, false)
-                    y += 11
-                }
+        if (menu.tab == DepotMenu.Tab.SEND) {
+            graphics.drawString(font, Component.translatable("screen.postroad.depot.to"), 9, SEND_ROW + 3, TEXT, false)
+            drawCentered(graphics, state.pageNames.getOrElse(state.destinationIndex) { "—" }, 101, SEND_ROW + 3, TEXT_STRONG)
+            var y = SEND_ROW + 22
+            val lines = state.transitLines.ifEmpty { listOf(Component.translatable("screen.postroad.depot.no_transit").string) }
+            for (line in lines.take(4)) {
+                graphics.drawString(font, font.plainSubstrByWidth(line, 158), 9, y, TEXT_MUTED, false)
+                y += 10
             }
-            DepotMenu.Tab.SEND -> {
-                val top = 18 + 18 + 6
-                graphics.drawString(font, Component.translatable("screen.postroad.depot.to"), 9, top + 3, 0x404040, false)
-                graphics.drawCenteredString(font, state.recipients.getOrElse(state.recipientIndex) { "—" }, 101, top + 3, 0x202020)
-                graphics.drawString(font, Component.translatable("screen.postroad.depot.at"), 9, top + 23, 0x404040, false)
-                graphics.drawCenteredString(font, state.destinations.getOrElse(state.destinationIndex) { "—" }, 101, top + 23, 0x202020)
-                if (state.homeName.isNotEmpty()) {
-                    graphics.drawString(font, font.plainSubstrByWidth(Component.translatable("screen.postroad.depot.home_hint", state.homeName).string, 158), 9, top + 44, 0x606060, false)
-                }
-            }
-            DepotMenu.Tab.TOWN -> if (!menu.unlocked) {
-                // nothing extra; the tab bar shows what is locked
-            }
-            else -> Unit
         }
     }
 
@@ -155,5 +139,9 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
 
     companion object {
         private val TEXTURE: ResourceLocation = ResourceLocation.withDefaultNamespace("textures/gui/container/generic_54.png")
+        private const val SEND_ROW = 18 + 18 + 8
+        private const val TEXT = 0x404040
+        private const val TEXT_STRONG = 0x202020
+        private const val TEXT_MUTED = 0x606060
     }
 }

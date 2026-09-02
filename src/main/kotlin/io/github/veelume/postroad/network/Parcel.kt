@@ -10,12 +10,11 @@ import java.util.UUID
 /**
  * Items on their way from one town to another. [items] shrinks as delivery succeeds; a
  * parcel with an empty list is finished and dropped. `arrivalDay <= today` and non-empty
- * items means "held": arrived, but the mailbox had no room.
+ * items means "held": arrived, but the destination storage had no room.
  */
 data class Parcel(
     val id: UUID,
     val sender: String,
-    val recipient: String,
     val from: String,
     val to: String,
     val items: MutableList<ItemStack>,
@@ -29,7 +28,6 @@ data class Parcel(
         val tag = CompoundTag()
         tag.putUUID("Id", id)
         tag.putString("Sender", sender)
-        tag.putString("Recipient", recipient)
         tag.putString("From", from)
         tag.putString("To", to)
         tag.putLong("SentDay", sentDay)
@@ -54,7 +52,6 @@ data class Parcel(
             return Parcel(
                 id = tag.getUUID("Id"),
                 sender = tag.getString("Sender"),
-                recipient = tag.getString("Recipient"),
                 from = tag.getString("From"),
                 to = tag.getString("To"),
                 items = items,

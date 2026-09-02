@@ -20,7 +20,7 @@ import kotlin.math.sqrt
 
 /**
  * The one server-side state object of the civilization layer: places, depots, town storage,
- * accounts, ledger, and — since increment 2 — the postal network: homes, mailboxes, parcels.
+ * accounts, ledger, and — since increment 2 — the postal network: homes and parcels.
  * Stored on the overworld as `postroad_network`.
  */
 class Network : SavedData() {
@@ -50,9 +50,6 @@ class Network : SavedData() {
 
     /** player (lower-case) → last seen cased name; everyone who ever used a depot. */
     val knownPlayers: MutableMap<String, String> = LinkedHashMap()
-
-    /** [mailboxKey] → mailbox. Created on first delivery, dropped when empty on save. */
-    private val mailboxes: MutableMap<String, TownContainer> = HashMap()
 
     val parcels: MutableList<Parcel> = ArrayList()
 
@@ -124,27 +121,17 @@ class Network : SavedData() {
 
     fun homeOf(player: String): Place? = homes[player.lowercase()]?.let { places[it] }
 
-    // ---- mailboxes and parcels ----------------------------------------------------------------
-
-    fun mailbox(player: String, placeId: String): SimpleContainer =
-        mailboxes.getOrPut(mailboxKey(player, placeId)) { TownContainer(this, TownContainer.MAILBOX_SIZE) }
-
-    fun mailboxIfExists(player: String, placeId: String): SimpleContainer? = mailboxes[mailboxKey(player, placeId)]
-
-    /** Places where [player] has a non-empty mailbox. */
-    fun mailboxPlaces(player: String): List<String> {
-        val prefix = "${player.lowercase()}|"
-        return mailboxes.entries.filter { it.key.startsWith(prefix) && !it.value.isEmpty }.map { it.key.removePrefix(prefix) }
-    }
+    // ---- parcels ------------------------------------------------------------------------------
 
     fun addParcel(parcel: Parcel) {
         parcels.add(parcel)
         setDirty()
     }
 
+    /** Parcels [player] sent that are still on the way or held. */
     fun parcelsFor(player: String): List<Parcel> {
         val key = player.lowercase()
-        return parcels.filter { it.recipient == key }
+        return parcels.filter { it.sender == key }
     }
 
     // ---- accounts and ledger ------------------------------------------------------------------
@@ -195,16 +182,6 @@ class Network : SavedData() {
         tag.putLong("LastDeliveryDay", lastDeliveryDay)
         tag.put("Homes", CompoundTag().also { homes.forEach { (p, place) -> it.putString(p, place) } })
         tag.put("KnownPlayers", CompoundTag().also { knownPlayers.forEach { (k, v) -> it.putString(k, v) } })
-        tag.put("Mailboxes", ListTag().also { list ->
-            mailboxes.forEach { (key, container) ->
-                if (!container.isEmpty) {
-                    val entry = CompoundTag()
-                    entry.putString("Key", key)
-                    ContainerHelper.saveAllItems(entry, container.items, registries)
-                    list.add(entry)
-                }
-            }
-        })
         tag.put("Parcels", ListTag().also { list -> parcels.forEach { if (it.items.isNotEmpty()) list.add(it.toTag(registries)) } })
         return tag
     }
@@ -239,12 +216,6 @@ class Network : SavedData() {
         homesTag.allKeys.forEach { homes[it] = homesTag.getString(it) }
         val knownTag = tag.getCompound("KnownPlayers")
         knownTag.allKeys.forEach { knownPlayers[it] = knownTag.getString(it) }
-        tag.getList("Mailboxes", Tag.TAG_COMPOUND.toInt()).forEach { t ->
-            val c = t as CompoundTag
-            val container = TownContainer(this, TownContainer.MAILBOX_SIZE)
-            ContainerHelper.loadAllItems(c, container.items, registries)
-            mailboxes[c.getString("Key")] = container
-        }
         tag.getList("Parcels", Tag.TAG_COMPOUND.toInt()).forEach { t ->
             Parcel.fromTag(t as CompoundTag, registries)?.let { if (it.items.isNotEmpty()) parcels.add(it) }
         }
@@ -261,8 +232,6 @@ class Network : SavedData() {
 
         fun depotKey(dimension: ResourceKey<Level>, pos: BlockPos): String =
             "${dimension.location()}|${pos.asLong()}"
-
-        fun mailboxKey(player: String, placeId: String): String = "${player.lowercase()}|$placeId"
 
         val FACTORY: Factory<Network> = Factory(
             Supplier { Network() },
@@ -284,7 +253,6 @@ class TownContainer(private val network: Network, size: Int) : SimpleContainer(s
 
     companion object {
         const val TOWN_SIZE = 54
-        const val MAILBOX_SIZE = 27
     }
 }
 
