@@ -8,6 +8,7 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
 import net.minecraft.world.ItemInteractionResult
+import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.context.BlockPlaceContext
@@ -42,6 +43,16 @@ class DepotBlock(properties: Properties) : HorizontalDirectionalBlock(properties
         defaultBlockState().setValue(FACING, context.horizontalDirection.opposite)
 
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity = DepotBlockEntity(pos, state)
+
+    override fun setPlacedBy(level: Level, pos: BlockPos, state: BlockState, placer: LivingEntity?, stack: ItemStack) {
+        super.setPlacedBy(level, pos, state, placer, stack)
+        if (placer is Player) {
+            (level.getBlockEntity(pos) as? DepotBlockEntity)?.let {
+                it.playerPlaced = true
+                it.setChanged()
+            }
+        }
+    }
 
     override fun <T : BlockEntity> getTicker(level: Level, state: BlockState, type: BlockEntityType<T>): BlockEntityTicker<T>? {
         if (level.isClientSide || type != PackcoreBlockEntities.DEPOT.get()) return null

@@ -1,0 +1,59 @@
+{
+  "match": [
+    "badlands",
+    "pueblo",
+    "tipi",
+    "red_rock",
+    "mesa"
+  ],
+  "post": "badlands",
+  "patterns": [
+    "{prefix}{suffix}",
+    "{prefix} {word}",
+    "{prefix}{suffix}"
+  ],
+  "parts": {
+    "prefix": [
+      "Tierra",
+      "Roja",
+      "Mesa",
+      "Sol",
+      "Cañon",
+      "Piedra",
+      "Arro",
+      "Cala",
+      "Vera",
+      "Sierra",
+      "Alto",
+      "Ceni",
+      "Barran",
+      "Ocre",
+      "Polvo"
+    ],
+    "suffix": [
+      "ejo",
+      "ita",
+      "osa",
+      "adero",
+      "illa",
+      "anco",
+      "uela",
+      "ares",
+      "ina",
+      "ón"
+    ],
+    "word": [
+      "Rojo",
+      "Seco",
+      "Alto",
+      "del Sol",
+      "de Piedra"
+    ]
+  },
+  "disambiguators": [
+    "Alto",
+    "Bajo",
+    "Nuevo",
+    "Viejo"
+  ]
+}

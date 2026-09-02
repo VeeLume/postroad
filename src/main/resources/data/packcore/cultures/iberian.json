@@ -2,10 +2,10 @@
   "match": [
     "iberian",
     "mediterranean",
-    "red_rock",
     "skyris",
     "tudor"
   ],
+  "post": "iberian",
   "patterns": [
     "{prefix}{suffix}",
     "{prefix} {word}",

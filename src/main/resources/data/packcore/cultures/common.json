@@ -1,5 +1,6 @@
 {
   "match": [],
+  "post": "oak",
   "patterns": [
     "{prefix}{suffix}",
     "{prefix}{suffix}",

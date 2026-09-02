@@ -5,6 +5,7 @@
     "viking",
     "norse"
   ],
+  "post": "spruce",
   "patterns": [
     "{prefix}{suffix}",
     "{prefix}{suffix}",

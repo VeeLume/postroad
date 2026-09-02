@@ -4,6 +4,7 @@
     "savanna",
     "acacia"
   ],
+  "post": "acacia",
   "patterns": [
     "{prefix}{suffix}",
     "{prefix}{suffix}",

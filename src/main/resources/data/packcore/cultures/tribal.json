@@ -3,10 +3,9 @@
     "jungle_tribal",
     "jungle",
     "mangrove",
-    "wooded_badlands_tipi",
-    "tipi",
     "piglin"
   ],
+  "post": "jungle",
   "patterns": [
     "{prefix}{suffix}",
     "{prefix}{suffix}",

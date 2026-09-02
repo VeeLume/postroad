@@ -4,6 +4,7 @@
     "polynesian",
     "beach"
   ],
+  "post": "jungle",
   "patterns": [
     "{prefix}{suffix}",
     "{prefix} {prefix}",

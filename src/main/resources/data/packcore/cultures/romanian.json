@@ -3,6 +3,7 @@
     "birch_forest_romanian",
     "romanian"
   ],
+  "post": "birch",
   "patterns": [
     "{prefix}{suffix}",
     "{prefix}{suffix}",

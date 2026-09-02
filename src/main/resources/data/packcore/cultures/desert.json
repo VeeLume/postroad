@@ -2,9 +2,9 @@
   "match": [
     "village_desert",
     "desert",
-    "nilotic",
-    "badlands_pueblo"
+    "nilotic"
   ],
+  "post": "desert",
   "patterns": [
     "{prefix}{suffix}",
     "Al-{prefix}{suffix}",

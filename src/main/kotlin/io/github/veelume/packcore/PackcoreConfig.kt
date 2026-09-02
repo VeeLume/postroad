@@ -65,8 +65,8 @@ object PackcoreConfig {
 
         BUILDER.push("courierPost")
         COURIER_POST_WEIGHT = BUILDER
-            .comment("Jigsaw weight of the courier post inside each target house pool.")
-            .defineInRange("weight", 6, 0, 1000)
+            .comment("Jigsaw weight of the courier post inside each target house pool. Extra posts in a town demote themselves to barrels, so this only tunes how likely a town is to get one at all.")
+            .defineInRange("weight", 4, 0, 1000)
         @Suppress("UNCHECKED_CAST")
         TARGET_POOLS = BUILDER
             .comment("Template pools that receive the courier post as an extra house. Missing pools are skipped.")

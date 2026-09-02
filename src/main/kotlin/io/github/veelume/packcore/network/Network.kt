@@ -48,6 +48,8 @@ class Network : SavedData() {
         setDirty()
     }
 
+    fun hasDepot(placeId: String): Boolean = depots.values.contains(placeId)
+
     // ---- storage ----------------------------------------------------------------------------
 
     fun storageFor(placeId: String): SimpleContainer =
@@ -55,13 +57,14 @@ class Network : SavedData() {
 
     // ---- accounts and ledger ----------------------------------------------------------------
 
-    fun balance(account: String): Long = accounts[account] ?: 0L
+    fun balance(account: String): Long = accounts[normalizeAccount(account)] ?: 0L
 
     /** Credit [amount] coins to [account] and record it. Amounts are always positive here. */
     fun credit(account: String, amount: Long, day: Long, actor: String, op: String, note: String = "") {
         require(amount > 0) { "credit amount must be positive" }
-        accounts[account] = balance(account) + amount
-        record(LedgerEntry(day, actor, op, amount, account, note))
+        val id = normalizeAccount(account)
+        accounts[id] = balance(id) + amount
+        record(LedgerEntry(day, actor, op, amount, id, note))
     }
 
     fun record(entry: LedgerEntry) {
@@ -113,7 +116,11 @@ class Network : SavedData() {
             storage[c.getString("Place")] = container
         }
         val accountsTag = tag.getCompound("Accounts")
-        accountsTag.allKeys.forEach { accounts[it] = accountsTag.getLong(it) }
+        accountsTag.allKeys.forEach { key ->
+            // Account ids are case-insensitive; fold older mixed-case player ids together.
+            val id = normalizeAccount(key)
+            accounts[id] = (accounts[id] ?: 0L) + accountsTag.getLong(key)
+        }
         tag.getList("Ledger", Tag.TAG_COMPOUND.toInt()).forEach { t ->
             ledger.addLast(LedgerEntry.fromTag(t as CompoundTag))
         }
@@ -123,7 +130,10 @@ class Network : SavedData() {
         const val NAME = "packcore_network"
         const val ROAD_FUND = "fund:road"
 
-        fun playerAccount(name: String): String = "player:$name"
+        /** Player names are matched case-insensitively (`player:veelume`). */
+        fun playerAccount(name: String): String = "player:${name.lowercase()}"
+
+        fun normalizeAccount(id: String): String = id.lowercase()
 
         fun depotKey(dimension: ResourceKey<Level>, pos: BlockPos): String =
             "${dimension.location()}|${pos.asLong()}"

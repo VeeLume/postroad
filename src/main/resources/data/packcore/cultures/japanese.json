@@ -4,6 +4,7 @@
     "japanese",
     "cherry"
   ],
+  "post": "cherry",
   "patterns": [
     "{prefix}{suffix}",
     "{prefix}{suffix}",

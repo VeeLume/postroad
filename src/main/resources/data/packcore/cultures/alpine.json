@@ -5,6 +5,7 @@
     "alpine",
     "swiss"
   ],
+  "post": "spruce",
   "patterns": [
     "{prefix}{suffix}",
     "{prefix}{suffix}",

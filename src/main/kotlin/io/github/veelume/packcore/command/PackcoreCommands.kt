@@ -8,6 +8,7 @@ import io.github.veelume.packcore.depot.DepotInteraction
 import io.github.veelume.packcore.loot.FreshLoot
 import io.github.veelume.packcore.network.LedgerEntry
 import io.github.veelume.packcore.network.Network
+import io.github.veelume.packcore.registry.PackcoreDataMaps
 import net.minecraft.commands.CommandSourceStack
 import net.minecraft.commands.Commands
 import net.minecraft.network.chat.Component
@@ -23,6 +24,7 @@ object PackcoreCommands {
         event.dispatcher.register(
             Commands.literal("packcore")
                 .then(Commands.literal("places").executes { places(it) })
+                .then(Commands.literal("inspect").executes { inspect(it) })
                 .then(
                     Commands.literal("balance")
                         .executes { balance(it, it.source.playerOrException.gameProfile.name) }
@@ -75,6 +77,32 @@ object PackcoreCommands {
             }, false)
         }
         return network.places.size
+    }
+
+    /** What the depot would make of the item in the main hand. */
+    private fun inspect(ctx: CommandContext<CommandSourceStack>): Int {
+        val player = ctx.source.playerOrException
+        val stack = player.mainHandItem
+        if (stack.isEmpty) {
+            ctx.source.sendSuccess({ Component.translatable("command.packcore.inspect.empty") }, false)
+            return 0
+        }
+        val today = FreshLoot.dayOf(ctx.source.level)
+        val mark = FreshLoot.of(stack)
+        val freshness: Component = when {
+            mark == null -> Component.translatable("command.packcore.inspect.unmarked")
+            FreshLoot.daysLeft(mark, today) > 0 ->
+                Component.translatable("command.packcore.inspect.fresh", mark.origin, FreshLoot.daysLeft(mark, today))
+            else -> Component.translatable("command.packcore.inspect.settled", mark.origin)
+        }
+        val rate = stack.itemHolder.getData(PackcoreDataMaps.BUYBACK)
+        val price: Component = if (rate == null) {
+            Component.translatable("command.packcore.inspect.no_rate")
+        } else {
+            Component.translatable("command.packcore.inspect.rate", rate, rate.toLong() * stack.count)
+        }
+        ctx.source.sendSuccess({ Component.translatable("command.packcore.inspect", stack.count, stack.hoverName, freshness, price) }, false)
+        return 1
     }
 
     private fun balance(ctx: CommandContext<CommandSourceStack>, playerName: String): Int {

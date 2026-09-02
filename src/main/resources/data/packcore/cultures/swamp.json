@@ -9,6 +9,7 @@
     "salem",
     "pumpkin_patch"
   ],
+  "post": "dark_oak",
   "patterns": [
     "{prefix}{suffix}",
     "{prefix}{suffix}",

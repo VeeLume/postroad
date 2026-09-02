@@ -19,7 +19,13 @@ data class Culture(
     val patterns: List<String>,
     val parts: Map<String, List<String>>,
     val disambiguators: List<String>,
-)
+    /** Courier-post palette style: `data/packcore/structure/courier_post_<post>.nbt`. */
+    val post: String = DEFAULT_POST,
+) {
+    companion object {
+        const val DEFAULT_POST = "oak"
+    }
+}
 
 object CultureRegistry : SimpleJsonResourceReloadListener(Gson(), "cultures") {
     const val DEFAULT = "common"
@@ -38,8 +44,9 @@ object CultureRegistry : SimpleJsonResourceReloadListener(Gson(), "cultures") {
                 val partsObj = GsonHelper.getAsJsonObject(obj, "parts")
                 val parts = partsObj.keySet().associateWith { strings(partsObj, it) }
                 val disambiguators = if (obj.has("disambiguators")) strings(obj, "disambiguators") else emptyList()
+                val post = GsonHelper.getAsString(obj, "post", Culture.DEFAULT_POST) ?: Culture.DEFAULT_POST
                 require(patterns.isNotEmpty()) { "no patterns" }
-                loaded[id] = Culture(id, match, patterns, parts, disambiguators)
+                loaded[id] = Culture(id, match, patterns, parts, disambiguators, post)
             } catch (e: Exception) {
                 Packcore.LOGGER.error("Skipping culture {}: {}", location, e.message)
             }
