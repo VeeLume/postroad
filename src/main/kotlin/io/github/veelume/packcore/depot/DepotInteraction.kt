@@ -68,12 +68,20 @@ object DepotInteraction {
         }
 
         val rate = stack.itemHolder.getData(PackcoreDataMaps.BUYBACK)
+        // Refusals go to chat, not the action bar: they carry the reason and are easy to miss otherwise.
         if (rate == null) {
-            player.displayClientMessage(Component.translatable("message.packcore.depot.not_bought"), true)
+            player.displayClientMessage(
+                Component.translatable("message.packcore.depot.not_bought", stack.hoverName).withStyle(ChatFormatting.YELLOW),
+                false,
+            )
             return ItemInteractionResult.CONSUME
         }
         if (!FreshLoot.isFresh(stack, day)) {
-            player.displayClientMessage(Component.translatable("message.packcore.depot.not_fresh"), true)
+            val key = if (FreshLoot.of(stack) == null) "message.packcore.depot.unmarked" else "message.packcore.depot.settled"
+            player.displayClientMessage(
+                Component.translatable(key, stack.hoverName).withStyle(ChatFormatting.YELLOW),
+                false,
+            )
             return ItemInteractionResult.CONSUME
         }
         val count = stack.count

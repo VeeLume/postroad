@@ -146,12 +146,13 @@ def build(style: str, p: dict[str, str | None]) -> Path:
         else:
             put(x, 2, z, AIR)
 
-    # Interior: depot against the east wall, a barrel, a lantern, torches beside the door (inside).
+    # Interior: depot against the east wall, a barrel, one lantern.
     put(4, 1, 3, "packcore:depot", facing="west")
     put(4, 1, 2, "minecraft:barrel", facing="up", open="false")
     put(3, 3, 3, "minecraft:lantern", hanging="true", waterlogged="false")
-    put(2, 2, 2, "minecraft:wall_torch", facing="east")
-    put(2, 2, 4, "minecraft:wall_torch", facing="east")
+    # Two torches outside, flanking the door on the street side.
+    put(0, 2, 2, "minecraft:wall_torch", facing="west")
+    put(0, 2, 4, "minecraft:wall_torch", facing="west")
 
     # --- y = 4..5: stepped roof --------------------------------------------------
     for x in range(1, 6):

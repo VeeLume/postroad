@@ -9,8 +9,9 @@
   "message.packcore.depot.unregistered": "This depot has not found its town yet.",
   "message.packcore.depot.summary": "%s — your wallet: %s coins · road fund: %s coins",
   "message.packcore.depot.paid_in": "Paid in %s coins. Wallet: %s",
-  "message.packcore.depot.not_bought": "The depot does not buy that.",
-  "message.packcore.depot.not_fresh": "The depot buys fresh loot only.",
+  "message.packcore.depot.not_bought": "The depot does not buy %s.",
+  "message.packcore.depot.unmarked": "%s is not loot — it was crafted, traded or given. The depot buys fresh loot only.",
+  "message.packcore.depot.settled": "%s has settled into your kit; it is no longer fresh loot.",
   "message.packcore.depot.bought": "Sold %s × %s for %s coins. Wallet: %s",
   "message.packcore.ledger.entry": "day %s · %s · %s · %s coins → %s · %s",
 
