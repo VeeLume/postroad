@@ -1,0 +1,54 @@
+{
+  "match": [
+    "birch_forest_romanian",
+    "romanian"
+  ],
+  "patterns": [
+    "{prefix}{suffix}",
+    "{prefix}{suffix}",
+    "{prefix} {word}"
+  ],
+  "parts": {
+    "prefix": [
+      "Bra",
+      "Cer",
+      "Dum",
+      "Flor",
+      "Lun",
+      "Mar",
+      "Pet",
+      "Rad",
+      "Sil",
+      "Val",
+      "Ver",
+      "Zor",
+      "Bal",
+      "Cod",
+      "Iar"
+    ],
+    "suffix": [
+      "ești",
+      "eni",
+      "ova",
+      "ani",
+      "ița",
+      "ari",
+      "oaia",
+      "ul",
+      "eanca",
+      "ilor"
+    ],
+    "word": [
+      "de Sus",
+      "de Jos",
+      "Nouă",
+      "Veche"
+    ]
+  },
+  "disambiguators": [
+    "Sus",
+    "Jos",
+    "Nouă",
+    "Veche"
+  ]
+}

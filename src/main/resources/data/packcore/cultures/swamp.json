@@ -1,0 +1,64 @@
+{
+  "match": [
+    "swamp_boat",
+    "swamp",
+    "village/swamp",
+    "mushroom",
+    "fantasy",
+    "forgotten",
+    "salem",
+    "pumpkin_patch"
+  ],
+  "patterns": [
+    "{prefix}{suffix}",
+    "{prefix}{suffix}",
+    "{prefix} {word}"
+  ],
+  "parts": {
+    "prefix": [
+      "Mire",
+      "Bog",
+      "Reed",
+      "Moss",
+      "Fen",
+      "Toad",
+      "Willow",
+      "Murk",
+      "Sedge",
+      "Heron",
+      "Rush",
+      "Dusk",
+      "Gloam",
+      "Peat",
+      "Hollow",
+      "Raven",
+      "Crow"
+    ],
+    "suffix": [
+      "mere",
+      "wick",
+      "moor",
+      "ditch",
+      "marsh",
+      "ham",
+      "bourne",
+      "sey",
+      "holt",
+      "slough",
+      "reach"
+    ],
+    "word": [
+      "Landing",
+      "Crossing",
+      "End",
+      "Hollow",
+      "Mill"
+    ]
+  },
+  "disambiguators": [
+    "New",
+    "Old",
+    "Upper",
+    "Lower"
+  ]
+}

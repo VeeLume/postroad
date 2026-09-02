@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "packcore:block/depot" },
+    "facing=east": { "model": "packcore:block/depot", "y": 90 },
+    "facing=south": { "model": "packcore:block/depot", "y": 180 },
+    "facing=west": { "model": "packcore:block/depot", "y": 270 }
+  }
+}

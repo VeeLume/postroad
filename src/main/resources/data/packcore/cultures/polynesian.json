@@ -1,0 +1,50 @@
+{
+  "match": [
+    "sparse_jungle_polynesian",
+    "polynesian",
+    "beach"
+  ],
+  "patterns": [
+    "{prefix}{suffix}",
+    "{prefix} {prefix}",
+    "{prefix}{suffix}"
+  ],
+  "parts": {
+    "prefix": [
+      "Moa",
+      "Kai",
+      "Tahi",
+      "Rangi",
+      "Hono",
+      "Wai",
+      "Manu",
+      "Ora",
+      "Tapu",
+      "Nuku",
+      "Hiva",
+      "Rara",
+      "Pua",
+      "Moana",
+      "Toa"
+    ],
+    "suffix": [
+      "nui",
+      "roa",
+      "tea",
+      "iti",
+      "pua",
+      "loa",
+      "rangi",
+      "mata",
+      "toa",
+      "moana",
+      "kea"
+    ]
+  },
+  "disambiguators": [
+    "Nui",
+    "Iti",
+    "Roa",
+    "Tea"
+  ]
+}

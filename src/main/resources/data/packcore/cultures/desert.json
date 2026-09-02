@@ -1,0 +1,59 @@
+{
+  "match": [
+    "village_desert",
+    "desert",
+    "nilotic",
+    "badlands_pueblo"
+  ],
+  "patterns": [
+    "{prefix}{suffix}",
+    "Al-{prefix}{suffix}",
+    "{prefix} {word}"
+  ],
+  "parts": {
+    "prefix": [
+      "Sar",
+      "Qas",
+      "Zan",
+      "Mir",
+      "Kal",
+      "Tas",
+      "Ber",
+      "Ash",
+      "Hab",
+      "Nur",
+      "Rah",
+      "Sul",
+      "Dar",
+      "Ked",
+      "Zar"
+    ],
+    "suffix": [
+      "ra",
+      "ram",
+      "eth",
+      "ion",
+      "aza",
+      "oun",
+      "ish",
+      "ara",
+      "esh",
+      "una",
+      "iq",
+      "adh"
+    ],
+    "word": [
+      "Wells",
+      "Oasis",
+      "Gate",
+      "Reach",
+      "Rest"
+    ]
+  },
+  "disambiguators": [
+    "Old",
+    "New",
+    "Little",
+    "Great"
+  ]
+}

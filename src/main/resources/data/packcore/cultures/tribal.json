@@ -1,0 +1,54 @@
+{
+  "match": [
+    "jungle_tribal",
+    "jungle",
+    "mangrove",
+    "wooded_badlands_tipi",
+    "tipi",
+    "piglin"
+  ],
+  "patterns": [
+    "{prefix}{suffix}",
+    "{prefix}{suffix}",
+    "{prefix}-{suffix}"
+  ],
+  "parts": {
+    "prefix": [
+      "Ixa",
+      "Tzo",
+      "Kal",
+      "Yax",
+      "Cha",
+      "Mek",
+      "Tul",
+      "Pak",
+      "Zam",
+      "Uxa",
+      "Nak",
+      "Coa",
+      "Tep",
+      "Xoc",
+      "Ahu"
+    ],
+    "suffix": [
+      "mal",
+      "chan",
+      "tun",
+      "kin",
+      "ha",
+      "lum",
+      "pek",
+      "tan",
+      "col",
+      "cab",
+      "nal",
+      "che"
+    ]
+  },
+  "disambiguators": [
+    "Old",
+    "New",
+    "Little",
+    "Great"
+  ]
+}

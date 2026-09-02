@@ -1,0 +1,16 @@
+{
+  "replace": false,
+  "values": {
+    "minecraft:emerald": 4,
+    "minecraft:diamond": 12,
+    "minecraft:gold_ingot": 2,
+    "minecraft:golden_apple": 6,
+    "minecraft:enchanted_golden_apple": 40,
+    "minecraft:saddle": 5,
+    "minecraft:name_tag": 5,
+    "minecraft:music_disc_13": 8,
+    "minecraft:heart_of_the_sea": 30,
+    "minecraft:totem_of_undying": 25,
+    "minecraft:enchanted_book": 10
+  }
+}

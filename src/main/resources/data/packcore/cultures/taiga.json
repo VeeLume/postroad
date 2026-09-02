@@ -1,0 +1,59 @@
+{
+  "match": [
+    "village_taiga",
+    "taiga",
+    "spruce",
+    "old_growth",
+    "polish",
+    "swedish"
+  ],
+  "patterns": [
+    "{prefix}{suffix}",
+    "{prefix}{suffix}",
+    "{prefix}{suffix}"
+  ],
+  "parts": {
+    "prefix": [
+      "Bjor",
+      "Kal",
+      "Sor",
+      "Vik",
+      "Tor",
+      "Hel",
+      "Var",
+      "Skog",
+      "Lund",
+      "Ny",
+      "Kirk",
+      "Ost",
+      "Vest",
+      "Grun",
+      "Stok",
+      "Zabor",
+      "Bial",
+      "Kras"
+    ],
+    "suffix": [
+      "by",
+      "vik",
+      "dal",
+      "heim",
+      "stad",
+      "mark",
+      "fors",
+      "berg",
+      "holm",
+      "lund",
+      "nes",
+      "owo",
+      "ice",
+      "ów"
+    ]
+  },
+  "disambiguators": [
+    "Nord",
+    "Sud",
+    "Gamle",
+    "Nye"
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "match": [
+    "flower_forest_japanese",
+    "japanese",
+    "cherry"
+  ],
+  "patterns": [
+    "{prefix}{suffix}",
+    "{prefix}{suffix}",
+    "{prefix}{suffix}"
+  ],
+  "parts": {
+    "prefix": [
+      "Hana",
+      "Saku",
+      "Yama",
+      "Kawa",
+      "Mori",
+      "Hoshi",
+      "Tsuki",
+      "Kiri",
+      "Ume",
+      "Fuji",
+      "Aki",
+      "Haru",
+      "Shira",
+      "Kuro",
+      "Mizu",
+      "Tori",
+      "Kaze"
+    ],
+    "suffix": [
+      "mura",
+      "zaki",
+      "gawa",
+      "no",
+      "hara",
+      "saka",
+      "da",
+      "yama",
+      "shima",
+      "moto",
+      "oka",
+      "bashi",
+      "mori",
+      "sato"
+    ]
+  },
+  "disambiguators": [
+    "Kami",
+    "Shimo",
+    "Shin",
+    "Furu"
+  ]
+}

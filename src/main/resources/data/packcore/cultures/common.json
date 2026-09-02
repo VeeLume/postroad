@@ -1,0 +1,60 @@
+{
+  "match": [],
+  "patterns": [
+    "{prefix}{suffix}",
+    "{prefix}{suffix}",
+    "{prefix} {word}"
+  ],
+  "parts": {
+    "prefix": [
+      "Oak",
+      "Ash",
+      "Elm",
+      "Stone",
+      "Mill",
+      "Bright",
+      "Green",
+      "Fair",
+      "Ander",
+      "Wood",
+      "Thorn",
+      "Wester",
+      "Hazel",
+      "Fen",
+      "Marsh",
+      "Bram",
+      "Hol"
+    ],
+    "suffix": [
+      "hollow",
+      "ford",
+      "field",
+      "bridge",
+      "wick",
+      "haven",
+      "mere",
+      "brook",
+      "bury",
+      "ton",
+      "worth",
+      "ley",
+      "stead",
+      "dale"
+    ],
+    "word": [
+      "Cross",
+      "Market",
+      "Green",
+      "Well",
+      "Rest",
+      "End",
+      "Gate"
+    ]
+  },
+  "disambiguators": [
+    "New",
+    "Old",
+    "Upper",
+    "Lower"
+  ]
+}

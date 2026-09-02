@@ -1,0 +1,57 @@
+{
+  "match": [
+    "village_snowy",
+    "snowy",
+    "viking",
+    "norse"
+  ],
+  "patterns": [
+    "{prefix}{suffix}",
+    "{prefix}{suffix}",
+    "{prefix} {word}"
+  ],
+  "parts": {
+    "prefix": [
+      "Frost",
+      "Is",
+      "Snø",
+      "Hrafn",
+      "Ulf",
+      "Bjarn",
+      "Skal",
+      "Eir",
+      "Grim",
+      "Hval",
+      "Jok",
+      "Thor",
+      "Odd",
+      "Sig",
+      "Ran"
+    ],
+    "suffix": [
+      "heim",
+      "vik",
+      "fjord",
+      "gard",
+      "borg",
+      "stad",
+      "hus",
+      "ness",
+      "fell",
+      "holt",
+      "dal"
+    ],
+    "word": [
+      "Hearth",
+      "Watch",
+      "Landing",
+      "Rest"
+    ]
+  },
+  "disambiguators": [
+    "Nord",
+    "Sud",
+    "Gamle",
+    "Nye"
+  ]
+}

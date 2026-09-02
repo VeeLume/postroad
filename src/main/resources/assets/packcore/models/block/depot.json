@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "top": "packcore:block/depot_top",
+    "front": "packcore:block/depot_front",
+    "side": "packcore:block/depot_side"
+  }
+}

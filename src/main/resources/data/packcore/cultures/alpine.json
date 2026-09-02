@@ -1,0 +1,63 @@
+{
+  "match": [
+    "meadow_swiss",
+    "meadow",
+    "alpine",
+    "swiss"
+  ],
+  "patterns": [
+    "{prefix}{suffix}",
+    "{prefix}{suffix}",
+    "{prefix}-{prefix2}"
+  ],
+  "parts": {
+    "prefix": [
+      "Ober",
+      "Unter",
+      "Alt",
+      "Neu",
+      "Wald",
+      "Berg",
+      "Grün",
+      "Stein",
+      "Hoch",
+      "Tann",
+      "Blumen",
+      "Kuh",
+      "Sonnen",
+      "Eis",
+      "Roth",
+      "Weiss"
+    ],
+    "prefix2": [
+      "Matt",
+      "Bach",
+      "Alp",
+      "Egg",
+      "Wil",
+      "Ried"
+    ],
+    "suffix": [
+      "matt",
+      "wil",
+      "bach",
+      "egg",
+      "ried",
+      "berg",
+      "tal",
+      "hausen",
+      "ikon",
+      "dorf",
+      "weid",
+      "alp",
+      "brunn",
+      "stein"
+    ]
+  },
+  "disambiguators": [
+    "Ober",
+    "Unter",
+    "Alt",
+    "Neu"
+  ]
+}

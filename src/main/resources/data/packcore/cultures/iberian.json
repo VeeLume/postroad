@@ -1,0 +1,60 @@
+{
+  "match": [
+    "iberian",
+    "mediterranean",
+    "red_rock",
+    "skyris",
+    "tudor"
+  ],
+  "patterns": [
+    "{prefix}{suffix}",
+    "{prefix} {word}",
+    "{prefix}{suffix}"
+  ],
+  "parts": {
+    "prefix": [
+      "Val",
+      "Vil",
+      "Mont",
+      "Sant",
+      "Puer",
+      "Cast",
+      "Alde",
+      "Torre",
+      "Ribe",
+      "Alca",
+      "Bena",
+      "Sala",
+      "Pedra",
+      "Oli",
+      "Cam"
+    ],
+    "suffix": [
+      "adilla",
+      "afranca",
+      "esa",
+      "ares",
+      "anova",
+      "ejo",
+      "ente",
+      "ino",
+      "aro",
+      "ara",
+      "iel",
+      "osa"
+    ],
+    "word": [
+      "del Río",
+      "de la Sierra",
+      "del Mar",
+      "de Arriba",
+      "de Abajo"
+    ]
+  },
+  "disambiguators": [
+    "Alto",
+    "Bajo",
+    "Nuevo",
+    "Viejo"
+  ]
+}

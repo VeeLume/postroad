@@ -1,0 +1,10 @@
+{
+  "type": "packcore:fresh_loot",
+  "conditions": [],
+  "rules": [
+    { "prefix": "chests/", "origin": "container" },
+    { "prefix": "archaeology/", "origin": "container" },
+    { "prefix": "gameplay/fishing", "origin": "container" },
+    { "prefix": "entities/", "origin": "entity" }
+  ]
+}

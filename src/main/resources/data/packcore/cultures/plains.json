@@ -1,0 +1,70 @@
+{
+  "match": [
+    "village_plains",
+    "plains",
+    "classic",
+    "rustic",
+    "forest_ruins",
+    "birch"
+  ],
+  "patterns": [
+    "{prefix}{suffix}",
+    "{prefix}{suffix}",
+    "{prefix} {word}"
+  ],
+  "parts": {
+    "prefix": [
+      "Oak",
+      "Ash",
+      "Elm",
+      "Mill",
+      "Bright",
+      "Green",
+      "Fair",
+      "Wood",
+      "Hazel",
+      "Fen",
+      "Bram",
+      "Wheat",
+      "Hay",
+      "Apple",
+      "Barley",
+      "Cob",
+      "Lark",
+      "Row"
+    ],
+    "suffix": [
+      "hollow",
+      "ford",
+      "field",
+      "bridge",
+      "wick",
+      "haven",
+      "mere",
+      "brook",
+      "bury",
+      "ton",
+      "worth",
+      "ley",
+      "stead",
+      "dale",
+      "combe"
+    ],
+    "word": [
+      "Cross",
+      "Market",
+      "Green",
+      "Well",
+      "Rest",
+      "End",
+      "Gate",
+      "Hill"
+    ]
+  },
+  "disambiguators": [
+    "New",
+    "Old",
+    "Upper",
+    "Lower"
+  ]
+}

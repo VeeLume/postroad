@@ -1,0 +1,56 @@
+{
+  "match": [
+    "village_savanna",
+    "savanna",
+    "acacia"
+  ],
+  "patterns": [
+    "{prefix}{suffix}",
+    "{prefix}{suffix}",
+    "{prefix} {word}"
+  ],
+  "parts": {
+    "prefix": [
+      "Mba",
+      "Kwa",
+      "Tan",
+      "Uru",
+      "Sim",
+      "Ola",
+      "Nia",
+      "Zul",
+      "Kib",
+      "Mos",
+      "Aba",
+      "Lum",
+      "Ony",
+      "Tem"
+    ],
+    "suffix": [
+      "ka",
+      "ndi",
+      "ru",
+      "sha",
+      "goro",
+      "ni",
+      "we",
+      "mba",
+      "la",
+      "to",
+      "nga",
+      "zi"
+    ],
+    "word": [
+      "Springs",
+      "Rock",
+      "Shade",
+      "Crossing"
+    ]
+  },
+  "disambiguators": [
+    "Old",
+    "New",
+    "Little",
+    "Great"
+  ]
+}
