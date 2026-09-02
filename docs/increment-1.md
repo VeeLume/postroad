@@ -78,9 +78,14 @@ world are resolved by appending a distinguishing suffix from the culture's
 ## Fresh loot
 
 - Data component `packcore:fresh_loot { origin: "container" | "entity", day: int }`.
-- Stamped by a global loot modifier that runs for the `chest` and `entity`
-  loot parameter sets. Lootr generates per-player loot through the ordinary
-  loot-table path, so instancing needs no special handling.
+- Stamped by a global loot modifier. It classifies by the loot context, not
+  the table id: a block state means a block drop (not stamped), a damage
+  source means a mob drop (`entity`), everything else is container loot
+  (`container`). Modded structure tables with arbitrary paths therefore count
+  without configuration; the modifier's data file can still exclude or
+  re-label table families by path prefix. Lootr generates per-player loot
+  through the ordinary loot-table path, so instancing needs no special
+  handling.
 - `day` is the in-game day index (`gameTime / 24000`), not the tick, so loot
   taken on the same day stacks.
 - An item is fresh while `currentDay - day < settleDays` (config, default 3).

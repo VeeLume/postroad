@@ -2,9 +2,8 @@
   "type": "packcore:fresh_loot",
   "conditions": [],
   "rules": [
-    { "prefix": "chests/", "origin": "container" },
-    { "prefix": "archaeology/", "origin": "container" },
-    { "prefix": "gameplay/fishing", "origin": "container" },
-    { "prefix": "entities/", "origin": "entity" }
+    { "prefix": "blocks/", "origin": "none" },
+    { "prefix": "shearing/", "origin": "none" },
+    { "prefix": "gameplay/sniffer_digging", "origin": "none" }
   ]
 }

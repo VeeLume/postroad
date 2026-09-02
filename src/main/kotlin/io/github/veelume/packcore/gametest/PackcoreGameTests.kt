@@ -21,6 +21,10 @@ import net.minecraft.world.level.GameType
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.entity.ChestBlockEntity
 import net.minecraft.world.level.storage.loot.BuiltInLootTables
+import net.minecraft.world.level.storage.loot.LootParams
+import net.minecraft.world.level.storage.loot.parameters.LootContextParamSets
+import net.minecraft.world.level.storage.loot.parameters.LootContextParams
+import net.minecraft.world.phys.Vec3
 import net.neoforged.neoforge.gametest.GameTestHolder
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate
 
@@ -118,6 +122,32 @@ class PackcoreGameTests {
         }
         helper.assertTrue(total > 0, "loot table produced nothing")
         helper.assertValueEqual(stamped, total, "stacks carrying a fresh-loot stamp")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun any_container_table_is_stamped_but_block_drops_are_not(helper: GameTestHelper) {
+        val level = helper.level
+        val origin = Vec3.atCenterOf(helper.absolutePos(BlockPos(3, 1, 3)))
+        val registries = level.server.reloadableRegistries()
+
+        // A table whose path is not under chests/ (modded structures look like this).
+        val gift = registries.getLootTable(BuiltInLootTables.CAT_MORNING_GIFT)
+        val giftParams = LootParams.Builder(level).withParameter(LootContextParams.ORIGIN, origin).create(LootContextParamSets.CHEST)
+        val giftLoot = gift.getRandomItems(giftParams).filter { !it.isEmpty }
+        helper.assertTrue(giftLoot.isNotEmpty(), "gift table produced nothing")
+        helper.assertTrue(giftLoot.all { FreshLoot.of(it) != null }, "container loot without chests/ prefix was not stamped")
+
+        // A block drop must stay unstamped.
+        val stone = registries.getLootTable(Blocks.STONE.lootTable)
+        val blockParams = LootParams.Builder(level)
+            .withParameter(LootContextParams.ORIGIN, origin)
+            .withParameter(LootContextParams.BLOCK_STATE, Blocks.STONE.defaultBlockState())
+            .withParameter(LootContextParams.TOOL, ItemStack(Items.IRON_PICKAXE))
+            .create(LootContextParamSets.BLOCK)
+        val drops = stone.getRandomItems(blockParams).filter { !it.isEmpty }
+        helper.assertTrue(drops.isNotEmpty(), "stone dropped nothing")
+        helper.assertTrue(drops.none { FreshLoot.of(it) != null }, "block drop was stamped as loot")
         helper.succeed()
     }
 
