@@ -2,6 +2,7 @@ package io.github.veelume.postroad.depot
 
 import io.github.veelume.postroad.advancement.PostroadAdvancements
 import io.github.veelume.postroad.loot.FreshLoot
+import io.github.veelume.postroad.menu.DepotMenu
 import io.github.veelume.postroad.network.LedgerEntry
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.network.Place
@@ -15,7 +16,6 @@ import net.minecraft.world.InteractionResult
 import net.minecraft.world.ItemInteractionResult
 import net.minecraft.world.SimpleMenuProvider
 import net.minecraft.world.entity.player.Player
-import net.minecraft.world.inventory.ChestMenu
 import net.minecraft.world.item.ItemStack
 
 /** Server-side behaviour behind the depot block's clicks. */
@@ -36,9 +36,10 @@ object DepotInteraction {
     fun openStorage(level: ServerLevel, depot: DepotBlockEntity, player: Player): InteractionResult {
         val place = depot.place(level) ?: run { unregistered(player); return InteractionResult.CONSUME }
         val network = touch(level, player)
-        val container = network.storageFor(place.id)
         val title = Component.translatable("container.postroad.depot", place.name)
-        player.openMenu(SimpleMenuProvider({ id, inventory, _ -> ChestMenu.sixRows(id, inventory, container) }, title))
+        val pos = depot.blockPos
+        val provider = SimpleMenuProvider({ id, inventory, _ -> DepotMenu.server(id, inventory, level, pos, place.id) }, title)
+        player.openMenu(provider) { buf -> buf.writeBlockPos(pos) }
         return InteractionResult.CONSUME
     }
 

@@ -2,7 +2,8 @@ package io.github.veelume.postroad
 
 import io.github.veelume.postroad.command.PostroadCommands
 import io.github.veelume.postroad.depot.DepotEvents
-import io.github.veelume.postroad.loot.FreshLootTooltip
+import io.github.veelume.postroad.client.ClientSetup
+import io.github.veelume.postroad.menu.PostroadNetworking
 import io.github.veelume.postroad.mail.MailService
 import io.github.veelume.postroad.names.CultureRegistry
 import io.github.veelume.postroad.registry.PostroadBlockEntities
@@ -12,6 +13,7 @@ import io.github.veelume.postroad.registry.PostroadCreativeTabs
 import io.github.veelume.postroad.registry.PostroadDataMaps
 import io.github.veelume.postroad.registry.PostroadItems
 import io.github.veelume.postroad.registry.PostroadLootModifiers
+import io.github.veelume.postroad.registry.PostroadMenus
 import io.github.veelume.postroad.worldgen.CourierPostInjector
 import net.minecraft.resources.ResourceLocation
 import net.neoforged.api.distmarker.Dist
@@ -24,6 +26,7 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent
 import net.neoforged.neoforge.event.server.ServerAboutToStartEvent
 import net.neoforged.neoforge.event.server.ServerStartedEvent
 import net.neoforged.neoforge.event.tick.ServerTickEvent
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent
 import net.neoforged.neoforge.registries.datamaps.RegisterDataMapTypesEvent
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
@@ -51,6 +54,8 @@ object Postroad {
         PostroadComponents.REGISTER.register(MOD_BUS)
         PostroadCreativeTabs.REGISTER.register(MOD_BUS)
         PostroadLootModifiers.REGISTER.register(MOD_BUS)
+        PostroadMenus.REGISTER.register(MOD_BUS)
+        MOD_BUS.addListener(RegisterPayloadHandlersEvent::class.java, Consumer(PostroadNetworking::register))
         MOD_BUS.addListener(RegisterDataMapTypesEvent::class.java, Consumer(PostroadDataMaps::register))
 
         ModLoadingContext.get().activeContainer.registerConfig(ModConfig.Type.COMMON, PostroadConfig.SPEC)
@@ -63,7 +68,7 @@ object Postroad {
         FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(MailService::onServerTick))
 
         if (FMLEnvironment.dist == Dist.CLIENT) {
-            FreshLootTooltip.register()
+            ClientSetup.register()
         }
 
         LOGGER.info("Postroad initialised")

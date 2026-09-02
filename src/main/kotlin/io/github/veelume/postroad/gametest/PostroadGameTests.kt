@@ -208,7 +208,7 @@ class PostroadGameTests {
             val network = Network.get(server)
             network.postalUnlocked = true
             val today = FreshLoot.dayOf(helper.level)
-            val recipient = "mail-test-recipient"
+            val recipient = "mail-test-recipient-" + java.util.UUID.randomUUID().toString().take(8)
             val outbox = listOf(ItemStack(Items.COBBLESTONE, 40), ItemStack(Items.IRON_SWORD))
 
             val parcels = MailService.send(server, "mail-test-sender", recipient, a, b, outbox)
@@ -236,7 +236,7 @@ class PostroadGameTests {
             val server = helper.level.server
             val network = Network.get(server)
             network.postalUnlocked = true
-            val recipient = "mail-test-hoarder"
+            val recipient = "mail-test-hoarder-" + java.util.UUID.randomUUID().toString().take(8)
             val box = network.mailbox(recipient, b)
             for (slot in 0 until box.containerSize) box.setItem(slot, ItemStack(Items.STONE_SWORD))
 
@@ -256,7 +256,7 @@ class PostroadGameTests {
     fun home_town_is_the_default_destination(helper: GameTestHelper) {
         twoTowns(helper) { a, b ->
             val network = Network.get(helper.level.server)
-            val who = "mail-test-homebody"
+            val who = "mail-test-homebody-" + java.util.UUID.randomUUID().toString().take(8)
             helper.assertValueEqual(MailService.defaultDestination(network, who, a), a, "no home: current town")
             network.setHome(who, b)
             helper.assertValueEqual(MailService.defaultDestination(network, who, a), b, "home town wins")

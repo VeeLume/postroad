@@ -19,6 +19,9 @@ import net.minecraft.world.level.block.SoundType
 import net.minecraft.world.level.block.entity.BlockEntityType
 import net.minecraft.world.level.block.state.BlockBehaviour
 import net.minecraft.world.level.material.MapColor
+import io.github.veelume.postroad.menu.DepotMenu
+import net.minecraft.world.inventory.MenuType
+import net.neoforged.neoforge.common.extensions.IMenuTypeExtension
 import net.neoforged.neoforge.common.loot.IGlobalLootModifier
 import net.neoforged.neoforge.registries.DeferredBlock
 import net.neoforged.neoforge.registries.DeferredHolder
@@ -110,4 +113,13 @@ object PostroadLootModifiers {
 
     val FRESH_LOOT: DeferredHolder<MapCodec<out IGlobalLootModifier>, MapCodec<FreshLootModifier>> =
         REGISTER.register("fresh_loot", Supplier { FreshLootModifier.CODEC })
+}
+
+object PostroadMenus {
+    val REGISTER: DeferredRegister<MenuType<*>> = DeferredRegister.create(Registries.MENU, Postroad.MOD_ID)
+
+    val DEPOT: DeferredHolder<MenuType<*>, MenuType<DepotMenu>> = REGISTER.register(
+        "depot",
+        Supplier { IMenuTypeExtension.create { id, inventory, buf -> DepotMenu.client(id, inventory, buf) } },
+    )
 }

@@ -26,6 +26,11 @@ live in `docs/` (one per increment). This file is about the code.
   (all click behaviour, server side).
 - `loot/` — fresh-loot data component, the global loot modifier that stamps it, client tooltip.
 - `worldgen/CourierPostInjector` — appends the courier post to village house pools at server start.
+- `mail/MailService` — parcels: lane split, arrival days, delivery on day change; `network/Parcel`.
+- `menu/` — `DepotMenu` (one 54-slot grid, backing container swapped per tab; ints via data
+  slots, names via `DepotStatePayload`), `DepotState` + the two payloads, `PostroadNetworking`.
+- `client/` — `DepotScreen`, `ClientSetup`. Only referenced from the `Dist.CLIENT` branch in `Postroad`.
+- `advancement/PostroadAdvancements` — mod-granted milestones (impossible trigger) for FTB Quests.
 - `command/PostroadCommands` — `/postroad …`.
 
 ## Conventions
