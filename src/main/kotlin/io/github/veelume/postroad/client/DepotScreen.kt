@@ -26,6 +26,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
     private lateinit var destinationPrev: Button
     private lateinit var destinationNext: Button
     private lateinit var sendButton: Button
+    private lateinit var dumpButton: Button
 
     init {
         imageWidth = 176
@@ -39,7 +40,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
 
     override fun init() {
         super.init()
-        val tabWidth = imageWidth / DepotMenu.Tab.entries.size
+        val tabWidth = 58
         tabButtons = DepotMenu.Tab.entries.mapIndexed { i, tab ->
             addRenderableWidget(
                 Button.builder(Component.translatable("screen.postroad.depot.tab.${tab.name.lowercase()}"), action(DepotMenu.ACTION_TAB, i))
@@ -47,6 +48,12 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
                     .build(),
             )
         }
+        dumpButton = addRenderableWidget(
+            Button.builder(Component.translatable("screen.postroad.depot.dump"), action(DepotMenu.ACTION_DUMP))
+                .bounds(leftPos + imageWidth - 56, topPos - 22, 56, 20)
+                .tooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("screen.postroad.depot.dump.tooltip")))
+                .build(),
+        )
         prevPage = addRenderableWidget(Button.builder(Component.literal("<"), action(DepotMenu.ACTION_PAGE, -1)).bounds(leftPos + imageWidth - 34, topPos + 4, 12, 12).build())
         nextPage = addRenderableWidget(Button.builder(Component.literal(">"), action(DepotMenu.ACTION_PAGE, 1)).bounds(leftPos + imageWidth - 20, topPos + 4, 12, 12).build())
         homeButton = addRenderableWidget(Button.builder(Component.translatable("screen.postroad.depot.set_home"), action(DepotMenu.ACTION_SET_HOME)).bounds(leftPos + imageWidth - 70, topPos + 4, 32, 12).build())
@@ -73,6 +80,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         prevPage.visible = paged
         nextPage.visible = paged
         homeButton.visible = storage && !menu.isRemotePage()
+        dumpButton.visible = storage
         homeButton.active = menu.state.homeName != menu.state.townName
         val send = tab == DepotMenu.Tab.SEND
         destinationPrev.visible = send
@@ -102,16 +110,18 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
 
     override fun renderLabels(graphics: GuiGraphics, mouseX: Int, mouseY: Int) {
         val state = menu.state
-        val header: Component = when (menu.tab) {
+        val header: String = when (menu.tab) {
             DepotMenu.Tab.STORAGE -> {
                 val name = state.pageNames.getOrElse(menu.page) { state.townName }
-                when {
-                    !menu.unlocked || menu.pageCount <= 1 -> Component.literal(name)
-                    menu.isRemotePage() -> Component.translatable("screen.postroad.depot.title.page", name, menu.page + 1, menu.pageCount)
-                    else -> Component.translatable("screen.postroad.depot.title.page_here", name, menu.page + 1, menu.pageCount)
-                }
+                val paged = menu.unlocked && menu.pageCount > 1
+                // Buttons take the right of the title row; drop the counter, then trim, so nothing overlaps.
+                val available = imageWidth - 8 - (if (paged) 76 else 42) - 4
+                val marker = if (menu.isRemotePage()) "" else "» "
+                val counter = if (paged) " (${menu.page + 1}/${menu.pageCount})" else ""
+                val full = marker + name + counter
+                if (font.width(full) <= available) full else font.plainSubstrByWidth(marker + name, available - font.width("…")) + "…"
             }
-            DepotMenu.Tab.SEND -> Component.translatable("screen.postroad.depot.title.send", state.townName)
+            DepotMenu.Tab.SEND -> Component.translatable("screen.postroad.depot.title.send", state.townName).string
         }
         graphics.drawString(font, header, titleLabelX, titleLabelY, TEXT, false)
         graphics.drawString(font, playerInventoryTitle, inventoryLabelX, inventoryLabelY, TEXT, false)

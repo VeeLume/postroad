@@ -102,8 +102,13 @@ class DepotMenu private constructor(
 
     private fun refreshPages() {
         val s = server ?: return
-        pages = s.network.towns().map { it.id }
+        val here = s.placeId
+        val byDistance = compareBy<String> { s.network.distanceBetween(here, it) }
+        pages = s.network.towns().map { it.id }.sortedWith(compareBy<String> { it != here }.then(byDistance))
+        val mailbox = s.network.mailboxOf(playerName)?.id
+        val home = s.network.homeOf(playerName)?.id
         destinations = s.network.destinations().map { it.id }
+            .sortedWith(compareBy<String> { it != mailbox }.thenBy { it != home }.then(byDistance))
         pageCountData.set(pages.size)
         unlockedData.set(if (s.network.postalUnlocked) 1 else 0)
     }
@@ -155,6 +160,7 @@ class DepotMenu private constructor(
                 sendState()
             }
             ACTION_SEND -> send(s, player)
+            ACTION_DUMP -> dump(s)
             ACTION_SET_HOME -> {
                 s.network.setHome(playerName, s.placeId)
                 (player as? ServerPlayer)?.let { PostroadAdvancements.award(it, PostroadAdvancements.HOME_SET) }
@@ -162,6 +168,24 @@ class DepotMenu private constructor(
                 sendState()
             }
         }
+    }
+
+    /** Moves the main inventory (not hotbar, not armour) into the current page, as far as it fits. */
+    private fun dump(s: ServerSide) {
+        if (tab != Tab.STORAGE) return
+        var moved = 0
+        for (index in GRID until GRID + 27) {
+            val slot = slots[index]
+            if (!slot.hasItem()) continue
+            val stack = slot.item
+            val before = stack.count
+            if (moveItemStackTo(stack, 0, activeSlots, false)) {
+                moved += before - stack.count
+                if (stack.isEmpty) slot.setByPlayer(ItemStack.EMPTY) else slot.setChanged()
+            }
+        }
+        playerInventory.player.displayClientMessage(Component.translatable("screen.postroad.depot.dumped", moved), true)
+        broadcastChanges()
     }
 
     private fun send(s: ServerSide, player: Player) {
@@ -187,6 +211,12 @@ class DepotMenu private constructor(
             Component.translatable("screen.postroad.depot.sent_valuables", town, valuables.arrivalDay - FreshLoot.dayOf(s.level))
         }
         player.displayClientMessage(message.withStyle(ChatFormatting.GOLD), false)
+        sendState()
+    }
+
+    /** Runs after the open-screen packet, so the client menu exists to receive the state. */
+    override fun sendAllDataToRemote() {
+        super.sendAllDataToRemote()
         sendState()
     }
 
@@ -225,6 +255,7 @@ class DepotMenu private constructor(
         const val ACTION_DESTINATION = 3
         const val ACTION_SEND = 4
         const val ACTION_SET_HOME = 5
+        const val ACTION_DUMP = 6
 
         fun client(id: Int, inventory: Inventory, buf: RegistryFriendlyByteBuf): DepotMenu =
             DepotMenu(id, inventory, buf.readBlockPos(), null)

@@ -132,10 +132,15 @@ Network (existing)
 
 - One `MenuType` opened by the depot with the place id as extra data. Tabs
   are server-side state on the menu so the same menu backs every view.
-- Widgets: tab bar; page arrows plus the town name in the title of the
-  storage tab ("Fair Gate · here (1/4)"); the destination as an arrow
-  selector on the send tab, no free-text entry; a *Home* button on the
-  storage tab while it shows the current town.
+- Widgets: tab bar with a *Dump* button (main inventory into the shown
+  page); page arrows plus the town name in the title of the storage tab
+  ("» Fair Gate (1/4)", the marker meaning *here*; the title trims itself
+  rather than run under the buttons); the destination as an arrow selector
+  on the send tab, no free-text entry; a *Home* button on the storage tab
+  while it shows the current town.
+- Pages are ordered here-first, then by distance; destinations own mailbox,
+  home town, then by distance. Arrow selectors will not scale past a dozen
+  towns — a pick-list is the next step if the network grows that far.
 - Actions that are not slot clicks (change tab, change page, pick
   destination, send, set home) are payloads registered with NeoForge's
   payload registrar; every one is validated server-side against the menu's
