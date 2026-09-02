@@ -65,5 +65,9 @@
   "screen.postroad.depot.sent_bulk": "Sent to %s — arrives at once.",
   "screen.postroad.depot.sent_valuables": "Sent to %s — the valuables arrive in %s day(s).",
   "screen.postroad.depot.no_transit": "Nothing in transit.",
-  "screen.postroad.depot.same_town": "That is this town — put it in the town storage instead."
+  "screen.postroad.depot.same_town": "That is this town — put it in the town storage instead.",
+  "block.postroad.mailbox": "Mailbox",
+  "message.postroad.mailbox.placed": "Mailbox set up: %s is now a parcel destination.",
+  "advancement.postroad.mailbox_placed.title": "Home Delivery",
+  "advancement.postroad.mailbox_placed.description": "Set up a mailbox at your base."
 }

@@ -22,16 +22,22 @@ In:
 - **Depot screen** — one custom screen with tabs: this town, network storage,
   send.
 
+- **Mailbox block** — an earned block (quest reward, no recipe) a player
+  places at their base. It registers "<Player>'s mailbox" as a destination,
+  so parcels can go to the base instead of a town. Receive-only: sending
+  still happens at a depot.
+
 > **Revised in playtest (2026-09-02):** the first cut had per-player
-> mailboxes and a recipient selector. In a cooperative group that added a tab
-> and a choice without adding anything: a parcel goes to a *town*, and whoever
-> is there takes it out of the town storage. Mailboxes and recipients are gone;
-> the home town remains as the default destination.
+> mailboxes *inside depots* and a recipient selector. In a cooperative group
+> that added a tab and a choice without adding anything: a parcel goes to a
+> *place*, and whoever is there takes it out. The player-specific part
+> survives as the mailbox block: towns are the base destination, a mailbox
+> at home is the upgrade.
 - **Advancements** — granted by the mod at each milestone so FTB Quests can
   use them as task triggers.
 
-Out (later increments): signs, teleport, fares, roads, cargo box, home
-mailbox blocks, road-quality multipliers on delivery time.
+Out (later increments): signs, teleport, fares, roads, cargo box,
+road-quality multipliers on delivery time.
 
 ## Rules
 
@@ -63,10 +69,19 @@ Network (existing)
 ├── postalUnlocked: Boolean
 ├── homes: Map<player, PlaceId>
 ├── storage: Map<PlaceId, ItemContainer(54)>      // unchanged; now the pages
-└── parcels: List<Parcel>
-      Parcel { id, sender, from: PlaceId, to: PlaceId,
-               items: List<ItemStack>, sentDay, arrivalDay, lane }
+├── parcels: List<Parcel>
+│     Parcel { id, sender, from: PlaceId, to: PlaceId,
+│              items: List<ItemStack>, sentDay, arrivalDay, lane }
+└── mailboxes: Map<PlaceId, ItemContainer(27)>   // mailbox-block contents
 ```
+
+- A mailbox is a `Place` of type `mailbox` with an `owner`; its id is the
+  block position. Its contents live in the network, not the block entity, so
+  a parcel can land while the chunk is unloaded; the block only opens them.
+  Breaking the block drops the contents, removes the place and redirects
+  parcels on the way to the owner's home town, else back to the sending town.
+- Destinations = towns (places with a depot) followed by mailboxes. Network
+  storage pages stay towns only.
 
 - Player keys are lower-cased names, as accounts already are.
 - `parcels` holds parcels in transit and parcels that arrived but did not
@@ -87,8 +102,8 @@ Network (existing)
 ## Mail flow
 
 1. **Send tab** at any depot: a 9-slot outbox, the destination chosen from
-   the towns with a depot (arrow buttons, no typing), defaulting to the
-   sender's home town, and a Send button. Sending to the current town is
+   towns and mailboxes (arrow buttons, no typing), defaulting to the
+   sender's own mailbox, else their home town, and a Send button. Sending to the current town is
    refused — that is what the town storage is for.
 2. On Send the outbox is split into two parcels if needed: one with all
    stackables (bulk lane), one with all unstackables (valuables lane). Each
@@ -134,6 +149,7 @@ Impossible-trigger advancements, hidden, granted through
 - `postroad:home_set` — home town chosen.
 - `postroad:postal_network` — charter applied.
 - `postroad:parcel_sent` — first parcel to another town.
+- `postroad:mailbox_placed` — a mailbox set up at the base.
 
 FTB Quests uses these as advancement tasks; the questbook text and rewards
 stay in the modpack.

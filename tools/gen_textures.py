@@ -70,8 +70,38 @@ def charter():
     im.save(ROOT / "item/postal_charter.png")
 
 
+def mailbox_base():
+    im = Image.new("RGBA", (16, 16), (52, 78, 132, 255))
+    d = ImageDraw.Draw(im)
+    d.rectangle((0, 0, 15, 15), outline=(34, 52, 92, 255))
+    return im, d
+
+
+def mailbox_side():
+    im, d = mailbox_base()
+    d.line((0, 12, 15, 12), fill=(34, 52, 92, 255))
+    im.save(ROOT / "block/mailbox_side.png")
+
+
+def mailbox_top():
+    im, d = mailbox_base()
+    d.rectangle((2, 2, 13, 13), outline=(70, 100, 160, 255))
+    im.save(ROOT / "block/mailbox_top.png")
+
+
+def mailbox_front():
+    im, d = mailbox_base()
+    d.rectangle((3, 4, 12, 6), fill=(20, 24, 40, 255))
+    d.rectangle((11, 8, 13, 13), fill=(200, 40, 40, 255))
+    d.rectangle((5, 9, 9, 12), fill=(230, 220, 190, 255))
+    im.save(ROOT / "block/mailbox_front.png")
+
+
 coin()
 charter()
+mailbox_side()
+mailbox_top()
+mailbox_front()
 depot_side()
 depot_top()
 depot_front()

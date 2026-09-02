@@ -14,17 +14,19 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent
 data class DepotState(
     val townName: String,
     val pageNames: List<String>,
+    val destinationNames: List<String>,
     val destinationIndex: Int,
     val homeName: String,
     val transitLines: List<String>,
 ) {
     companion object {
-        val EMPTY = DepotState("", emptyList(), 0, "", emptyList())
+        val EMPTY = DepotState("", emptyList(), emptyList(), 0, "", emptyList())
 
         val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, DepotState> = StreamCodec.of(
             { buf, s ->
                 buf.writeUtf(s.townName)
                 buf.writeCollection(s.pageNames) { b, v -> b.writeUtf(v) }
+                buf.writeCollection(s.destinationNames) { b, v -> b.writeUtf(v) }
                 buf.writeVarInt(s.destinationIndex)
                 buf.writeUtf(s.homeName)
                 buf.writeCollection(s.transitLines) { b, v -> b.writeUtf(v) }
@@ -33,6 +35,7 @@ data class DepotState(
                 DepotState(
                     townName = buf.readUtf(),
                     pageNames = buf.readList { it.readUtf() },
+                    destinationNames = buf.readList { it.readUtf() },
                     destinationIndex = buf.readVarInt(),
                     homeName = buf.readUtf(),
                     transitLines = buf.readList { it.readUtf() },

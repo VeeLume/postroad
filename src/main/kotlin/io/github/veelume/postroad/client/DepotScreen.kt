@@ -113,7 +113,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
 
         if (menu.tab == DepotMenu.Tab.SEND) {
             graphics.drawString(font, Component.translatable("screen.postroad.depot.to"), 9, SEND_ROW + 3, TEXT, false)
-            drawCentered(graphics, state.pageNames.getOrElse(state.destinationIndex) { "—" }, 101, SEND_ROW + 3, TEXT_STRONG)
+            drawCentered(graphics, state.destinationNames.getOrElse(state.destinationIndex) { "—" }, 101, SEND_ROW + 3, TEXT_STRONG)
             var y = SEND_ROW + 22
             val lines = state.transitLines.ifEmpty { listOf(Component.translatable("screen.postroad.depot.no_transit").string) }
             for (line in lines.take(4)) {

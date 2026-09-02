@@ -1,0 +1,23 @@
+{
+  "parent": "postroad:postal_network",
+  "display": {
+    "icon": {
+      "id": "postroad:mailbox"
+    },
+    "title": {
+      "translate": "advancement.postroad.mailbox_placed.title"
+    },
+    "description": {
+      "translate": "advancement.postroad.mailbox_placed.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": false,
+    "hidden": false
+  },
+  "criteria": {
+    "impossible": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

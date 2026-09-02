@@ -7,6 +7,8 @@ import io.github.veelume.postroad.depot.DepotBlock
 import io.github.veelume.postroad.depot.DepotBlockEntity
 import io.github.veelume.postroad.loot.FreshLoot
 import io.github.veelume.postroad.loot.FreshLootModifier
+import io.github.veelume.postroad.mailbox.MailboxBlock
+import io.github.veelume.postroad.mailbox.MailboxBlockEntity
 import net.minecraft.core.component.DataComponentType
 import net.minecraft.core.registries.Registries
 import net.minecraft.network.chat.Component
@@ -40,6 +42,13 @@ object PostroadBlocks {
         ::DepotBlock,
         BlockBehaviour.Properties.of().mapColor(MapColor.WOOD).strength(2.5f).sound(SoundType.WOOD),
     )
+
+    /** A player's home delivery point. Earned (quest reward), never crafted. */
+    val MAILBOX: DeferredBlock<MailboxBlock> = REGISTER.registerBlock(
+        "mailbox",
+        ::MailboxBlock,
+        BlockBehaviour.Properties.of().mapColor(MapColor.COLOR_BLUE).strength(2.5f).sound(SoundType.WOOD),
+    )
 }
 
 object PostroadItems {
@@ -49,6 +58,8 @@ object PostroadItems {
     val COIN: DeferredItem<Item> = REGISTER.registerSimpleItem("coin", Item.Properties())
 
     val DEPOT: DeferredItem<BlockItem> = REGISTER.registerSimpleBlockItem(PostroadBlocks.DEPOT)
+
+    val MAILBOX: DeferredItem<BlockItem> = REGISTER.registerSimpleBlockItem(PostroadBlocks.MAILBOX)
 
     /** Unlocks the postal network for the whole group when used on a depot. Quest reward, no recipe. */
     val POSTAL_CHARTER: DeferredItem<Item> =
@@ -62,6 +73,11 @@ object PostroadBlockEntities {
     val DEPOT: DeferredHolder<BlockEntityType<*>, BlockEntityType<DepotBlockEntity>> = REGISTER.register(
         "depot",
         Supplier { BlockEntityType.Builder.of(::DepotBlockEntity, PostroadBlocks.DEPOT.get()).build(null) },
+    )
+
+    val MAILBOX: DeferredHolder<BlockEntityType<*>, BlockEntityType<MailboxBlockEntity>> = REGISTER.register(
+        "mailbox",
+        Supplier { BlockEntityType.Builder.of(::MailboxBlockEntity, PostroadBlocks.MAILBOX.get()).build(null) },
     )
 }
 
@@ -89,6 +105,7 @@ object PostroadCreativeTabs {
                     output.accept(PostroadItems.COIN.get())
                     output.accept(PostroadItems.DEPOT.get())
                     output.accept(PostroadItems.POSTAL_CHARTER.get())
+                    output.accept(PostroadItems.MAILBOX.get())
                 }
                 .build()
         },

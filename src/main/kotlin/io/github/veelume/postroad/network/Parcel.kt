@@ -16,7 +16,7 @@ data class Parcel(
     val id: UUID,
     val sender: String,
     val from: String,
-    val to: String,
+    var to: String,
     val items: MutableList<ItemStack>,
     val sentDay: Long,
     val arrivalDay: Long,

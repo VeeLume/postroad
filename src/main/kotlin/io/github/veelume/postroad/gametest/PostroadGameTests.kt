@@ -279,6 +279,35 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun mailbox_is_a_destination_and_the_default(helper: GameTestHelper) {
+        twoTowns(helper) { a, _ ->
+            val server = helper.level.server
+            val network = Network.get(server)
+            network.postalUnlocked = true
+            val owner = "mail-test-owner-" + java.util.UUID.randomUUID().toString().take(8)
+            val boxPos = BlockPos(3, 1, 5)
+            helper.setBlock(boxPos, PostroadBlocks.MAILBOX.get())
+            val entity = helper.getBlockEntity<io.github.veelume.postroad.mailbox.MailboxBlockEntity>(boxPos)
+            entity.claim(helper.level, owner)
+            val boxId = entity.placeId ?: return@twoTowns helper.fail("mailbox not registered")
+
+            helper.assertTrue(network.isDestination(boxId), "mailbox is a destination")
+            helper.assertValueEqual(MailService.defaultDestination(network, owner, a), boxId, "own mailbox is the default")
+            helper.assertTrue(network.destinations().any { it.id == boxId }, "mailbox listed among destinations")
+            helper.assertTrue(network.towns().none { it.id == boxId }, "mailbox is not a town page")
+
+            MailService.send(server, owner, a, boxId, listOf(ItemStack(Items.COBBLESTONE, 12)))
+            helper.assertValueEqual(network.mailboxStorage(boxId).countItem(Items.COBBLESTONE), 12, "delivered into the mailbox")
+            helper.assertValueEqual(network.storageFor(a).countItem(Items.COBBLESTONE), 0, "nothing landed in the town")
+
+            val contents = network.removeMailbox(boxId)
+            helper.assertValueEqual(contents.countItem(Items.COBBLESTONE), 12, "contents returned on removal")
+            helper.assertTrue(!network.isDestination(boxId), "removed mailbox is no destination")
+            helper.succeed()
+        }
+    }
+
+    @GameTest(template = ARENA)
     fun names_are_deterministic_per_seed_and_place(helper: GameTestHelper) {
         val culture = Culture(
             id = "test",

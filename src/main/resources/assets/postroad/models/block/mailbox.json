@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "top": "postroad:block/mailbox_top",
+    "front": "postroad:block/mailbox_front",
+    "side": "postroad:block/mailbox_side"
+  }
+}

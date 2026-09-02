@@ -16,6 +16,8 @@ data class Place(
     val dimension: ResourceLocation,
     val pos: BlockPos,
     val discoveredDay: Long,
+    /** Owning player (lower-case) for mailbox places; null otherwise. */
+    val owner: String? = null,
 ) {
     fun toTag(): CompoundTag {
         val tag = CompoundTag()
@@ -26,6 +28,7 @@ data class Place(
         tag.putString("Dimension", dimension.toString())
         tag.putLong("Pos", pos.asLong())
         tag.putLong("DiscoveredDay", discoveredDay)
+        owner?.let { tag.putString("Owner", it) }
         return tag
     }
 
@@ -33,6 +36,7 @@ data class Place(
         const val TYPE_VILLAGE = "village"
         const val TYPE_TAVERN = "tavern"
         const val TYPE_FOUNDED = "founded"
+        const val TYPE_MAILBOX = "mailbox"
 
         fun fromTag(tag: CompoundTag): Place? {
             val dimension = ResourceLocation.tryParse(tag.getString("Dimension")) ?: return null
@@ -44,6 +48,7 @@ data class Place(
                 dimension = dimension,
                 pos = BlockPos.of(tag.getLong("Pos")),
                 discoveredDay = tag.getLong("DiscoveredDay"),
+                owner = if (tag.contains("Owner")) tag.getString("Owner") else null,
             )
         }
     }

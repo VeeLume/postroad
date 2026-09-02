@@ -64,6 +64,20 @@ object PlaceResolver {
         return Result.Bound(id)
     }
 
+    /** Registers a player's mailbox at [pos] as a destination named after them. */
+    fun registerMailbox(level: ServerLevel, pos: BlockPos, owner: String): String {
+        val network = Network.get(level.server)
+        val dimension = level.dimension().location()
+        val id = "mailbox/$dimension/${pos.x}/${pos.y}/${pos.z}"
+        if (network.places[id] == null) {
+            network.addPlace(
+                Place(id, "$owner's mailbox", CultureRegistry.DEFAULT, Place.TYPE_MAILBOX, dimension, pos, FreshLoot.dayOf(level), owner.lowercase()),
+            )
+            Postroad.LOGGER.info("New mailbox for {} at {}", owner, pos.toShortString())
+        }
+        return id
+    }
+
     private fun findStructure(level: ServerLevel, pos: BlockPos): Pair<ResourceLocation, StructureStart>? {
         val manager = level.structureManager()
         val registry = level.registryAccess().registryOrThrow(Registries.STRUCTURE)

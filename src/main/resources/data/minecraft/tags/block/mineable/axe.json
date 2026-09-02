@@ -1,1 +1,7 @@
-{ "replace": false, "values": [ "postroad:depot" ] }
+{
+  "replace": false,
+  "values": [
+    "postroad:depot",
+    "postroad:mailbox"
+  ]
+}

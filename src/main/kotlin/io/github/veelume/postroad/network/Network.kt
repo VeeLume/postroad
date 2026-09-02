@@ -53,6 +53,9 @@ class Network : SavedData() {
 
     val parcels: MutableList<Parcel> = ArrayList()
 
+    /** Mailbox place id → contents. Lives here so parcels arrive while the chunk is unloaded. */
+    private val mailboxes: MutableMap<String, TownContainer> = HashMap()
+
     var lastDeliveryDay: Long = -1L
         set(value) {
             field = value
@@ -78,6 +81,18 @@ class Network : SavedData() {
 
     /** Places that have a depot, in discovery order. */
     fun towns(): List<Place> = places.values.filter { hasDepot(it.id) }
+
+    /** Everything a parcel can be sent to: towns, then player mailboxes. */
+    fun destinations(): List<Place> = towns() + places.values.filter { it.type == Place.TYPE_MAILBOX }
+
+    fun isDestination(placeId: String): Boolean = hasDepot(placeId) || places[placeId]?.type == Place.TYPE_MAILBOX
+
+    /** The container a parcel to [placeId] lands in. */
+    fun deliveryTarget(placeId: String): SimpleContainer =
+        if (places[placeId]?.type == Place.TYPE_MAILBOX) mailboxStorage(placeId) else storageFor(placeId)
+
+    fun mailboxOf(player: String): Place? =
+        places.values.firstOrNull { it.type == Place.TYPE_MAILBOX && it.owner == player.lowercase() }
 
     fun placeByName(name: String): Place? = places.values.firstOrNull { it.name.equals(name, ignoreCase = true) }
 
@@ -120,6 +135,25 @@ class Network : SavedData() {
     }
 
     fun homeOf(player: String): Place? = homes[player.lowercase()]?.let { places[it] }
+
+    // ---- mailboxes ----------------------------------------------------------------------------
+
+    fun mailboxStorage(placeId: String): SimpleContainer =
+        mailboxes.getOrPut(placeId) { TownContainer(this, TownContainer.MAILBOX_SIZE) }
+
+    /** Removes a mailbox place; returns its contents. Parcels on the way are redirected. */
+    fun removeMailbox(placeId: String): SimpleContainer {
+        val place = places.remove(placeId)
+        val contents = mailboxes.remove(placeId) ?: TownContainer(this, TownContainer.MAILBOX_SIZE)
+        val fallbackHome = place?.owner?.let { homes[it] }
+        for (parcel in parcels) {
+            if (parcel.to == placeId) {
+                parcel.to = fallbackHome?.takeIf { hasDepot(it) } ?: parcel.from
+            }
+        }
+        setDirty()
+        return contents
+    }
 
     // ---- parcels ------------------------------------------------------------------------------
 
@@ -183,6 +217,16 @@ class Network : SavedData() {
         tag.put("Homes", CompoundTag().also { homes.forEach { (p, place) -> it.putString(p, place) } })
         tag.put("KnownPlayers", CompoundTag().also { knownPlayers.forEach { (k, v) -> it.putString(k, v) } })
         tag.put("Parcels", ListTag().also { list -> parcels.forEach { if (it.items.isNotEmpty()) list.add(it.toTag(registries)) } })
+        tag.put("Mailboxes", ListTag().also { list ->
+            mailboxes.forEach { (placeId, container) ->
+                if (!container.isEmpty) {
+                    val entry = CompoundTag()
+                    entry.putString("Place", placeId)
+                    ContainerHelper.saveAllItems(entry, container.items, registries)
+                    list.add(entry)
+                }
+            }
+        })
         return tag
     }
 
@@ -219,6 +263,12 @@ class Network : SavedData() {
         tag.getList("Parcels", Tag.TAG_COMPOUND.toInt()).forEach { t ->
             Parcel.fromTag(t as CompoundTag, registries)?.let { if (it.items.isNotEmpty()) parcels.add(it) }
         }
+        tag.getList("Mailboxes", Tag.TAG_COMPOUND.toInt()).forEach { t ->
+            val c = t as CompoundTag
+            val container = TownContainer(this, TownContainer.MAILBOX_SIZE)
+            ContainerHelper.loadAllItems(c, container.items, registries)
+            mailboxes[c.getString("Place")] = container
+        }
     }
 
     companion object {
@@ -253,6 +303,7 @@ class TownContainer(private val network: Network, size: Int) : SimpleContainer(s
 
     companion object {
         const val TOWN_SIZE = 54
+        const val MAILBOX_SIZE = 27
     }
 }
 

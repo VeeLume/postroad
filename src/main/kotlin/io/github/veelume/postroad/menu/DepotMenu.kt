@@ -54,6 +54,7 @@ class DepotMenu private constructor(
 
     // server-only bookkeeping
     private var pages: List<String> = emptyList()
+    private var destinations: List<String> = emptyList()
     private var destinationIndex = 0
 
     val tab: Tab get() = Tab.entries[tabData.get().coerceIn(0, Tab.entries.size - 1)]
@@ -85,7 +86,7 @@ class DepotMenu private constructor(
             val current = pages.indexOf(server.placeId).coerceAtLeast(0)
             currentPageData.set(current)
             pageData.set(current)
-            destinationIndex = pages.indexOf(MailService.defaultDestination(server.network, playerName, server.placeId)).coerceAtLeast(0)
+            destinationIndex = destinations.indexOf(MailService.defaultDestination(server.network, playerName, server.placeId)).coerceAtLeast(0)
             applyTab(Tab.TOWN)
         }
     }
@@ -102,6 +103,7 @@ class DepotMenu private constructor(
     private fun refreshPages() {
         val s = server ?: return
         pages = s.network.towns().map { it.id }
+        destinations = s.network.destinations().map { it.id }
         pageCountData.set(pages.size)
         unlockedData.set(if (s.network.postalUnlocked) 1 else 0)
     }
@@ -130,6 +132,7 @@ class DepotMenu private constructor(
         state = DepotState(
             townName = s.network.places[s.placeId]?.name ?: "",
             pageNames = pages.map { s.network.places[it]?.name ?: it },
+            destinationNames = destinations.map { s.network.places[it]?.name ?: it },
             destinationIndex = destinationIndex,
             homeName = s.network.homeOf(playerName)?.name ?: "",
             transitLines = lines,
@@ -148,8 +151,8 @@ class DepotMenu private constructor(
                 grid.target = s.network.storageFor(pages[page])
                 sendState()
             }
-            ACTION_DESTINATION -> if (pages.isNotEmpty()) {
-                destinationIndex = Math.floorMod(destinationIndex + value, pages.size)
+            ACTION_DESTINATION -> if (destinations.isNotEmpty()) {
+                destinationIndex = Math.floorMod(destinationIndex + value, destinations.size)
                 sendState()
             }
             ACTION_SEND -> send(s, player)
@@ -169,7 +172,7 @@ class DepotMenu private constructor(
             player.displayClientMessage(Component.translatable("screen.postroad.depot.outbox_empty"), true)
             return
         }
-        val destination = pages.getOrNull(destinationIndex) ?: return
+        val destination = destinations.getOrNull(destinationIndex) ?: return
         if (destination == s.placeId) {
             player.displayClientMessage(Component.translatable("screen.postroad.depot.same_town"), true)
             return

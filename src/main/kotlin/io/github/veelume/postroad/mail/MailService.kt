@@ -26,9 +26,9 @@ object MailService {
     fun valuablesDays(distance: Double): Long =
         PostroadConfig.valuablesBaseDays + ceil(distance / PostroadConfig.valuablesBlocksPerDay).toLong()
 
-    /** The town a parcel from [sender] goes to unless they pick another. */
+    /** Where a parcel from [sender] goes unless they pick another: their mailbox, else their home town, else here. */
     fun defaultDestination(network: Network, sender: String, currentPlaceId: String): String =
-        network.homeOf(sender)?.id ?: currentPlaceId
+        network.mailboxOf(sender)?.id ?: network.homeOf(sender)?.id ?: currentPlaceId
 
     /**
      * Sends the non-empty stacks of [outbox] from [fromPlace] to [toPlace]. Returns the parcels
@@ -37,7 +37,7 @@ object MailService {
     fun send(server: MinecraftServer, sender: String, fromPlace: String, toPlace: String, outbox: List<ItemStack>): List<Parcel> {
         val network = Network.get(server)
         require(network.postalUnlocked) { "postal network not unlocked" }
-        require(network.hasDepot(toPlace)) { "destination has no depot" }
+        require(network.isDestination(toPlace)) { "not a destination" }
         val today = FreshLoot.dayOf(server.overworld())
         val bulk = outbox.filter { !it.isEmpty && it.isStackable }.map { it.copy() }
         val valuables = outbox.filter { !it.isEmpty && !it.isStackable }.map { it.copy() }
@@ -68,9 +68,9 @@ object MailService {
         while (iterator.hasNext()) {
             val parcel = iterator.next()
             if (!parcel.isDue(today)) continue
-            val storage = network.storageFor(parcel.to)
+            val target = network.deliveryTarget(parcel.to)
             val before = parcel.items.size
-            deliverInto(storage, parcel.items)
+            deliverInto(target, parcel.items)
             if (parcel.items.isEmpty()) {
                 iterator.remove()
                 changed = true
