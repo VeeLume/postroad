@@ -1,6 +1,7 @@
 package io.github.veelume.packcore
 
 import io.github.veelume.packcore.command.PackcoreCommands
+import io.github.veelume.packcore.depot.DepotEvents
 import io.github.veelume.packcore.loot.FreshLootTooltip
 import io.github.veelume.packcore.names.CultureRegistry
 import io.github.veelume.packcore.registry.PackcoreBlockEntities
@@ -54,6 +55,7 @@ object Packcore {
         FORGE_BUS.addListener(AddReloadListenerEvent::class.java, Consumer { it.addListener(CultureRegistry) })
         FORGE_BUS.addListener(RegisterCommandsEvent::class.java, Consumer(PackcoreCommands::register))
         FORGE_BUS.addListener(ServerAboutToStartEvent::class.java, Consumer(CourierPostInjector::onServerAboutToStart))
+        DepotEvents.register()
 
         if (FMLEnvironment.dist == Dist.CLIENT) {
             FreshLootTooltip.register()

@@ -39,6 +39,11 @@ live in `docs/` (one per increment). This file is about the code.
   planner) must be a pure function over copied data.
 - **Event listeners** use the explicit `addListener(Event::class.java, Consumer)` overload —
   the reflective one cannot resolve Kotlin lambdas' generic type.
+- **Sneak + item never reaches a block's `useItemOn`** — vanilla treats it as a secondary use
+  and goes straight to the item. Interactions that need "sneak with X in hand" are handled in
+  `PlayerInteractEvent.RightClickBlock` (see `depot/DepotEvents.kt`) and the event is cancelled.
+  `GameTestHelper.useBlock` calls the block directly, so a passing game test does not prove the
+  in-game path; keep both.
 - **Access transformers** over mixins. Current ATs: `StructureTemplatePool.rawTemplates/templates`.
 - Lang keys: `message.packcore.*` for chat feedback, `command.packcore.*` for command output.
 - No personal or machine-specific details in this repo (paths, hosts, who plays); those live in

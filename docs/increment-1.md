@@ -104,6 +104,8 @@ world are resolved by appending a distinguishing suffix from the culture's
   not fresh, or not in the data map, are refused with a message.
 - Sneak-use with an empty hand → chat shows the town name, wallet balance,
   road fund balance and the last five ledger entries.
+- Sneak-use with an item in hand is intercepted in the right-click event
+  (vanilla would otherwise hand the click to the item, never the block).
 - There is no withdrawal. Balances only ever decrease through fares and road
   works in later increments.
 
