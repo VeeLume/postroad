@@ -1,13 +1,13 @@
 # Increment 3 — Signs and travel
 
 Increment 2 moves goods; this one moves people. Roads get recognised and
-graded, a walked road becomes a *section* of the network, and sections can be
+graded, a walked road becomes a *path* of the network, and paths can be
 travelled along for a fare. The road buff makes any recognised road worth
 walking even before the network exists. Via Romana leaves the pack at the end
 of this increment.
 
 Generated roads and their junctions are increment 4; this increment is built so
-they plug into the same node-and-section model without changes.
+they plug into the same path-and-node model without changes.
 
 ## Scope
 
@@ -16,12 +16,14 @@ In:
 - **Road recognition** with three quality tiers (dirt, gravel, paved).
 - **Road buff** — movement speed on a recognised road, scaled by tier, for
   players and their mounts.
-- **Nodes** — a town's depot, and Supplementaries sign posts that have a
-  recorded section ending at them.
-- **Charting** — a map item records the walk from one node to the next; the
-  walked route becomes a section if it is road enough. Recorded per network.
-- **Travel** — from any node, a list of every node reachable by chaining
-  recorded sections, each with its fare; pick one, pay, arrive.
+- **Charting** — a map item records a walk, free-form; the walked route
+  becomes a *path* if it is road enough. Paths branch off existing paths.
+  Recorded per network.
+- **Nodes** — a town's depot, and any sign (Supplementaries sign post,
+  vanilla sign) a player links to a path with the map.
+- **Travel** — left-click a linked sign (or the depot's Travel button): a
+  list of every node reachable along paths, each with its fare; pick one,
+  pay, arrive.
 - **Fares** — free below a distance, above it distance divided by road
   quality; wallet first, road fund as fallback.
 - **Fresh loot at teleport** — stamped stacks come off the traveller and are
@@ -38,13 +40,17 @@ building. Out (increment 5): cargo box, road works.
   road's quality sets the price. Rail stays physical and free.
 - **Treasure travels slowly.** Fresh loot never teleports. It is not blocked,
   it is mailed, with the lanes from increment 2.
-- **Recorded per network.** Whoever walks a section first opens it for the
+- **Recorded per network.** Whoever charts a path first opens it for the
   whole group; the ledger names them. Nothing requires a second player.
-- **Generated sections need walking too.** Increment 4's roads arrive
+- **Generated roads need charting too.** Increment 4's roads arrive
   unrecorded; the map is how the world opens up.
-- **Respect Supplementaries' own click.** Right-clicking a sign post opens its
-  text editor; every Postroad action on a sign post goes through the map item
-  or the depot screen, never the plain click.
+- **Respect the sign's own click.** Right-clicking a sign post opens
+  Supplementaries' text editor (vanilla signs: their editor); every Postroad
+  action on a sign goes through the map item in hand, or the left-click for
+  travel, never the plain right-click.
+- **Via Romana's flow, on purpose.** Chart with a map, place signs, link them,
+  left-click to travel. The group knows it; the only differences are the fare,
+  the loot rule, tiers, and that everything is shared per network.
 
 ## Road recognition and tiers
 
@@ -59,7 +65,7 @@ itself is free):
   log wood rail button pressure_plate`.
 - **Tiers**, our extension: `dirt` (the dirt/mud family), `gravel` (gravel and
   `gravel`-named blocks, which Via Romana ignores), `paved` (everything else on
-  the list). A section's tier is the tier that the majority of its path
+  the list). A stretch's tier is the tier that the majority of its
   samples fall in; a run of packed-mud path with a cobble bridge is dirt.
 - The keyword lists and thresholds are a data file
   (`data/postroad/roads/rules.json`) so the pack can tune them.
@@ -72,86 +78,108 @@ itself is free):
 - Defaults `dirt +10 %`, `gravel +15 %`, `paved +20 %`, config. This is layer
   one of the design: no ceremony, any road, generated or built.
 
-## Nodes and sections
+## Paths and nodes
 
 ```
 Network (existing)
-├── nodes: Map<NodeId, Node>
-│     Node { id, kind: town | signpost, dimension, pos, placeId? }
-└── sections: Map<SectionId, Section>
-      Section { id, a: NodeId, b: NodeId, length, tier,
-                route: List<BlockPos> (simplified), recordedBy, recordedDay }
+├── paths: Map<PathId, Path>
+│     Path { id, dimension, points: List<BlockPos>, tiers: List<Tier>,
+│            recordedBy, recordedDay, branchOf: (PathId, pointIndex)? }
+└── nodes: Map<NodeId, Node>
+      Node { id, kind: town | sign | junction, dimension, pos,
+             pathId, pointIndex, name, placeId? }
 ```
 
-- A town's node is its depot block; `placeId` links it to the place. Town
-  nodes exist as soon as the depot registers.
-- A sign post becomes a node when a section is recorded ending at it (or,
-  in increment 4, when the generator places it). Node ids are dimension plus
-  position, so a sign post moved a block is a new node and the old one is
-  dropped with its sections when the block is gone.
-- `route` keeps every 8th sampled point, enough to draw on a map later and to
-  compute length; it is not used for anything else in this increment.
+- A **path** is the walked polyline: one point every 4–8 blocks of movement,
+  each classified (road or not, and which tier). A path that starts or ends
+  within `chart.joinDistance` (8) blocks of a point on an existing path is a
+  **branch**: it attaches there, and the attachment point becomes a
+  `junction` node without a sign. That is how "chart from one of its nodes"
+  extends, branches, or connects.
+- A **town node** is the depot; it attaches to the nearest path point within
+  `chart.joinDistance` whenever a path is recorded or a depot registers.
+- A **sign node** is a sign the player linked with the map (see Charting);
+  it attaches to the nearest path point within `chart.joinDistance`, and gets
+  a name (default: the sign's text, else the nearest town).
+- The routing graph: nodes on one path are adjacent in point order, with the
+  polyline length between them as edge weight and the worst tier along it.
+  Branch junctions join paths. Removing a sign removes its node; removing a
+  path removes its nodes and detaches its branches.
 
 ## Charting
 
-The item: **Surveyor's Map** (`postroad:surveyors_map`), craftable from paper
-and a compass. One per player is plenty; it holds no data itself.
+The item: **Charting Map** (`postroad:charting_map`), Via Romana's recipe
+shape — paper, string, feather, ink sac. It holds no data; charting state is
+per player on the server.
 
-1. **Use the map on a node** (depot or sign post) with no charting in
-   progress: the travel screen opens (see Travel). It has a *Chart from
-   here* button; pressing it starts charting from this node.
+1. **Right-click the map**: a small screen with *Start charting* (or *Finish
+   charting* while active), *Remove branch*, *Sever path*, and the running
+   readout while active ("312 blocks · 71 % road · gravel").
 2. **Walk.** The server samples the player's position every 4–8 blocks of
-   movement and classifies each sample. The action bar shows the running
-   length and the road share ("312 blocks · 71 % road"). Charting is
-   abandoned on death, on any teleport, on leaving the dimension, after
-   `chart.maxLength` blocks (default 4000), or by using the map with nothing
-   near.
-3. **Use the map on another node.** If the road share is at least 30 %, the
-   section is recorded with its length and tier, the end sign post becomes a
-   node if it was not one, the ledger gets a `section` entry, and the
-   `section_recorded` advancement fires. Below 30 %, the walk is refused with
-   the share shown, so the player knows how far off they are.
-4. Charting back over an existing section re-records it if the new tier is
-   better (the road was paved since), otherwise nothing changes.
+   movement and classifies each sample. Every sample spawns a short particle
+   column where it was taken — green for a road sample, grey for not — so the
+   player sees the path forming and where the road is failing the rule, as
+   Via Romana does. Charting is abandoned on death, on any teleport, on
+   leaving the dimension, or after `chart.maxLength` blocks (4000).
+3. **Finish charting** from the map screen, anywhere. If at least 30 % of
+   samples are road, the path is recorded per network: its points, tiers,
+   who walked it, and whether it branches off an existing path at either end.
+   The ledger gets a `path` entry; `path_charted` fires. Below 30 %, the walk
+   is refused with the share and the failing stretches described ("41 % road
+   — mostly grass between 120 and 260 blocks in").
+4. **Place a sign** anywhere along the path — a Supplementaries sign post on a
+   Quark post, or a vanilla sign — and **use the map on it**: *Add to path*
+   links it to the nearest path point within 8 blocks and names it from the
+   sign's text; *Remove from path* unlinks it. This replaces Via Romana's
+   extra button in the sign editor, which we cannot add to Supplementaries'
+   screen without a mixin.
+5. **Remove branch / Sever path** act on the nearest path point: remove
+   deletes the branch the player stands on (back to its junction), sever cuts
+   the path in two at that point. Both are per network, both go in the log
+   with the player's name.
+6. Re-charting over an existing path upgrades its tiers where the new samples
+   are better (the road was paved since); nothing else changes.
 
 ## Travel
 
-- **Open** the travel screen by using the map on a node; the depot screen
-  also has a *Travel* button for towns.
-- **List**: every node reachable through recorded sections, found by a
-  shortest-path search over the section graph weighted by length. Sorted by
-  route length. Each row: name (town name, or "Signpost near <town>" for a
-  junction), route length, tier of the worst section on the way, fare.
+- **Open** the travel screen by **left-clicking a linked sign** (the click is
+  cancelled, the sign is not damaged) or from the depot screen's *Travel*
+  button. Left-click on an unlinked sign does nothing special.
+- **List**: every node reachable through the path graph, found by a
+  shortest-path search weighted by polyline length. Sorted by route length.
+  Each row: name, route length, tier of the worst stretch on the way, fare.
+  A drawn map of the network like Via Romana's is a later polish item; the
+  list is the function.
 - **Fare**: `0` when the route length is below `travel.freeDistance` (500);
   otherwise `ceil((length − freeDistance) / (travel.blocksPerCoin ×
   tierFactor))` with `blocksPerCoin = 250` and tier factors `dirt 1.0`,
   `gravel 1.5`, `paved 2.0`, using the worst tier on the route. All config.
 - **Pay**: wallet first, road fund for the rest; refused with the shortfall
   shown if neither covers it. Ledger entry `fare` with the destination.
-- **Arrive** at the node's position, facing away from the sign or depot, on
-  a safe block found by scanning upward from the node.
+- **Arrive** at the node's path point, on a safe block found by scanning
+  upward from it.
 - **Fresh loot**: before the teleport, every stamped-and-fresh stack in the
   traveller's inventory (hotbar included) is removed and sent as a parcel to
-  the destination town — the node's town, or for a junction the nearest town
-  along the sections. Lanes as in increment 2; the express toggle is offered
-  on the travel screen for the valuables part. The traveller is told what was
-  mailed.
+  the destination town — the node's town, or for a sign or junction the
+  nearest town along the paths. Lanes as in increment 2; the express toggle
+  is offered on the travel screen for the valuables part. The traveller is
+  told what was mailed.
 - No cooldown, no lockout. Distance and coins are the limits.
 
 ## Advancements
 
-`road_walked` (first buff), `section_recorded`, `first_journey`,
+`road_walked` (first buff), `path_charted`, `sign_linked`, `first_journey`,
 `long_journey` (a fare above zero). Impossible trigger, mod-granted.
 
 ## Commands
 
-`/postroad chart` (status / abort), `/postroad sections` (list with tier and
-who recorded them), `/postroad nodes`, `/postroad fare <node>`.
+`/postroad chart` (status / abort), `/postroad paths` (list with length, tier and
+who charted them), `/postroad nodes`, `/postroad fare <node>`.
 
 ## Config
 
 `roads.buffDirt/Gravel/Paved` (10/15/20 %), `chart.minRoadShare` (30),
-`chart.maxLength` (4000), `travel.freeDistance` (500), `travel.blocksPerCoin`
+`chart.maxLength` (4000), `chart.joinDistance` (8), `travel.freeDistance` (500), `travel.blocksPerCoin`
 (250), `travel.tierFactorDirt/Gravel/Paved` (1.0/1.5/2.0).
 
 ## Pack side (not the mod)
@@ -162,19 +190,23 @@ the buyback table pass noted in the vault.
 ## Test plan
 
 Game tests: the classifier on synthetic strips (dirt path, gravel, cobble,
-grass) and the 30 % threshold; tier majority; section recording between two
-depots in the arena; fare formula at the free boundary and per tier; charge
-order wallet-then-fund; fresh loot removed and mailed on a simulated
-teleport. In play: the buff feel per tier, the action-bar charting readout,
-the travel list with a handful of nodes, and whether 500 free blocks and 250
-blocks per coin feel right against the coin income from loot.
+grass) and the 30 % threshold; tier majority; a synthetic walk recorded as a
+path, a second walk attaching as a branch with a junction; a sign linked to
+the nearest point; routing across a branch; fare formula at the free boundary
+and per tier; charge order wallet-then-fund; fresh loot removed and mailed on
+a simulated teleport. In play: the buff feel per tier, the particle readout
+while charting, the travel list with a handful of nodes, and whether 500 free
+blocks and 250 blocks per coin feel right against the coin income from loot.
 
 ## Decisions taken
 
-- Nodes are existing blocks (depot; Supplementaries sign post on any post),
-  no own sign block.
-- Charting follows Via Romana's model with one item and node-to-node walks,
-  because the group knows it and it keeps the sign post's own click free.
-- Travel first, generated roads next: the section model gets play feedback
+- Nodes are existing blocks (depot; Supplementaries sign post on any post;
+  vanilla signs too, via a block tag), no own sign block.
+- Charting follows Via Romana's flow step for step — free-form walks, signs
+  linked afterwards, left-click to travel — because the group knows it. The
+  one change is where the *Add to path* action lives: on the map used on the
+  sign, since Supplementaries' sign editor cannot take an extra button
+  without a mixin.
+- Travel first, generated roads next: the path model gets play feedback
   before the generator has to conform to it.
-- Generated sections are walked like any other.
+- Generated roads are charted like any other.
