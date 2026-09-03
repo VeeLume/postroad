@@ -44,6 +44,7 @@ object PostroadCommands {
                         .then(Commands.literal("abort").executes { chartAbort(it) }),
                 )
                 .then(Commands.literal("paths").executes { paths(it) })
+                .then(Commands.literal("nodes").executes { nodes(it) })
                 .then(
                     Commands.literal("balance")
                         .executes { balance(it, it.source.playerOrException.gameProfile.name) }
@@ -170,6 +171,18 @@ object PostroadCommands {
             }, false)
         }
         return network.paths.size
+    }
+
+    private fun nodes(ctx: CommandContext<CommandSourceStack>): Int {
+        val network = Network.get(ctx.source.server)
+        if (network.nodes.isEmpty()) {
+            ctx.source.sendSuccess({ Component.translatable("command.postroad.nodes.none") }, false)
+            return 0
+        }
+        for (node in network.nodes.values) {
+            ctx.source.sendSuccess({ Component.translatable("command.postroad.nodes.entry", node.name, node.kind, node.pos.toShortString(), node.pathId) }, false)
+        }
+        return network.nodes.size
     }
 
     private fun unlock(ctx: CommandContext<CommandSourceStack>): Int {

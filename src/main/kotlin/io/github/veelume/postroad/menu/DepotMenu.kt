@@ -204,6 +204,11 @@ class DepotMenu private constructor(
                 sendState()
             }
             ACTION_SEND -> send(s, player)
+            ACTION_TRAVEL -> {
+                val node = s.network.nodes["town/${s.placeId}"]
+                if (node == null) player.displayClientMessage(Component.translatable("message.postroad.travel.no_node"), true)
+                else (player as? ServerPlayer)?.let { io.github.veelume.postroad.travel.TravelService.open(it, node.id) }
+            }
             ACTION_EXPRESS -> { expressData.set(if (express) 0 else 1); sendState() }
             ACTION_SELL -> sell(s, player)
             ACTION_DUMP -> dump(player)
@@ -356,6 +361,7 @@ class DepotMenu private constructor(
         const val ACTION_TAKE_ALL = 8
         const val ACTION_SELECT_MODE = 10
         const val ACTION_SELECT_LOOT = 11
+        const val ACTION_TRAVEL = 14
         const val ACTION_EXPRESS = 12
         const val ACTION_SELL = 13
 

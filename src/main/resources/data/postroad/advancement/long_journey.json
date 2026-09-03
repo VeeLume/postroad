@@ -1,0 +1,23 @@
+{
+  "parent": "postroad:first_journey",
+  "display": {
+    "icon": {
+      "id": "postroad:coin"
+    },
+    "title": {
+      "translate": "advancement.postroad.long_journey.title"
+    },
+    "description": {
+      "translate": "advancement.postroad.long_journey.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": false,
+    "hidden": false
+  },
+  "criteria": {
+    "impossible": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

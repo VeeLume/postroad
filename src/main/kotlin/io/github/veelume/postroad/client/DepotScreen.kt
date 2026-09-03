@@ -32,6 +32,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
     private lateinit var destinationNext: Button
     private lateinit var expressButton: Button
     private lateinit var sellButton: Button
+    private lateinit var travelButton: Button
 
     init {
         imageWidth = 176
@@ -69,6 +70,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         val row3 = row2 + 19
         expressButton = button("screen.postroad.depot.express", DepotMenu.ACTION_EXPRESS, 7, row3, 70, 16, "screen.postroad.depot.express.tooltip")
         sellButton = button("screen.postroad.depot.sell", DepotMenu.ACTION_SELL, 79, row3, 50, 16, "screen.postroad.depot.sell.tooltip")
+        travelButton = button("screen.postroad.depot.travel", DepotMenu.ACTION_TRAVEL, imageWidth - 34 - 62, 4, 30, 12, "screen.postroad.depot.travel.tooltip")
         updateWidgets()
     }
 
@@ -83,6 +85,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         prevPage.visible = paged
         nextPage.visible = paged
         homeButton.visible = !menu.isRemotePage()
+        travelButton.visible = !menu.isRemotePage() && menu.pageCount <= 1 || !menu.isRemotePage()
         homeButton.active = state.homeName != state.townName
 
         selectButton.message = Component.translatable(if (menu.selectMode) "screen.postroad.depot.select_done" else "screen.postroad.depot.select")

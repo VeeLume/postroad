@@ -1,0 +1,138 @@
+package io.github.veelume.postroad.travel
+
+import io.github.veelume.postroad.Postroad
+import io.github.veelume.postroad.PostroadConfig
+import io.github.veelume.postroad.advancement.PostroadAdvancements
+import io.github.veelume.postroad.network.Network
+import io.github.veelume.postroad.registry.PostroadBlocks
+import io.github.veelume.postroad.registry.PostroadItems
+import io.github.veelume.postroad.roads.RoadNode
+import net.minecraft.ChatFormatting
+import net.minecraft.core.BlockPos
+import net.minecraft.core.registries.Registries
+import net.minecraft.nbt.CompoundTag
+import net.minecraft.network.chat.Component
+import net.minecraft.resources.ResourceLocation
+import net.minecraft.server.level.ServerLevel
+import net.minecraft.server.level.ServerPlayer
+import net.minecraft.tags.TagKey
+import net.minecraft.world.InteractionHand
+import net.minecraft.world.InteractionResult
+import net.minecraft.world.level.block.entity.SignBlockEntity
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent
+import thedarkcolour.kotlinforforge.neoforge.forge.FORGE_BUS
+import java.util.function.Consumer
+
+/**
+ * Signs as nodes. Using the Charting Map on a sign links it to the nearest path (or unlinks
+ * it); left-clicking a linked sign opens the travel list. Which blocks count as signs is the
+ * block tag `#postroad:sign_nodes`; the plain right-click stays the sign's own editor.
+ */
+object SignNodes {
+    val SIGN_NODES: TagKey<net.minecraft.world.level.block.Block> = TagKey.create(Registries.BLOCK, Postroad.id("sign_nodes"))
+
+    fun register() {
+        FORGE_BUS.addListener(PlayerInteractEvent.RightClickBlock::class.java, Consumer(::onRightClick))
+        FORGE_BUS.addListener(PlayerInteractEvent.LeftClickBlock::class.java, Consumer(::onLeftClick))
+    }
+
+    fun nodeIdAt(dimension: ResourceLocation, pos: BlockPos): String = "sign/$dimension/${pos.x}/${pos.y}/${pos.z}"
+
+    private fun onRightClick(event: PlayerInteractEvent.RightClickBlock) {
+        if (event.hand != InteractionHand.MAIN_HAND || !event.itemStack.`is`(PostroadItems.CHARTING_MAP.get())) return
+        val level = event.level
+        if (!level.getBlockState(event.pos).`is`(SIGN_NODES)) return
+        event.isCanceled = true
+        event.cancellationResult = InteractionResult.sidedSuccess(level.isClientSide)
+        if (level !is ServerLevel) return
+        val player = event.entity as? ServerPlayer ?: return
+        toggleLink(level, player, event.pos)
+    }
+
+    private fun onLeftClick(event: PlayerInteractEvent.LeftClickBlock) {
+        val level = event.level
+        val dimension = level.dimension().location()
+        val state = level.getBlockState(event.pos)
+        val nodeId = when {
+            state.`is`(SIGN_NODES) -> nodeIdAt(dimension, event.pos)
+            state.`is`(PostroadBlocks.DEPOT.get()) -> null // the depot has its own Travel button
+            else -> return
+        } ?: return
+        if (level is ServerLevel) {
+            val network = Network.get(level.server)
+            if (network.nodes[nodeId] == null) return
+            event.isCanceled = true
+            (event.entity as? ServerPlayer)?.let { TravelService.open(it, nodeId) }
+        } else {
+            // Client: cancel too so the sign is not attacked while the screen opens.
+            event.isCanceled = true
+        }
+    }
+
+    fun toggleLink(level: ServerLevel, player: ServerPlayer, pos: BlockPos) {
+        val network = Network.get(level.server)
+        val dimension = level.dimension().location()
+        val id = nodeIdAt(dimension, pos)
+        val existing = network.nodes[id]
+        if (existing != null) {
+            network.nodes.remove(id)
+            network.setDirty()
+            player.displayClientMessage(Component.translatable("message.postroad.sign.unlinked", existing.name).withStyle(ChatFormatting.YELLOW), false)
+            return
+        }
+        val near = network.nearestPathPoint(dimension, pos, PostroadConfig.joinDistance)
+        if (near == null) {
+            player.displayClientMessage(Component.translatable("message.postroad.sign.no_path", PostroadConfig.joinDistance.toInt()).withStyle(ChatFormatting.YELLOW), false)
+            return
+        }
+        val (path, index) = near
+        val name = signName(level, pos) ?: nearestTownName(network, dimension, pos)?.let { Component.translatable("message.postroad.sign.default_name", it).string } ?: "Signpost"
+        network.nodes[id] = RoadNode(id, RoadNode.KIND_SIGN, dimension, pos, path.id, index, name, null)
+        network.setDirty()
+        PostroadAdvancements.award(player, PostroadAdvancements.SIGN_LINKED)
+        player.displayClientMessage(Component.translatable("message.postroad.sign.linked", name, path.length.toInt()).withStyle(ChatFormatting.GOLD), false)
+        Postroad.LOGGER.info("{} linked sign '{}' at {} to path {}", player.gameProfile.name, name, pos.toShortString(), path.id)
+    }
+
+    /** First non-empty line of a vanilla sign, or the first text found on a sign-post tile. */
+    fun signName(level: ServerLevel, pos: BlockPos): String? {
+        val entity = level.getBlockEntity(pos) ?: return null
+        if (entity is SignBlockEntity) {
+            for (i in 0 until 4) {
+                val line = entity.frontText.getMessage(i, false).string.trim()
+                if (line.isNotEmpty()) return line
+            }
+            return null
+        }
+        return try {
+            val tag = entity.saveWithoutMetadata(level.registryAccess())
+            findText(tag, level)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Supplementaries keeps its arm text under SignUp/SignDown as a serialized component. */
+    private fun findText(tag: CompoundTag, level: ServerLevel): String? {
+        for (key in listOf("SignUp", "SignDown")) {
+            val arm = tag.getCompound(key)
+            if (arm.isEmpty) continue
+            val raw = when {
+                arm.contains("Text") -> arm.getString("Text")
+                arm.contains("text") -> arm.getString("text")
+                else -> ""
+            }
+            if (raw.isBlank()) continue
+            val text = try {
+                Component.Serializer.fromJson(raw, level.registryAccess())?.string
+            } catch (e: Exception) {
+                raw
+            }
+            if (!text.isNullOrBlank()) return text.trim()
+        }
+        return null
+    }
+
+    private fun nearestTownName(network: Network, dimension: ResourceLocation, pos: BlockPos): String? =
+        network.towns().filter { it.dimension == dimension }.minByOrNull { it.pos.distSqr(pos) }?.name
+}

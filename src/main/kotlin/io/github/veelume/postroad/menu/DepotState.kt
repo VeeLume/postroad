@@ -96,6 +96,7 @@ object PostroadNetworking {
     fun register(event: RegisterPayloadHandlersEvent) {
         val registrar = event.registrar("1")
         io.github.veelume.postroad.roads.ChartingNetworking.register(registrar)
+        io.github.veelume.postroad.travel.TravelNetworking.register(registrar)
         registrar.playToClient(DepotStatePayload.TYPE, DepotStatePayload.STREAM_CODEC) { payload, context ->
             (context.player().containerMenu as? DepotMenu)?.state = payload.state
         }

@@ -14,5 +14,6 @@ object ClientSetup {
         })
         FreshLootTooltip.register()
         io.github.veelume.postroad.roads.ChartingClient.screenOpener = Runnable { net.minecraft.client.Minecraft.getInstance().setScreen(ChartingScreen()) }
+        io.github.veelume.postroad.travel.TravelClient.screenOpener = Runnable { net.minecraft.client.Minecraft.getInstance().setScreen(TravelScreen()) }
     }
 }

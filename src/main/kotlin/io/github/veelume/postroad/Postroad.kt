@@ -75,6 +75,7 @@ object Postroad {
         FORGE_BUS.addListener(RegisterCommandsEvent::class.java, Consumer(PostroadCommands::register))
         FORGE_BUS.addListener(ServerAboutToStartEvent::class.java, Consumer(CourierPostInjector::onServerAboutToStart))
         DepotEvents.register()
+        io.github.veelume.postroad.travel.SignNodes.register()
         FORGE_BUS.addListener(ServerStartedEvent::class.java, Consumer(MailService::onServerStarted))
         FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(MailService::onServerTick))
 

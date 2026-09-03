@@ -1,0 +1,14 @@
+{
+  "replace": false,
+  "values": [
+    "#minecraft:all_signs",
+    {
+      "id": "supplementaries:sign_post",
+      "required": false
+    },
+    {
+      "id": "supplementaries:sign_post_wall",
+      "required": false
+    }
+  ]
+}

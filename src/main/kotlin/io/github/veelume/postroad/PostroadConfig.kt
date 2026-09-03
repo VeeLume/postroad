@@ -55,6 +55,11 @@ object PostroadConfig {
     private val BUFF_PAVED: ModConfigSpec.IntValue
     private val CHART_MAX_LENGTH: ModConfigSpec.IntValue
     private val JOIN_DISTANCE: ModConfigSpec.IntValue
+    private val FREE_DISTANCE: ModConfigSpec.IntValue
+    private val BLOCKS_PER_COIN: ModConfigSpec.IntValue
+    private val TIER_FACTOR_DIRT: ModConfigSpec.IntValue
+    private val TIER_FACTOR_GRAVEL: ModConfigSpec.IntValue
+    private val TIER_FACTOR_PAVED: ModConfigSpec.IntValue
     private val TARGET_POOLS: ModConfigSpec.ConfigValue<List<out String>>
 
     val SPEC: ModConfigSpec
@@ -108,6 +113,14 @@ object PostroadConfig {
         JOIN_DISTANCE = BUILDER.comment("Blocks within which a walk's end attaches to an existing path, and a depot or sign attaches to a path.").defineInRange("joinDistance", 8, 1, 64)
         BUILDER.pop()
 
+        BUILDER.push("travel")
+        FREE_DISTANCE = BUILDER.comment("Journeys up to this many route-blocks are free.").defineInRange("freeDistance", 500, 0, 100000)
+        BLOCKS_PER_COIN = BUILDER.comment("Route-blocks per coin beyond the free distance, on a dirt road.").defineInRange("blocksPerCoin", 250, 1, 100000)
+        TIER_FACTOR_DIRT = BUILDER.comment("Fare divisor for dirt roads, in percent.").defineInRange("tierFactorDirt", 100, 1, 1000)
+        TIER_FACTOR_GRAVEL = BUILDER.comment("Fare divisor for gravel roads, in percent.").defineInRange("tierFactorGravel", 150, 1, 1000)
+        TIER_FACTOR_PAVED = BUILDER.comment("Fare divisor for paved roads, in percent.").defineInRange("tierFactorPaved", 200, 1, 1000)
+        BUILDER.pop()
+
         SPEC = BUILDER.build()
     }
 
@@ -124,4 +137,9 @@ object PostroadConfig {
     val buffPaved: Double get() = BUFF_PAVED.get() / 100.0
     val chartMaxLength: Int get() = CHART_MAX_LENGTH.get()
     val joinDistance: Double get() = JOIN_DISTANCE.get().toDouble()
+    val freeDistance: Double get() = FREE_DISTANCE.get().toDouble()
+    val blocksPerCoin: Double get() = BLOCKS_PER_COIN.get().toDouble()
+    val tierFactorDirt: Double get() = TIER_FACTOR_DIRT.get() / 100.0
+    val tierFactorGravel: Double get() = TIER_FACTOR_GRAVEL.get() / 100.0
+    val tierFactorPaved: Double get() = TIER_FACTOR_PAVED.get() / 100.0
 }

@@ -326,8 +326,10 @@ class PostroadGameTests {
         helper.assertTrue(network.charge(who, 12, 0, LedgerEntry.OP_EXPRESS, "test"), "charge succeeds")
         helper.assertValueEqual(network.balance(Network.playerAccount(who)), 0L, "wallet emptied first")
         helper.assertValueEqual(network.balance(Network.ROAD_FUND), fundBefore + 1, "fund paid the remaining 9")
-        helper.assertTrue(!network.charge(who, 5, 0, LedgerEntry.OP_EXPRESS, "test"), "cannot overdraw")
-        helper.assertValueEqual(network.balance(Network.ROAD_FUND), fundBefore + 1, "refused charge moved nothing")
+        val total = network.balance(Network.playerAccount(who)) + network.balance(Network.ROAD_FUND)
+        val fundNow = network.balance(Network.ROAD_FUND)
+        helper.assertTrue(!network.charge(who, total + 5, 0, LedgerEntry.OP_EXPRESS, "test"), "cannot overdraw")
+        helper.assertValueEqual(network.balance(Network.ROAD_FUND), fundNow, "refused charge moved nothing")
         helper.succeed()
     }
 
@@ -420,6 +422,66 @@ class PostroadGameTests {
             helper.assertTrue(network.paths.containsKey(first.id + "b"), "tail path exists after sever")
             network.removePath(branch.id)
             helper.assertTrue(network.links.none { it.pathA == branch.id || it.pathB == branch.id }, "links dropped with the path")
+            helper.succeed()
+        }
+    }
+
+    @GameTest(template = ARENA)
+    fun routing_fares_and_journey(helper: GameTestHelper) {
+        val network = Network.get(helper.level.server)
+        val player = helper.makeMockServerPlayerInLevel()
+        val dim = helper.level.dimension().location()
+        // Two hand-made paths joined by a link, three nodes: A at the start, B in the middle, C on the branch.
+        val pA = io.github.veelume.postroad.roads.RoadPath("test-a-" + java.util.UUID.randomUUID().toString().take(6), dim,
+            (0..10).map { helper.absolutePos(BlockPos(it * 100, 1, 0)) }.toMutableList(), MutableList(11) { io.github.veelume.postroad.roads.Tier.PAVED }, "tester", 0)
+        val pB = io.github.veelume.postroad.roads.RoadPath("test-b-" + java.util.UUID.randomUUID().toString().take(6), dim,
+            (0..3).map { helper.absolutePos(BlockPos(500, 1, it * 100)) }.toMutableList(), MutableList(4) { io.github.veelume.postroad.roads.Tier.DIRT }, "tester", 0)
+        network.addPath(pA); network.addPath(pB)
+        network.addLink(io.github.veelume.postroad.roads.PathLink(pB.id, 0, pA.id, 5))
+        val a = io.github.veelume.postroad.roads.RoadNode("sign/test/a", "sign", dim, pA.points[0], pA.id, 0, "A", null)
+        val b = io.github.veelume.postroad.roads.RoadNode("sign/test/b", "sign", dim, pA.points[10], pA.id, 10, "B", null)
+        val c = io.github.veelume.postroad.roads.RoadNode("sign/test/c", "sign", dim, pB.points[3], pB.id, 3, "C", null)
+        network.nodes[a.id] = a; network.nodes[b.id] = b; network.nodes[c.id] = c
+
+        val routes = io.github.veelume.postroad.roads.Routing.routes(network, a.id)
+        helper.assertValueEqual(routes[b.id]?.length?.toInt(), 1000, "A→B along the paved path")
+        helper.assertValueEqual(routes[b.id]?.worstTier, io.github.veelume.postroad.roads.Tier.PAVED, "A→B worst tier")
+        helper.assertValueEqual(routes[c.id]?.length?.toInt(), 800, "A→C via the link")
+        helper.assertValueEqual(routes[c.id]?.worstTier, io.github.veelume.postroad.roads.Tier.DIRT, "A→C worst tier is the dirt branch")
+
+        val fares = io.github.veelume.postroad.travel.Fares
+        val cfg = io.github.veelume.postroad.PostroadConfig
+        helper.assertValueEqual(fares.fare(cfg.freeDistance, null), 0L, "free at the boundary")
+        helper.assertValueEqual(fares.fare(cfg.freeDistance + 1, io.github.veelume.postroad.roads.Tier.DIRT), 1L, "one coin just beyond")
+        val dirt = fares.fare(1000.0, io.github.veelume.postroad.roads.Tier.DIRT)
+        val paved = fares.fare(1000.0, io.github.veelume.postroad.roads.Tier.PAVED)
+        helper.assertTrue(paved < dirt, "paved is cheaper than dirt for the same distance")
+
+        // The journey: fresh loot is mailed, fare charged, player moved.
+        network.postalUnlocked = true
+        val depotPos = BlockPos(3, 1, 3)
+        helper.setBlock(depotPos, PostroadBlocks.DEPOT.get())
+        helper.runAfterDelay(5) {
+            val placeId = helper.getBlockEntity<DepotBlockEntity>(depotPos).placeId ?: return@runAfterDelay helper.fail("depot not registered")
+            val town = io.github.veelume.postroad.roads.RoadNode("town/$placeId", "town", dim, helper.absolutePos(depotPos), pA.id, 10, "Town", placeId)
+            network.nodes[town.id] = town
+            val start = pA.points[0]
+            player.setPos(start.x + 0.5, start.y.toDouble(), start.z + 0.5)
+            val today = FreshLoot.dayOf(helper.level)
+            val fresh = ItemStack(Items.EMERALD, 5).also { FreshLoot.stamp(it, FreshLoot.ORIGIN_CONTAINER, today) }
+            player.inventory.setItem(0, fresh)
+            player.inventory.setItem(1, ItemStack(Items.BREAD, 3))
+            val account = Network.playerAccount(player.gameProfile.name)
+            network.credit(account, 100, today, "test", LedgerEntry.OP_GRANT, "test")
+            val before = network.balance(account)
+            val expectedFare = fares.fare(1000.0, io.github.veelume.postroad.roads.Tier.PAVED)
+
+            helper.assertTrue(io.github.veelume.postroad.travel.TravelService.depart(player, a.id, town.id, false), "journey accepted")
+            helper.assertTrue(player.inventory.getItem(0).isEmpty, "fresh loot left the inventory")
+            helper.assertValueEqual(player.inventory.getItem(1).count, 3, "bread stays")
+            helper.assertValueEqual(network.balance(account), before - expectedFare, "fare charged")
+            helper.assertValueEqual(network.storageFor(placeId).countItem(Items.EMERALD), 5, "loot mailed to the town (instant: stackable)")
+            helper.assertTrue(player.blockPosition().distSqr(helper.absolutePos(depotPos)) < 25.0, "player arrived next to the depot")
             helper.succeed()
         }
     }
