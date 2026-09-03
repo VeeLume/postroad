@@ -13,5 +13,6 @@ object ClientSetup {
             event.register(PostroadMenus.DEPOT.get(), ::DepotScreen)
         })
         FreshLootTooltip.register()
+        io.github.veelume.postroad.roads.ChartingClient.screenOpener = Runnable { net.minecraft.client.Minecraft.getInstance().setScreen(ChartingScreen()) }
     }
 }

@@ -382,6 +382,48 @@ class PostroadGameTests {
         helper.succeed()
     }
 
+    /** A charting session fed by hand: walk the strip at z, sampling every block. */
+    private fun chart(helper: GameTestHelper, player: net.minecraft.server.level.ServerPlayer, z: Int, xs: IntRange): io.github.veelume.postroad.roads.RoadPath? {
+        val session = io.github.veelume.postroad.roads.Charting.Session(player.uuid, helper.level)
+        for (x in xs) session.sampleAt(helper.absolutePos(BlockPos(x, 1, z)))
+        return io.github.veelume.postroad.roads.Charting.record(player, session)
+    }
+
+    @GameTest(template = ARENA)
+    fun charting_records_paths_branches_and_towns(helper: GameTestHelper) {
+        val network = Network.get(helper.level.server)
+        val player = helper.makeMockServerPlayerInLevel()
+        // cobble strip along z = 1, gravel strip along x = 6 meeting it
+        for (x in 0..6) helper.setBlock(BlockPos(x, 0, 1), Blocks.COBBLESTONE)
+        for (z in 1..6) helper.setBlock(BlockPos(6, 0, z), Blocks.GRAVEL)
+        helper.setBlock(BlockPos(0, 1, 3), PostroadBlocks.DEPOT.get())
+        helper.runAfterDelay(5) {
+            val before = network.paths.size
+            val first = chart(helper, player, 1, 0..6) ?: return@runAfterDelay helper.fail("first walk refused")
+            helper.assertValueEqual(first.tier, io.github.veelume.postroad.roads.Tier.PAVED, "cobble walk is paved")
+            helper.assertTrue(first.length > 5.0, "length measured")
+            helper.assertTrue(network.nodes.values.any { it.kind == io.github.veelume.postroad.roads.RoadNode.KIND_TOWN && it.pathId == first.id }, "depot next to the path became a town node")
+
+            val session = io.github.veelume.postroad.roads.Charting.Session(player.uuid, helper.level)
+            for (z in 1..6) session.sampleAt(helper.absolutePos(BlockPos(6, 1, z)))
+            val branch = io.github.veelume.postroad.roads.Charting.record(player, session) ?: return@runAfterDelay helper.fail("branch refused")
+            helper.assertValueEqual(branch.tier, io.github.veelume.postroad.roads.Tier.GRAVEL, "gravel branch")
+            helper.assertTrue(network.links.any { (it.pathA == branch.id && it.pathB == first.id) }, "branch linked to the first path")
+            helper.assertValueEqual(network.paths.size, before + 2, "two paths recorded")
+
+            val grass = io.github.veelume.postroad.roads.Charting.Session(player.uuid, helper.level)
+            // Stay more than the sampling radius (2) away from both strips: x 0..3 on row 5.
+            for (x in 0..3) grass.sampleAt(helper.absolutePos(BlockPos(x, 1, 5)))
+            helper.assertTrue(io.github.veelume.postroad.roads.Charting.record(player, grass) == null, "a walk over stone is refused")
+
+            helper.assertTrue(network.severPath(first.id, 3), "sever in the middle")
+            helper.assertTrue(network.paths.containsKey(first.id + "b"), "tail path exists after sever")
+            network.removePath(branch.id)
+            helper.assertTrue(network.links.none { it.pathA == branch.id || it.pathB == branch.id }, "links dropped with the path")
+            helper.succeed()
+        }
+    }
+
     @GameTest(template = ARENA)
     fun names_are_deterministic_per_seed_and_place(helper: GameTestHelper) {
         val culture = Culture(

@@ -9,6 +9,7 @@ import io.github.veelume.postroad.loot.FreshLoot
 import io.github.veelume.postroad.loot.FreshLootModifier
 import io.github.veelume.postroad.mailbox.MailboxBlock
 import io.github.veelume.postroad.mailbox.MailboxBlockEntity
+import io.github.veelume.postroad.roads.ChartingMapItem
 import net.minecraft.core.component.DataComponentType
 import net.minecraft.core.registries.Registries
 import net.minecraft.network.chat.Component
@@ -61,6 +62,9 @@ object PostroadItems {
 
     val MAILBOX: DeferredItem<BlockItem> = REGISTER.registerSimpleBlockItem(PostroadBlocks.MAILBOX)
 
+    /** Charts roads into paths. Craftable: paper, string, feather, ink sac. */
+    val CHARTING_MAP: DeferredItem<ChartingMapItem> = REGISTER.registerItem("charting_map", ::ChartingMapItem, Item.Properties().stacksTo(1))
+
     /** Unlocks the postal network for the whole group when used on a depot. Quest reward, no recipe. */
     val POSTAL_CHARTER: DeferredItem<Item> =
         REGISTER.registerSimpleItem("postal_charter", Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON))
@@ -106,6 +110,7 @@ object PostroadCreativeTabs {
                     output.accept(PostroadItems.DEPOT.get())
                     output.accept(PostroadItems.POSTAL_CHARTER.get())
                     output.accept(PostroadItems.MAILBOX.get())
+                    output.accept(PostroadItems.CHARTING_MAP.get())
                 }
                 .build()
         },

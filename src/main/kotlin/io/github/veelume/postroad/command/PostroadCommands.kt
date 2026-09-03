@@ -39,6 +39,12 @@ object PostroadCommands {
                 )
                 .then(Commands.literal("unlock").requires { it.hasPermission(2) }.executes { unlock(it) })
                 .then(
+                    Commands.literal("chart")
+                        .executes { chartStatus(it) }
+                        .then(Commands.literal("abort").executes { chartAbort(it) }),
+                )
+                .then(Commands.literal("paths").executes { paths(it) })
+                .then(
                     Commands.literal("balance")
                         .executes { balance(it, it.source.playerOrException.gameProfile.name) }
                         .then(
@@ -126,6 +132,44 @@ object PostroadCommands {
         PostroadAdvancements.award(player, PostroadAdvancements.HOME_SET)
         ctx.source.sendSuccess({ Component.translatable("command.postroad.home.set", place.name) }, false)
         return 1
+    }
+
+    private fun chartStatus(ctx: CommandContext<CommandSourceStack>): Int {
+        val player = ctx.source.playerOrException
+        val session = io.github.veelume.postroad.roads.Charting.session(player)
+        if (session == null) {
+            ctx.source.sendSuccess({ Component.translatable("command.postroad.chart.idle") }, false)
+            return 0
+        }
+        val tier = io.github.veelume.postroad.roads.RoadClassifier.evaluate(session.tiers).tier
+        ctx.source.sendSuccess({
+            Component.translatable("message.postroad.chart.readout", session.distance.toInt(), (session.roadShare * 100).toInt(),
+                Component.translatable("tier.postroad.${tier?.key ?: "none"}"))
+        }, false)
+        return 1
+    }
+
+    private fun chartAbort(ctx: CommandContext<CommandSourceStack>): Int {
+        io.github.veelume.postroad.roads.Charting.abort(ctx.source.playerOrException, "message.postroad.chart.aborted")
+        return 1
+    }
+
+    private fun paths(ctx: CommandContext<CommandSourceStack>): Int {
+        val network = Network.get(ctx.source.server)
+        if (network.paths.isEmpty()) {
+            ctx.source.sendSuccess({ Component.translatable("command.postroad.paths.none") }, false)
+            return 0
+        }
+        for (path in network.paths.values) {
+            val nodesOn = network.nodes.values.count { it.pathId == path.id }
+            val linksOn = network.links.count { it.pathA == path.id || it.pathB == path.id }
+            ctx.source.sendSuccess({
+                Component.translatable("command.postroad.paths.entry", path.id, path.length.toInt(),
+                    Component.translatable("tier.postroad.${path.tier?.key ?: "dirt"}"), network.knownPlayers[path.recordedBy] ?: path.recordedBy,
+                    path.points.first().toShortString(), path.points.last().toShortString(), nodesOn, linksOn)
+            }, false)
+        }
+        return network.paths.size
     }
 
     private fun unlock(ctx: CommandContext<CommandSourceStack>): Int {

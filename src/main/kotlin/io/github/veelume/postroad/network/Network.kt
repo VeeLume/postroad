@@ -1,6 +1,9 @@
 package io.github.veelume.postroad.network
 
 import io.github.veelume.postroad.PostroadConfig
+import io.github.veelume.postroad.roads.PathLink
+import io.github.veelume.postroad.roads.RoadNode
+import io.github.veelume.postroad.roads.RoadPath
 import net.minecraft.core.BlockPos
 import net.minecraft.core.HolderLookup
 import net.minecraft.nbt.CompoundTag
@@ -52,6 +55,85 @@ class Network : SavedData() {
     val knownPlayers: MutableMap<String, String> = LinkedHashMap()
 
     val parcels: MutableList<Parcel> = ArrayList()
+
+    // ---- roads --------------------------------------------------------------------------------
+
+    val paths: MutableMap<String, RoadPath> = LinkedHashMap()
+    val links: MutableList<PathLink> = ArrayList()
+    val nodes: MutableMap<String, RoadNode> = LinkedHashMap()
+
+    fun addPath(path: RoadPath) {
+        paths[path.id] = path
+        setDirty()
+    }
+
+    fun addLink(link: PathLink) {
+        links.add(link)
+        setDirty()
+    }
+
+    /** Nearest point of any path in [dimension] within [maxDistance] blocks of [pos]. */
+    fun nearestPathPoint(dimension: ResourceLocation, pos: BlockPos, maxDistance: Double, exclude: String? = null): Pair<RoadPath, Int>? {
+        var best: Pair<RoadPath, Int>? = null
+        var bestDist = maxDistance
+        for (path in paths.values) {
+            if (path.dimension != dimension || path.id == exclude) continue
+            val (idx, d) = path.nearestIndex(pos) ?: continue
+            if (d <= bestDist) {
+                bestDist = d
+                best = path to idx
+            }
+        }
+        return best
+    }
+
+    /** Every town whose depot lies within [maxDistance] of the path gets (or keeps) a node on it. */
+    fun attachTowns(path: RoadPath, maxDistance: Double): List<String> {
+        val attached = ArrayList<String>()
+        for (place in towns()) {
+            if (place.dimension != path.dimension) continue
+            val depotPos = depots.entries.firstOrNull { it.value == place.id }?.key?.substringAfter('|')?.toLongOrNull()?.let { BlockPos.of(it) } ?: place.pos
+            val (idx, d) = path.nearestIndex(depotPos) ?: continue
+            if (d > maxDistance) continue
+            val id = "town/${place.id}"
+            if (nodes[id] == null) {
+                nodes[id] = RoadNode(id, RoadNode.KIND_TOWN, path.dimension, depotPos, path.id, idx, place.name, place.id)
+                attached.add(place.name)
+            }
+        }
+        if (attached.isNotEmpty()) setDirty()
+        return attached
+    }
+
+    fun removePath(pathId: String) {
+        paths.remove(pathId) ?: return
+        links.removeAll { it.pathA == pathId || it.pathB == pathId }
+        nodes.values.removeAll { it.pathId == pathId }
+        setDirty()
+    }
+
+    /** Splits a path at [index] into two; links and nodes keep their places. */
+    fun severPath(pathId: String, index: Int): Boolean {
+        val path = paths[pathId] ?: return false
+        if (index <= 0 || index >= path.points.size - 1) return false
+        val tail = RoadPath(path.id + "b", path.dimension, path.points.subList(index, path.points.size).toMutableList(),
+            path.tiers.subList(index, path.tiers.size).toMutableList(), path.recordedBy, path.recordedDay)
+        val head = RoadPath(path.id, path.dimension, path.points.subList(0, index + 1).toMutableList(),
+            path.tiers.subList(0, index + 1).toMutableList(), path.recordedBy, path.recordedDay)
+        paths[head.id] = head
+        paths[tail.id] = tail
+        val relinked = links.map { l ->
+            var a = l.pathA; var ia = l.indexA; var b = l.pathB; var ib = l.indexB
+            if (a == pathId && ia > index) { a = tail.id; ia -= index }
+            if (b == pathId && ib > index) { b = tail.id; ib -= index }
+            PathLink(a, ia, b, ib)
+        }
+        links.clear(); links.addAll(relinked)
+        val moved = nodes.values.filter { it.pathId == pathId && it.pointIndex > index }
+        for (n in moved) nodes[n.id] = n.copy(pathId = tail.id, pointIndex = n.pointIndex - index)
+        setDirty()
+        return true
+    }
 
     /** Mailbox place id → contents. Lives here so parcels arrive while the chunk is unloaded. */
     private val mailboxes: MutableMap<String, TownContainer> = HashMap()
@@ -244,6 +326,9 @@ class Network : SavedData() {
         tag.put("Homes", CompoundTag().also { homes.forEach { (p, place) -> it.putString(p, place) } })
         tag.put("KnownPlayers", CompoundTag().also { knownPlayers.forEach { (k, v) -> it.putString(k, v) } })
         tag.put("Parcels", ListTag().also { list -> parcels.forEach { if (it.items.isNotEmpty()) list.add(it.toTag(registries)) } })
+        tag.put("Paths", ListTag().also { list -> paths.values.forEach { list.add(it.toTag()) } })
+        tag.put("Links", ListTag().also { list -> links.forEach { list.add(it.toTag()) } })
+        tag.put("Nodes", ListTag().also { list -> nodes.values.forEach { list.add(it.toTag()) } })
         tag.put("Mailboxes", ListTag().also { list ->
             mailboxes.forEach { (placeId, container) ->
                 if (!container.isEmpty) {
@@ -290,6 +375,9 @@ class Network : SavedData() {
         tag.getList("Parcels", Tag.TAG_COMPOUND.toInt()).forEach { t ->
             Parcel.fromTag(t as CompoundTag, registries)?.let { if (it.items.isNotEmpty()) parcels.add(it) }
         }
+        tag.getList("Paths", Tag.TAG_COMPOUND.toInt()).forEach { t -> RoadPath.fromTag(t as CompoundTag)?.let { paths[it.id] = it } }
+        tag.getList("Links", Tag.TAG_COMPOUND.toInt()).forEach { t -> links.add(PathLink.fromTag(t as CompoundTag)) }
+        tag.getList("Nodes", Tag.TAG_COMPOUND.toInt()).forEach { t -> RoadNode.fromTag(t as CompoundTag)?.let { nodes[it.id] = it } }
         tag.getList("Mailboxes", Tag.TAG_COMPOUND.toInt()).forEach { t ->
             val c = t as CompoundTag
             val container = TownContainer(this, TownContainer.MAILBOX_SIZE)

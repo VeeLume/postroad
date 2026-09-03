@@ -53,6 +53,8 @@ object PostroadConfig {
     private val BUFF_DIRT: ModConfigSpec.IntValue
     private val BUFF_GRAVEL: ModConfigSpec.IntValue
     private val BUFF_PAVED: ModConfigSpec.IntValue
+    private val CHART_MAX_LENGTH: ModConfigSpec.IntValue
+    private val JOIN_DISTANCE: ModConfigSpec.IntValue
     private val TARGET_POOLS: ModConfigSpec.ConfigValue<List<out String>>
 
     val SPEC: ModConfigSpec
@@ -101,6 +103,11 @@ object PostroadConfig {
         BUFF_PAVED = BUILDER.comment("Movement speed bonus in percent on paved roads.").defineInRange("buffPaved", 20, 0, 200)
         BUILDER.pop()
 
+        BUILDER.push("chart")
+        CHART_MAX_LENGTH = BUILDER.comment("A charting walk longer than this many blocks is abandoned.").defineInRange("maxLength", 4000, 100, 100000)
+        JOIN_DISTANCE = BUILDER.comment("Blocks within which a walk's end attaches to an existing path, and a depot or sign attaches to a path.").defineInRange("joinDistance", 8, 1, 64)
+        BUILDER.pop()
+
         SPEC = BUILDER.build()
     }
 
@@ -115,4 +122,6 @@ object PostroadConfig {
     val buffDirt: Double get() = BUFF_DIRT.get() / 100.0
     val buffGravel: Double get() = BUFF_GRAVEL.get() / 100.0
     val buffPaved: Double get() = BUFF_PAVED.get() / 100.0
+    val chartMaxLength: Int get() = CHART_MAX_LENGTH.get()
+    val joinDistance: Double get() = JOIN_DISTANCE.get().toDouble()
 }

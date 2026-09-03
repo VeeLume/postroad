@@ -95,6 +95,7 @@ data class DepotActionPayload(val action: Int, val value: Int) : CustomPacketPay
 object PostroadNetworking {
     fun register(event: RegisterPayloadHandlersEvent) {
         val registrar = event.registrar("1")
+        io.github.veelume.postroad.roads.ChartingNetworking.register(registrar)
         registrar.playToClient(DepotStatePayload.TYPE, DepotStatePayload.STREAM_CODEC) { payload, context ->
             (context.player().containerMenu as? DepotMenu)?.state = payload.state
         }

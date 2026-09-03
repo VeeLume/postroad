@@ -28,6 +28,9 @@ live in `docs/` (one per increment). This file is about the code.
 - `worldgen/CourierPostInjector` — appends the courier post to village house pools at server start.
 - `roads/` — `Tier`, `RoadRules` (data file `data/postroad/roads/rules.json`, reload listener), `RoadClassifier`
   (ground sampling + walk verdict), `RoadBuff` (movement-speed modifier every 10 ticks, player and mount).
+  `RoadPath`/`PathLink`/`RoadNode` (the travel graph, stored on `Network`), `Charting` (per-player
+  sessions, sampling + particles, record/link/attach), `ChartingMapItem` + payloads + `ChartingClient`
+  (client-side state holder with no client imports; `ClientSetup` plugs the screen opener in).
 - `mailbox/` — the player's mailbox block; contents are in `Network`, the block entity only holds its place id.
 - `mail/MailService` — parcels: lane split, arrival days, delivery on day change; `network/Parcel`.
 - `menu/` — `DepotMenu` (one 54-slot grid, backing container swapped per tab; ints via data

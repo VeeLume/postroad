@@ -97,8 +97,21 @@ def mailbox_front():
     im.save(ROOT / "block/mailbox_front.png")
 
 
+def charting_map():
+    im = img()
+    d = ImageDraw.Draw(im)
+    d.rectangle((1, 2, 14, 13), fill=(225, 205, 160, 255), outline=(140, 110, 70, 255))
+    # a winding road drawn in ink
+    for x, y in ((3, 11), (4, 10), (5, 9), (6, 9), (7, 8), (8, 7), (9, 6), (10, 6), (11, 5), (12, 4)):
+        d.point((x, y), fill=(40, 40, 60, 255))
+    d.rectangle((3, 3, 4, 4), fill=(170, 40, 40, 255))
+    d.rectangle((11, 10, 12, 11), fill=(60, 120, 60, 255))
+    im.save(ROOT / "item/charting_map.png")
+
+
 coin()
 charter()
+charting_map()
 mailbox_side()
 mailbox_top()
 mailbox_front()
