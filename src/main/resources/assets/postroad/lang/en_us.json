@@ -78,5 +78,11 @@
   "screen.postroad.depot.nothing_selected": "Nothing marked. Select, then click the stacks to send.",
   "screen.postroad.depot.not_chartered": "Charter the postal network to send parcels.",
   "screen.postroad.depot.click_mark": "Click to mark for sending",
-  "screen.postroad.depot.click_unmark": "Click to unmark"
+  "screen.postroad.depot.click_unmark": "Click to unmark",
+  "jade.postroad.mailbox.stored": "%s item(s) inside",
+  "jade.postroad.mailbox.nothing": "Nothing on the way",
+  "jade.postroad.mailbox.transit": "%s item(s) from %s arriving in %s day(s)",
+  "jade.postroad.mailbox.held": "%s item(s) from %s waiting — mailbox full",
+  "message.postroad.mailbox.title_incoming": "%s · %s parcel(s) on the way",
+  "config.jade.plugin_postroad.mailbox": "Postroad mailbox"
 }

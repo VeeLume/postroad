@@ -127,6 +127,9 @@ leaves, one click, collect at home later.** "Home" is the home town in stage
    click.
 7. The Send button's tooltip lists the sender's parcels on the way; the
    sender gets a chat line when a valuables parcel lands, if online.
+8. Looking at a mailbox with Jade shows what is inside and what is on the
+   way (optional integration, compile-time dependency only); opening it
+   prints the same in chat and the title carries the count.
 
 > Earlier cuts had a send tab with a 9-slot outbox, then a "send everything
 > but the hotbar" button. Both were wrong for this pack: the first was

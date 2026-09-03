@@ -2,9 +2,11 @@ package io.github.veelume.postroad.mailbox
 
 import com.mojang.serialization.MapCodec
 import io.github.veelume.postroad.advancement.PostroadAdvancements
+import io.github.veelume.postroad.loot.FreshLoot
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.network.PlaceResolver
 import net.minecraft.core.BlockPos
+import net.minecraft.ChatFormatting
 import net.minecraft.core.Direction
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerLevel
@@ -85,7 +87,18 @@ class MailboxBlock(properties: Properties) : HorizontalDirectionalBlock(properti
         val placeId = entity.placeId ?: return InteractionResult.CONSUME
         val network = Network.get(serverLevel.server)
         val container = network.mailboxStorage(placeId)
-        val title = Component.literal(network.places[placeId]?.name ?: "Mailbox")
+        val name = network.places[placeId]?.name ?: "Mailbox"
+        val incoming = network.parcelsTo(placeId)
+        val today = FreshLoot.dayOf(serverLevel)
+        for (parcel in incoming) {
+            val from = network.places[parcel.from]?.name ?: parcel.from
+            val key = if (parcel.isDue(today)) "jade.postroad.mailbox.held" else "jade.postroad.mailbox.transit"
+            player.displayClientMessage(
+                Component.translatable(key, parcel.items.sumOf { it.count }, from, parcel.arrivalDay - today).withStyle(ChatFormatting.GOLD),
+                false,
+            )
+        }
+        val title = if (incoming.isEmpty()) Component.literal(name) else Component.translatable("message.postroad.mailbox.title_incoming", name, incoming.size)
         player.openMenu(SimpleMenuProvider({ id, inventory, _ -> ChestMenu.sixRows(id, inventory, container) }, title))
         return InteractionResult.CONSUME
     }

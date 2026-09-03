@@ -30,3 +30,10 @@ description='''${mod_description}'''
     versionRange="${loader_version_range}"
     ordering="NONE"
     side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="jade"
+    type="optional"
+    versionRange="[15,)"
+    ordering="NONE"
+    side="BOTH"

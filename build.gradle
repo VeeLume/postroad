@@ -39,6 +39,11 @@ repositories {
         url = 'https://thedarkcolour.github.io/KotlinForForge/'
         content { includeGroup 'thedarkcolour' }
     }
+    maven {
+        name = 'Modrinth'
+        url = 'https://api.modrinth.com/maven'
+        content { includeGroup 'maven.modrinth' }
+    }
 }
 
 neoForge {
@@ -95,6 +100,8 @@ configurations {
 
 dependencies {
     implementation "thedarkcolour:kotlinforforge-neoforge:${kff_version}"
+    // Optional integration: Jade block tooltips. Compile-time only; the plugin class is loaded by Jade, never by us.
+    compileOnly "maven.modrinth:jade:${jade_version}"
 }
 
 // Expand ${...} properties in src/main/templates (neoforge.mods.toml lives there).

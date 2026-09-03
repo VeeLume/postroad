@@ -162,6 +162,9 @@ class Network : SavedData() {
         setDirty()
     }
 
+    /** Parcels on the way to, or held at, [placeId]. */
+    fun parcelsTo(placeId: String): List<Parcel> = parcels.filter { it.to == placeId }
+
     /** Parcels [player] sent that are still on the way or held. */
     fun parcelsFor(player: String): List<Parcel> {
         val key = player.lowercase()

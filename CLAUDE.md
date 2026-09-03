@@ -33,6 +33,8 @@ live in `docs/` (one per increment). This file is about the code.
 - `client/` — `DepotScreen`, `ClientSetup`. Only referenced from the `Dist.CLIENT` branch in `Postroad`.
 - `advancement/PostroadAdvancements` — mod-granted milestones (impossible trigger) for FTB Quests.
 - `command/PostroadCommands` — `/postroad …`.
+- `compat/PostroadJadePlugin` — Jade block tooltip for the mailbox. `compileOnly` on Jade's Modrinth
+  maven artifact; the class is only ever loaded by Jade, so keep every Jade import inside `compat/`.
 
 ## Conventions
 
