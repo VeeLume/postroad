@@ -9,20 +9,20 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar
 
 data class TravelEntry(val nodeId: String, val name: String, val length: Int, val tier: String, val fare: Long)
 
-data class TravelState(val fromNodeId: String, val fromName: String, val entries: List<TravelEntry>, val wallet: Long, val fund: Long) {
+data class TravelState(val fromNodeId: String, val fromName: String, val entries: List<TravelEntry>, val wallet: Long, val fund: Long, val renamable: Boolean = false) {
     companion object {
         val EMPTY = TravelState("", "", emptyList(), 0L, 0L)
         val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, TravelState> = StreamCodec.of(
             { buf, s ->
                 buf.writeUtf(s.fromNodeId); buf.writeUtf(s.fromName)
                 buf.writeCollection(s.entries) { b, e -> b.writeUtf(e.nodeId); b.writeUtf(e.name); b.writeVarInt(e.length); b.writeUtf(e.tier); b.writeVarLong(e.fare) }
-                buf.writeVarLong(s.wallet); buf.writeVarLong(s.fund)
+                buf.writeVarLong(s.wallet); buf.writeVarLong(s.fund); buf.writeBoolean(s.renamable)
             },
             { buf ->
                 TravelState(
                     buf.readUtf(), buf.readUtf(),
                     buf.readList { b -> TravelEntry(b.readUtf(), b.readUtf(), b.readVarInt(), b.readUtf(), b.readVarLong()) },
-                    buf.readVarLong(), buf.readVarLong(),
+                    buf.readVarLong(), buf.readVarLong(), buf.readBoolean(),
                 )
             },
         )
@@ -52,6 +52,19 @@ data class TravelActionPayload(val fromNodeId: String, val toNodeId: String, val
     }
 }
 
+/** Client → server: rename the node the travel screen was opened at (sign nodes only). */
+data class TravelRenamePayload(val nodeId: String, val name: String) : CustomPacketPayload {
+    override fun type(): CustomPacketPayload.Type<TravelRenamePayload> = TYPE
+
+    companion object {
+        val TYPE: CustomPacketPayload.Type<TravelRenamePayload> = CustomPacketPayload.Type(Postroad.id("travel_rename"))
+        val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, TravelRenamePayload> = StreamCodec.of(
+            { buf, p -> buf.writeUtf(p.nodeId); buf.writeUtf(p.name, 64) },
+            { buf -> TravelRenamePayload(buf.readUtf(), buf.readUtf(64)) },
+        )
+    }
+}
+
 /** Client-side holder; the client setup plugs in the screen opener. No client imports here. */
 object TravelClient {
     @Volatile
@@ -68,6 +81,10 @@ object TravelNetworking {
         registrar.playToServer(TravelActionPayload.TYPE, TravelActionPayload.STREAM_CODEC) { payload, context ->
             val player = context.player() as? ServerPlayer ?: return@playToServer
             TravelService.depart(player, payload.fromNodeId, payload.toNodeId, payload.express)
+        }
+        registrar.playToServer(TravelRenamePayload.TYPE, TravelRenamePayload.STREAM_CODEC) { payload, context ->
+            val player = context.player() as? ServerPlayer ?: return@playToServer
+            if (SignNodes.rename(player.serverLevel(), player, payload.nodeId, payload.name)) TravelService.open(player, payload.nodeId)
         }
     }
 }

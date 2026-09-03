@@ -61,6 +61,7 @@ object PostroadConfig {
     private val TIER_FACTOR_GRAVEL: ModConfigSpec.IntValue
     private val TIER_FACTOR_PAVED: ModConfigSpec.IntValue
     private val AUTO_NAME_SIGNS: ModConfigSpec.BooleanValue
+    private val FLIP_SIGN_FACES: ModConfigSpec.BooleanValue
     private val TARGET_POOLS: ModConfigSpec.ConfigValue<List<out String>>
 
     val SPEC: ModConfigSpec
@@ -124,6 +125,7 @@ object PostroadConfig {
 
         BUILDER.push("signs")
         AUTO_NAME_SIGNS = BUILDER.comment("When a way sign is linked, point its arms along the path and write 'To: <next node>' on them.").define("autoName", true)
+        FLIP_SIGN_FACES = BUILDER.comment("Invert which side of a way-sign arm carries the text (if arms come out facing away from the road).").define("flipFaces", false)
         BUILDER.pop()
 
         SPEC = BUILDER.build()
@@ -148,4 +150,5 @@ object PostroadConfig {
     val tierFactorGravel: Double get() = TIER_FACTOR_GRAVEL.get() / 100.0
     val tierFactorPaved: Double get() = TIER_FACTOR_PAVED.get() / 100.0
     val autoNameSigns: Boolean get() = AUTO_NAME_SIGNS.get()
+    val flipSignFaces: Boolean get() = FLIP_SIGN_FACES.get()
 }

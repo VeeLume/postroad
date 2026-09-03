@@ -34,6 +34,7 @@ object TravelService {
             entries = entries,
             wallet = network.balance(Network.playerAccount(player.gameProfile.name)),
             fund = network.balance(Network.ROAD_FUND),
+            renamable = from.kind == RoadNode.KIND_SIGN,
         )
         PacketDistributor.sendToPlayer(player, TravelStatePayload(state))
     }

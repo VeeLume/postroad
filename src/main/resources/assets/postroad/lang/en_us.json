@@ -168,5 +168,10 @@
   "command.postroad.nodes.none": "No nodes yet.",
   "command.postroad.nodes.entry": "%s [%s] at %s on path %s",
   "sign.postroad.to": "To: %s",
-  "message.postroad.sign.arms_set": "%s arm(s) pointed along the path."
+  "message.postroad.sign.arms_set": "%s arm(s) pointed along the path.",
+  "sign.postroad.signpost": "signpost",
+  "message.postroad.sign.renamed": "Sign renamed to '%s'.",
+  "screen.postroad.travel.name": "Name",
+  "screen.postroad.travel.rename": "Rename",
+  "screen.postroad.travel.name_hint": "Rename this sign (plain signs are rewritten too)."
 }

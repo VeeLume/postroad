@@ -87,14 +87,18 @@ object SignNodes {
         }
         val (path, index) = near
         val ownText = signName(level, pos)?.takeUnless { it.startsWith(Component.translatable("sign.postroad.to", "").string.trim()) }
-        val name = ownText ?: nearestTownName(network, dimension, pos)?.let { Component.translatable("message.postroad.sign.default_name", it).string } ?: "Signpost"
+        val town = nearestTownName(network, dimension, pos)
+        val name = ownText ?: town?.let { Component.translatable("message.postroad.sign.default_name", it).string } ?: "Signpost"
         val node = RoadNode(id, RoadNode.KIND_SIGN, dimension, pos, path.id, index, name, null)
         network.nodes[id] = node
         network.setDirty()
         if (PostroadConfig.autoNameSigns) {
             level.getBlockEntity(pos)?.let { entity ->
-                if (entity !is SignBlockEntity) {
-                    val arms = SignWriter.pointWaySign(level, entity, network, node)
+                if (entity is SignBlockEntity) {
+                    // A plain sign with no text of its own shows the place it stands by.
+                    if (ownText == null && town != null) SignWriter.labelSign(level, entity, town, Component.translatable("sign.postroad.signpost").string)
+                } else {
+                    val arms = SignWriter.pointWaySign(level, entity, network, node, player.blockPosition())
                     if (arms > 0) player.displayClientMessage(Component.translatable("message.postroad.sign.arms_set", arms), true)
                 }
             }
@@ -102,6 +106,20 @@ object SignNodes {
         PostroadAdvancements.award(player, PostroadAdvancements.SIGN_LINKED)
         player.displayClientMessage(Component.translatable("message.postroad.sign.linked", name, path.length.toInt()).withStyle(ChatFormatting.GOLD), false)
         Postroad.LOGGER.info("{} linked sign '{}' at {} to path {}", player.gameProfile.name, name, pos.toShortString(), path.id)
+    }
+
+    /** Renames a sign node (never a town) and rewrites a plain sign's text to match. */
+    fun rename(level: ServerLevel, player: ServerPlayer, nodeId: String, newName: String): Boolean {
+        val network = Network.get(level.server)
+        val node = network.nodes[nodeId] ?: return false
+        if (node.kind != RoadNode.KIND_SIGN) return false
+        val name = newName.trim().take(32)
+        if (name.isEmpty()) return false
+        network.nodes[nodeId] = node.copy(name = name)
+        network.setDirty()
+        (level.getBlockEntity(node.pos) as? SignBlockEntity)?.let { SignWriter.labelSign(level, it, name, "") }
+        player.displayClientMessage(Component.translatable("message.postroad.sign.renamed", name).withStyle(ChatFormatting.GOLD), false)
+        return true
     }
 
     /** First non-empty line of a vanilla sign, or the first text found on a sign-post tile. */

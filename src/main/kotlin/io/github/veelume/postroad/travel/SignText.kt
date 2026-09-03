@@ -23,20 +23,20 @@ object SignWriter {
     /** Two-line town label on a vanilla/hanging sign, waxed so it stays. */
     fun labelTownSign(level: ServerLevel, entity: SignBlockEntity, name: String) {
         val words = name.split(' ')
-        val line1: String
-        val line2: String
         if (words.size >= 2 && name.length > 10) {
             val mid = words.size / 2
-            line1 = words.take(mid).joinToString(" ")
-            line2 = words.drop(mid).joinToString(" ")
+            labelSign(level, entity, words.take(mid).joinToString(" "), words.drop(mid).joinToString(" "), wax = true)
         } else {
-            line1 = name
-            line2 = ""
+            labelSign(level, entity, name, "", wax = true)
         }
+    }
+
+    /** Writes two lines on both faces of a vanilla/hanging sign. */
+    fun labelSign(level: ServerLevel, entity: SignBlockEntity, line1: String, line2: String, wax: Boolean = false) {
         val text = SignText().setMessage(0, Component.literal(line1)).setMessage(1, Component.literal(line2))
         entity.setText(text, true)
         entity.setText(text, false)
-        entity.setWaxed(true)
+        if (wax) entity.setWaxed(true)
         entity.setChanged()
         level.sendBlockUpdated(entity.blockPos, entity.blockState, entity.blockState, 3)
     }
@@ -46,13 +46,20 @@ object SignWriter {
      * next node in the +index direction, the second toward the −index direction, each labelled
      * "To: <name>". Arms with nothing to point at are left as they were. Returns how many arms were set.
      */
-    fun pointWaySign(level: ServerLevel, entity: BlockEntity, network: Network, node: RoadNode): Int {
+    fun pointWaySign(level: ServerLevel, entity: BlockEntity, network: Network, node: RoadNode, viewer: BlockPos?): Int {
         val path = network.paths[node.pathId] ?: return 0
         val onPath = network.nodes.values.filter { it.pathId == node.pathId && it.id != node.id }
         val forward = onPath.filter { it.pointIndex > node.pointIndex }.minByOrNull { it.pointIndex }
         val backward = onPath.filter { it.pointIndex < node.pointIndex }.maxByOrNull { it.pointIndex }
         val targets = listOfNotNull(forward, backward)
         if (targets.isEmpty()) return 0
+        // Aim along the road, not at the far node: the path point a few samples out in that direction.
+        fun aimPoint(target: RoadNode): BlockPos {
+            val step = if (target.pointIndex > node.pointIndex) 1 else -1
+            val idx = (node.pointIndex + step * LOOKAHEAD).coerceIn(0, path.points.size - 1)
+            val bounded = if (step > 0) minOf(idx, target.pointIndex) else maxOf(idx, target.pointIndex)
+            return path.points[bounded]
+        }
 
         val arms = arms(entity) ?: return 0
         var set = 0
@@ -66,8 +73,17 @@ object SignWriter {
             try {
                 val pointToward = arm.javaClass.getMethod("pointToward", BlockPos::class.java, BlockPos::class.java)
                 val setActive = arm.javaClass.getMethod("setActive", java.lang.Boolean.TYPE)
+                val setLeft = arm.javaClass.getMethod("setLeft", java.lang.Boolean.TYPE)
+                val aim = aimPoint(target)
                 setActive.invoke(arm, true)
-                pointToward.invoke(arm, node.pos, path.points[target.pointIndex])
+                // Readable face toward whoever linked it: which side of the arm's direction they stand on.
+                if (viewer != null) {
+                    val dirX = (aim.x - node.pos.x).toDouble(); val dirZ = (aim.z - node.pos.z).toDouble()
+                    val toViewerX = (viewer.x - node.pos.x).toDouble(); val toViewerZ = (viewer.z - node.pos.z).toDouble()
+                    val cross = dirX * toViewerZ - dirZ * toViewerX
+                    setLeft.invoke(arm, (cross > 0) != io.github.veelume.postroad.PostroadConfig.flipSignFaces)
+                }
+                pointToward.invoke(arm, node.pos, aim)
                 labels.add(Component.translatable("sign.postroad.to", target.name).string)
                 set++
             } catch (e: Exception) {
@@ -99,6 +115,9 @@ object SignWriter {
         }
         return set
     }
+
+    /** Samples along the path an arm aims at; ~4 samples is 16–32 blocks, enough to follow the bend. */
+    private const val LOOKAHEAD = 4
 
     /** The way sign's arm objects, SignUp first. */
     private fun arms(entity: BlockEntity): List<Any>? {

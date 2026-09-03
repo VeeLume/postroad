@@ -2,6 +2,8 @@ package io.github.veelume.postroad.client
 
 import io.github.veelume.postroad.travel.TravelActionPayload
 import io.github.veelume.postroad.travel.TravelClient
+import io.github.veelume.postroad.travel.TravelRenamePayload
+import net.minecraft.client.gui.components.EditBox
 import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.components.Tooltip
@@ -17,6 +19,8 @@ class TravelScreen : Screen(Component.translatable("screen.postroad.travel.title
     private lateinit var prev: Button
     private lateinit var next: Button
     private lateinit var expressButton: Button
+    private var nameBox: EditBox? = null
+    private var renameButton: Button? = null
 
     private val perPage = 7
 
@@ -38,6 +42,20 @@ class TravelScreen : Screen(Component.translatable("screen.postroad.travel.title
                 .build(),
         )
         addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), Button.OnPress { onClose() }).bounds(cx + 28, top + perPage * 22 + 4, 68, 20).build())
+        if (state.renamable) {
+            val box = EditBox(font, cx - 120, top + perPage * 22 + 28, 170, 20, Component.translatable("screen.postroad.travel.name"))
+            box.setMaxLength(32)
+            box.value = state.fromName
+            nameBox = addRenderableWidget(box)
+            renameButton = addRenderableWidget(
+                Button.builder(Component.translatable("screen.postroad.travel.rename"), Button.OnPress {
+                    val name = box.value.trim()
+                    if (name.isNotEmpty() && name != TravelClient.state.fromName) {
+                        PacketDistributor.sendToServer(TravelRenamePayload(TravelClient.state.fromNodeId, name))
+                    }
+                }).bounds(cx + 54, top + perPage * 22 + 28, 66, 20).build(),
+            )
+        }
         refresh()
     }
 
@@ -75,6 +93,7 @@ class TravelScreen : Screen(Component.translatable("screen.postroad.travel.title
         val cx = width / 2
         val top = height / 2 - 90
         graphics.drawCenteredString(font, Component.translatable("screen.postroad.travel.from", state.fromName), cx, top - 26, 0xFFFFFF)
+        if (state.renamable) graphics.drawString(font, Component.translatable("screen.postroad.travel.name_hint"), cx - 120, top + perPage * 22 + 50, 0x808080, false)
         graphics.drawCenteredString(font, Component.translatable("screen.postroad.travel.wallet", state.wallet, state.fund), cx, top - 14, 0xA0A0A0)
         if (state.entries.isEmpty()) {
             graphics.drawCenteredString(font, Component.translatable("screen.postroad.travel.none"), cx, top + 40, 0xA0A0A0)
