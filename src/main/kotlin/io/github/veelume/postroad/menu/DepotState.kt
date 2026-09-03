@@ -8,8 +8,8 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent
 
 /**
- * Everything the depot screen shows that is not a slot or a plain int: names. Built on the
- * server, sent whenever it changes, read by the screen each frame.
+ * Everything the depot screen shows that is not a slot or a plain int: names and the current
+ * selection. Built on the server, sent whenever it changes, read by the screen each frame.
  */
 data class DepotState(
     val townName: String,
@@ -18,9 +18,11 @@ data class DepotState(
     val destinationIndex: Int,
     val homeName: String,
     val transitLines: List<String>,
+    /** Menu slot indices currently marked for sending. */
+    val selected: List<Int>,
 ) {
     companion object {
-        val EMPTY = DepotState("", emptyList(), emptyList(), 0, "", emptyList())
+        val EMPTY = DepotState("", emptyList(), emptyList(), 0, "", emptyList(), emptyList())
 
         val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, DepotState> = StreamCodec.of(
             { buf, s ->
@@ -30,6 +32,7 @@ data class DepotState(
                 buf.writeVarInt(s.destinationIndex)
                 buf.writeUtf(s.homeName)
                 buf.writeCollection(s.transitLines) { b, v -> b.writeUtf(v) }
+                buf.writeCollection(s.selected) { b, v -> b.writeVarInt(v) }
             },
             { buf ->
                 DepotState(
@@ -39,6 +42,7 @@ data class DepotState(
                     destinationIndex = buf.readVarInt(),
                     homeName = buf.readUtf(),
                     transitLines = buf.readList { it.readUtf() },
+                    selected = buf.readList { it.readVarInt() },
                 )
             },
         )

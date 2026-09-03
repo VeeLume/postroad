@@ -86,7 +86,7 @@ class MailboxBlock(properties: Properties) : HorizontalDirectionalBlock(properti
         val network = Network.get(serverLevel.server)
         val container = network.mailboxStorage(placeId)
         val title = Component.literal(network.places[placeId]?.name ?: "Mailbox")
-        player.openMenu(SimpleMenuProvider({ id, inventory, _ -> ChestMenu.threeRows(id, inventory, container) }, title))
+        player.openMenu(SimpleMenuProvider({ id, inventory, _ -> ChestMenu.sixRows(id, inventory, container) }, title))
         return InteractionResult.CONSUME
     }
 

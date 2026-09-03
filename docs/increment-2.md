@@ -19,8 +19,8 @@ In:
 - **Parcels** — items sent from a depot to another town; they land in that
   town's storage. Stackables arrive at once; unstackables take days,
   proportional to distance.
-- **Depot screen** — one custom screen with two tabs: storage (this town,
-  paged through the network once chartered) and send.
+- **Depot screen** — one custom screen, no tabs: the town's storage (paged
+  through the network once chartered), select-and-send, dump and take.
 
 - **Mailbox block** — an earned block (quest reward, no recipe) a player
   places at their base. It registers "<Player>'s mailbox" as a destination,
@@ -59,7 +59,7 @@ road-quality multipliers on delivery time.
   network, writes a ledger entry (`charter`, actor, town) and grants the
   `postal_network` advancement to the user.
 - Before the unlock a depot shows only its own town's page, without page
-  arrows, and the send tab is disabled. Nothing that exists before the
+  arrows, and the send row reads "Charter the postal network to send parcels". Nothing that exists before the
   unlock changes shape afterwards: a town's storage *is* its page.
 
 ## Data model changes
@@ -102,20 +102,36 @@ Network (existing)
 
 ## Mail flow
 
-1. **Send tab** at any depot: a 9-slot outbox, the destination chosen from
-   towns and mailboxes (arrow buttons, no typing), defaulting to the
-   sender's own mailbox, else their home town, and a Send button. Sending to the current town is
-   refused — that is what the town storage is for.
-2. On Send the outbox is split into two parcels if needed: one with all
-   stackables (bulk lane), one with all unstackables (valuables lane). Each
-   gets `arrivalDay` per the timing rule and joins `parcels`. Ledger gets no
-   entry (no coins moved); the log gets one line.
-3. Delivery runs once per in-game day change and on server start: every
-   parcel with `arrivalDay <= today` is moved into the destination town's
-   storage; what does not fit stays `held` and is retried daily.
-4. The Send tab lists the sender's parcels in transit or held, with the
-   destination and days remaining; `/postroad mail` shows the same.
-5. The sender gets a chat line when a valuables parcel lands, if online.
+The loop the screen is built around: **arrive with full pockets, mark what
+leaves, one click, collect at home later.** "Home" is the home town in stage
+1 and the mailbox in stage 2; the screen does not care which.
+
+1. **One view, no tabs.** The grid is the town's storage (paged through the
+   network once chartered); the player's inventory is below as in any chest.
+2. **Select** turns clicks into marks: a click on any stack, inventory or
+   grid, highlights it green instead of picking it up. **Loot** marks every
+   stack still stamped as fresh loot in one click. Nothing leaves that was not
+   marked — with this many mods, "everything but the hotbar" was not a safe
+   rule.
+3. **Send N** ships the marked stacks to the destination shown next to it
+   (arrow buttons; mailbox first, then home town, then nearest-first; the
+   current town is not offered). Marked stacks in the grid ship too, so items
+   can be forwarded from a town's storage.
+4. On send the items are split into two parcels if needed: stackables (bulk
+   lane, arrive at once), unstackables (valuables lane, days). Ledger gets no
+   entry; the log gets one line.
+5. Delivery runs once per in-game day change and on server start into the
+   destination's storage (town or mailbox); what does not fit stays `held`.
+6. **Dump** (main inventory into the shown page) and **Take** (shown page
+   into the inventory) cover the plain chest uses; collecting at home is one
+   click.
+7. The Send button's tooltip lists the sender's parcels on the way; the
+   sender gets a chat line when a valuables parcel lands, if online.
+
+> Earlier cuts had a send tab with a 9-slot outbox, then a "send everything
+> but the hotbar" button. Both were wrong for this pack: the first was
+> ceremony, the second unsafe with a modded inventory. Marking in place is
+> the version that survived play.
 
 ## Lanes and timing
 
@@ -141,8 +157,8 @@ Network (existing)
 - Pages are ordered here-first, then by distance; destinations own mailbox,
   home town, then by distance. Arrow selectors will not scale past a dozen
   towns — a pick-list is the next step if the network grows that far.
-- Actions that are not slot clicks (change tab, change page, pick
-  destination, send, set home) are payloads registered with NeoForge's
+- Actions that are not slot clicks (change page, pick destination, select
+  mode, mark loot, send, dump, take, set home) are payloads registered with NeoForge's
   payload registrar; every one is validated server-side against the menu's
   place and the network state.
 - The vanilla 6-row chest menu from increment 1 goes away.

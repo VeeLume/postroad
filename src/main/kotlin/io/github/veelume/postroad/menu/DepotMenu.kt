@@ -18,16 +18,19 @@ import net.minecraft.world.SimpleContainer
 import net.minecraft.world.entity.player.Inventory
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.inventory.AbstractContainerMenu
+import net.minecraft.world.inventory.ClickType
 import net.minecraft.world.inventory.DataSlot
 import net.minecraft.world.inventory.Slot
 import net.minecraft.world.item.ItemStack
 import net.neoforged.neoforge.network.PacketDistributor
 
 /**
- * The depot screen's menu. One fixed 6×9 grid whose backing container is swapped per tab:
- * a town's storage (paged through the network once chartered) or the send outbox. Ints (tab, page, …) sync through
- * data slots; names through [DepotStatePayload]. The server instance holds the network; the
- * client instance only mirrors.
+ * The depot screen's menu: one view, no tabs. The grid is a town's storage (paged through the
+ * network once chartered); below it the player's inventory. In *select mode* a click on any
+ * stack — inventory or grid — marks it instead of picking it up; *Send* ships the marked stacks
+ * to the chosen destination. Dump/Take remain for plain chest use. Ints sync through data
+ * slots, names and the selection through [DepotStatePayload]. The server instance holds the
+ * network; the client instance only mirrors.
  */
 class DepotMenu private constructor(
     id: Int,
@@ -38,31 +41,28 @@ class DepotMenu private constructor(
 
     class ServerSide(val level: ServerLevel, val network: Network, val placeId: String)
 
-    enum class Tab(val activeSlots: Int) { STORAGE(GRID), SEND(9) }
-
     private val grid = DelegatingContainer(GRID)
-    private val outbox = SimpleContainer(9)
 
-    private val tabData: DataSlot = DataSlot.standalone()
     private val pageData: DataSlot = DataSlot.standalone()
     private val currentPageData: DataSlot = DataSlot.standalone()
     private val pageCountData: DataSlot = DataSlot.standalone()
     private val unlockedData: DataSlot = DataSlot.standalone()
+    private val selectModeData: DataSlot = DataSlot.standalone()
 
-    /** Name state; server builds it, client receives it. */
+    /** Name state and selection; server builds it, client receives it. */
     var state: DepotState = DepotState.EMPTY
 
     // server-only bookkeeping
     private var pages: List<String> = emptyList()
     private var destinations: List<String> = emptyList()
     private var destinationIndex = 0
+    private val selected = LinkedHashSet<Int>()
 
-    val tab: Tab get() = Tab.entries[tabData.get().coerceIn(0, Tab.entries.size - 1)]
     val page: Int get() = pageData.get()
     val currentPage: Int get() = currentPageData.get()
     val pageCount: Int get() = pageCountData.get()
     val unlocked: Boolean get() = unlockedData.get() == 1
-    val activeSlots: Int get() = tab.activeSlots
+    val selectMode: Boolean get() = selectModeData.get() == 1
     val playerName: String get() = playerInventory.player.gameProfile.name
 
     init {
@@ -70,15 +70,15 @@ class DepotMenu private constructor(
             addSlot(DepotSlot(this, grid, row * 9 + col, 8 + col * 18, 18 + row * 18))
         }
         for (row in 0 until 3) for (col in 0 until 9) {
-            addSlot(Slot(playerInventory, col + row * 9 + 9, 8 + col * 18, 139 + row * 18))
+            addSlot(Slot(playerInventory, col + row * 9 + 9, 8 + col * 18, INVENTORY_Y + row * 18))
         }
-        for (col in 0 until 9) addSlot(Slot(playerInventory, col, 8 + col * 18, 197))
+        for (col in 0 until 9) addSlot(Slot(playerInventory, col, 8 + col * 18, HOTBAR_Y))
 
-        addDataSlot(tabData)
         addDataSlot(pageData)
         addDataSlot(currentPageData)
         addDataSlot(pageCountData)
         addDataSlot(unlockedData)
+        addDataSlot(selectModeData)
 
         if (server != null) {
             server.network.seenPlayer(playerName)
@@ -86,19 +86,38 @@ class DepotMenu private constructor(
             val current = pages.indexOf(server.placeId).coerceAtLeast(0)
             currentPageData.set(current)
             pageData.set(current)
-            destinationIndex = destinations.indexOf(MailService.defaultDestination(server.network, playerName, server.placeId)).coerceAtLeast(0)
-            applyTab(Tab.STORAGE)
+            destinationIndex = destinations.indexOf(defaultDestination()).coerceAtLeast(0)
+            grid.target = server.network.storageFor(server.placeId)
         }
     }
 
     // ---- rules shared by both sides -------------------------------------------------------------
 
     /** The remote-unstackable rule, in a form both sides can evaluate. */
-    fun isRemotePage(): Boolean = tab == Tab.STORAGE && page != currentPage
+    fun isRemotePage(): Boolean = page != currentPage
 
     fun mayMove(stack: ItemStack): Boolean = !isRemotePage() || stack.isEmpty || stack.isStackable
 
+    /** In select mode, clicks mark stacks instead of moving them. Runs on both sides. */
+    override fun clicked(slotId: Int, button: Int, clickType: ClickType, player: Player) {
+        if (selectMode && slotId in 0 until slots.size && clickType != ClickType.QUICK_CRAFT) {
+            val s = server ?: return
+            val slot = slots[slotId]
+            if (!slot.hasItem()) return
+            if (slotId < GRID && !slot.mayPickup(player)) return
+            if (!selected.remove(slotId)) selected.add(slotId)
+            sendState()
+            return
+        }
+        super.clicked(slotId, button, clickType, player)
+    }
+
     // ---- server side ----------------------------------------------------------------------------
+
+    private fun defaultDestination(): String {
+        val s = server ?: return ""
+        return MailService.defaultDestination(s.network, playerName, s.placeId)
+    }
 
     private fun refreshPages() {
         val s = server ?: return
@@ -108,21 +127,10 @@ class DepotMenu private constructor(
         val mailbox = s.network.mailboxOf(playerName)?.id
         val home = s.network.homeOf(playerName)?.id
         destinations = s.network.destinations().map { it.id }
+            .filter { it != here }
             .sortedWith(compareBy<String> { it != mailbox }.thenBy { it != home }.then(byDistance))
         pageCountData.set(pages.size)
         unlockedData.set(if (s.network.postalUnlocked) 1 else 0)
-    }
-
-    private fun applyTab(newTab: Tab) {
-        val s = server ?: return
-        val effective = if (newTab == Tab.SEND && !s.network.postalUnlocked) Tab.STORAGE else newTab
-        tabData.set(effective.ordinal)
-        if (!s.network.postalUnlocked) pageData.set(currentPage)
-        grid.target = when (effective) {
-            Tab.STORAGE -> s.network.storageFor(pages.getOrElse(page) { s.placeId })
-            Tab.SEND -> outbox
-        }
-        sendState()
     }
 
     private fun sendState() {
@@ -131,7 +139,7 @@ class DepotMenu private constructor(
         val lines = s.network.parcelsFor(playerName).map { parcel ->
             val town = s.network.places[parcel.to]?.name ?: parcel.to
             val key = if (parcel.isDue(today)) "command.postroad.mail.held" else "command.postroad.mail.transit"
-            Component.translatable(key, parcel.items.size, town, parcel.arrivalDay - today).string
+            Component.translatable(key, parcel.items.sumOf { it.count }, town, parcel.arrivalDay - today).string
         }
         state = DepotState(
             townName = s.network.places[s.placeId]?.name ?: "",
@@ -140,8 +148,15 @@ class DepotMenu private constructor(
             destinationIndex = destinationIndex,
             homeName = s.network.homeOf(playerName)?.name ?: "",
             transitLines = lines,
+            selected = selected.toList(),
         )
         (playerInventory.player as? ServerPlayer)?.let { PacketDistributor.sendToPlayer(it, DepotStatePayload(state)) }
+    }
+
+    /** Vanilla calls this once the client has the screen open; anything sent from init is too early. */
+    override fun sendAllDataToRemote() {
+        super.sendAllDataToRemote()
+        sendState()
     }
 
     /** Called from the serverbound payload handler; ignored on the client instance. */
@@ -149,74 +164,107 @@ class DepotMenu private constructor(
         val s = server ?: return
         val player = playerInventory.player
         when (action) {
-            ACTION_TAB -> applyTab(Tab.entries.getOrElse(value) { Tab.STORAGE })
-            ACTION_PAGE -> if (tab == Tab.STORAGE && s.network.postalUnlocked && pages.isNotEmpty()) {
+            ACTION_PAGE -> if (s.network.postalUnlocked && pages.isNotEmpty()) {
                 pageData.set(Math.floorMod(page + value, pages.size))
                 grid.target = s.network.storageFor(pages[page])
+                selected.removeAll { it < GRID }
                 sendState()
             }
             ACTION_DESTINATION -> if (destinations.isNotEmpty()) {
                 destinationIndex = Math.floorMod(destinationIndex + value, destinations.size)
                 sendState()
             }
+            ACTION_SELECT_MODE -> {
+                val on = !selectMode
+                selectModeData.set(if (on) 1 else 0)
+                if (!on) selected.clear()
+                sendState()
+            }
+            ACTION_SELECT_LOOT -> {
+                selectModeData.set(1)
+                val today = FreshLoot.dayOf(s.level)
+                for (index in 0 until slots.size) {
+                    val slot = slots[index]
+                    if (slot.hasItem() && FreshLoot.isFresh(slot.item, today) && (index >= GRID || slot.mayPickup(player))) selected.add(index)
+                }
+                sendState()
+            }
             ACTION_SEND -> send(s, player)
-            ACTION_DUMP -> dump(s)
+            ACTION_DUMP -> dump(player)
+            ACTION_TAKE_ALL -> takeAll(player)
             ACTION_SET_HOME -> {
                 s.network.setHome(playerName, s.placeId)
                 (player as? ServerPlayer)?.let { PostroadAdvancements.award(it, PostroadAdvancements.HOME_SET) }
                 player.displayClientMessage(Component.translatable("command.postroad.home.set", state.townName), true)
+                refreshPages()
+                destinationIndex = destinations.indexOf(defaultDestination()).coerceAtLeast(0)
                 sendState()
             }
         }
     }
 
-    /** Moves the main inventory (not hotbar, not armour) into the current page, as far as it fits. */
-    private fun dump(s: ServerSide) {
-        if (tab != Tab.STORAGE) return
-        var moved = 0
-        for (index in GRID until GRID + 27) {
-            val slot = slots[index]
-            if (!slot.hasItem()) continue
-            val stack = slot.item
-            val before = stack.count
-            if (moveItemStackTo(stack, 0, activeSlots, false)) {
-                moved += before - stack.count
-                if (stack.isEmpty) slot.setByPlayer(ItemStack.EMPTY) else slot.setChanged()
-            }
-        }
-        playerInventory.player.displayClientMessage(Component.translatable("screen.postroad.depot.dumped", moved), true)
-        broadcastChanges()
-    }
-
+    /** Ships the marked stacks to the chosen destination and clears the selection. */
     private fun send(s: ServerSide, player: Player) {
-        if (tab != Tab.SEND || !s.network.postalUnlocked) return
-        val items = (0 until outbox.containerSize).map { outbox.getItem(it) }.filter { !it.isEmpty }
-        if (items.isEmpty()) {
-            player.displayClientMessage(Component.translatable("screen.postroad.depot.outbox_empty"), true)
-            return
-        }
+        if (!s.network.postalUnlocked) return
         val destination = destinations.getOrNull(destinationIndex) ?: return
-        if (destination == s.placeId) {
-            player.displayClientMessage(Component.translatable("screen.postroad.depot.same_town"), true)
+        val indices = selected.filter { slots[it].hasItem() && (it >= GRID || slots[it].mayPickup(player)) }
+        if (indices.isEmpty()) {
+            player.displayClientMessage(Component.translatable("screen.postroad.depot.nothing_selected"), true)
             return
         }
+        val items = indices.map { slots[it].item.copy() }
         val parcels = MailService.send(s.level.server, playerName, s.placeId, destination, items)
-        outbox.clearContent()
+        indices.forEach { slots[it].set(ItemStack.EMPTY) }
+        selected.clear()
         (player as? ServerPlayer)?.let { PostroadAdvancements.award(it, PostroadAdvancements.PARCEL_SENT) }
         val valuables = parcels.firstOrNull { it.lane == Parcel.LANE_VALUABLES }
         val town = s.network.places[destination]?.name ?: destination
+        val count = items.sumOf { it.count }
         val message = if (valuables == null) {
-            Component.translatable("screen.postroad.depot.sent_bulk", town)
+            Component.translatable("screen.postroad.depot.sent_bulk", count, town)
         } else {
-            Component.translatable("screen.postroad.depot.sent_valuables", town, valuables.arrivalDay - FreshLoot.dayOf(s.level))
+            Component.translatable("screen.postroad.depot.sent_valuables", count, town, valuables.arrivalDay - FreshLoot.dayOf(s.level))
         }
         player.displayClientMessage(message.withStyle(ChatFormatting.GOLD), false)
+        broadcastChanges()
         sendState()
     }
 
-    /** Runs after the open-screen packet, so the client menu exists to receive the state. */
-    override fun sendAllDataToRemote() {
-        super.sendAllDataToRemote()
+    /** Moves the main inventory into the shown page, as far as it fits. */
+    private fun dump(player: Player) {
+        val s = server ?: return
+        var moved = 0
+        for (index in INVENTORY_START until INVENTORY_END) {
+            val slot = slots[index]
+            if (!slot.hasItem()) continue
+            val before = slot.item.count
+            if (moveItemStackTo(slot.item, 0, GRID, false)) {
+                moved += before - slot.item.count
+                if (slot.item.isEmpty) slot.set(ItemStack.EMPTY) else slot.setChanged()
+            }
+        }
+        selected.removeAll { it in INVENTORY_START until INVENTORY_END && !slots[it].hasItem() }
+        val name = state.pageNames.getOrElse(page) { s.network.places[s.placeId]?.name ?: "" }
+        player.displayClientMessage(Component.translatable("screen.postroad.depot.dumped", moved, name), true)
+        broadcastChanges()
+        sendState()
+    }
+
+    /** Moves the shown page into the player's inventory, as far as it fits and the rules allow. */
+    private fun takeAll(player: Player) {
+        var moved = 0
+        for (index in 0 until GRID) {
+            val slot = slots[index]
+            if (!slot.hasItem() || !slot.mayPickup(player)) continue
+            val before = slot.item.count
+            if (moveItemStackTo(slot.item, GRID, slots.size, true)) {
+                moved += before - slot.item.count
+                if (slot.item.isEmpty) slot.set(ItemStack.EMPTY) else slot.setChanged()
+            }
+        }
+        selected.removeAll { it < GRID && !slots[it].hasItem() }
+        player.displayClientMessage(Component.translatable("screen.postroad.depot.took", moved), true)
+        broadcastChanges()
         sendState()
     }
 
@@ -230,7 +278,7 @@ class DepotMenu private constructor(
         if (index < GRID) {
             if (!moveItemStackTo(stack, GRID, slots.size, true)) return ItemStack.EMPTY
         } else {
-            if (!moveItemStackTo(stack, 0, activeSlots, false)) return ItemStack.EMPTY
+            if (!moveItemStackTo(stack, 0, GRID, false)) return ItemStack.EMPTY
         }
         if (stack.isEmpty) slot.setByPlayer(ItemStack.EMPTY) else slot.setChanged()
         return copy
@@ -242,20 +290,21 @@ class DepotMenu private constructor(
         return player.distanceToSqr(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5) <= 64.0
     }
 
-    override fun removed(player: Player) {
-        super.removed(player)
-        if (server != null) clearContainer(player, outbox)
-    }
-
     companion object {
         const val GRID = 54
+        const val INVENTORY_START = GRID
+        const val INVENTORY_END = GRID + 27
+        const val INVENTORY_Y = 183
+        const val HOTBAR_Y = 241
 
-        const val ACTION_TAB = 0
         const val ACTION_PAGE = 1
         const val ACTION_DESTINATION = 3
         const val ACTION_SEND = 4
         const val ACTION_SET_HOME = 5
         const val ACTION_DUMP = 6
+        const val ACTION_TAKE_ALL = 8
+        const val ACTION_SELECT_MODE = 10
+        const val ACTION_SELECT_LOOT = 11
 
         fun client(id: Int, inventory: Inventory, buf: RegistryFriendlyByteBuf): DepotMenu =
             DepotMenu(id, inventory, buf.readBlockPos(), null)
@@ -265,11 +314,10 @@ class DepotMenu private constructor(
     }
 }
 
-/** A grid slot that is only active for the current tab and obeys the remote-unstackable rule. */
+/** A grid slot that obeys the remote-unstackable rule. */
 class DepotSlot(private val menu: DepotMenu, container: Container, index: Int, x: Int, y: Int) : Slot(container, index, x, y) {
-    override fun isActive(): Boolean = containerSlot < menu.activeSlots
-    override fun mayPlace(stack: ItemStack): Boolean = isActive && menu.mayMove(stack)
-    override fun mayPickup(player: Player): Boolean = isActive && menu.mayMove(item)
+    override fun mayPlace(stack: ItemStack): Boolean = menu.mayMove(stack)
+    override fun mayPickup(player: Player): Boolean = menu.mayMove(item)
 }
 
 /** Fixed-size container whose backing store can be swapped; slots beyond the target's size read empty. */

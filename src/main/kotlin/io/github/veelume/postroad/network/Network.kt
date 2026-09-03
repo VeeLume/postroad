@@ -303,7 +303,7 @@ class TownContainer(private val network: Network, size: Int) : SimpleContainer(s
 
     companion object {
         const val TOWN_SIZE = 54
-        const val MAILBOX_SIZE = 27
+        const val MAILBOX_SIZE = 54
     }
 }
 

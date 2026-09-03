@@ -4,6 +4,7 @@ import io.github.veelume.postroad.menu.DepotActionPayload
 import io.github.veelume.postroad.menu.DepotMenu
 import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.gui.components.Button
+import net.minecraft.client.gui.components.Tooltip
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
 import net.minecraft.network.chat.Component
 import net.minecraft.resources.ResourceLocation
@@ -12,55 +13,56 @@ import net.minecraft.world.item.ItemStack
 import net.neoforged.neoforge.network.PacketDistributor
 
 /**
- * The depot screen: the vanilla 6-row chest look with a tab bar above it. The send tab uses
- * the rows below its outbox for the destination selector and the in-transit list. Every
- * button is a [DepotActionPayload].
+ * The depot screen: one view. Vanilla 6-row chest look with a two-row button strip between the
+ * grid and the inventory. Row one: Select, Loot, Dump, Take, Send. Row two: the destination.
+ * Every button is a [DepotActionPayload]; marked stacks are highlighted from the synced state.
  */
 class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
     AbstractContainerScreen<DepotMenu>(menu, inventory, title) {
 
-    private lateinit var tabButtons: List<Button>
     private lateinit var prevPage: Button
     private lateinit var nextPage: Button
     private lateinit var homeButton: Button
+    private lateinit var selectButton: Button
+    private lateinit var lootButton: Button
+    private lateinit var dumpButton: Button
+    private lateinit var takeButton: Button
+    private lateinit var sendButton: Button
     private lateinit var destinationPrev: Button
     private lateinit var destinationNext: Button
-    private lateinit var sendButton: Button
-    private lateinit var dumpButton: Button
 
     init {
         imageWidth = 176
-        imageHeight = 222
-        inventoryLabelY = imageHeight - 94
+        imageHeight = GRID_BOTTOM + STRIP + 96
+        inventoryLabelY = DepotMenu.INVENTORY_Y - 11
     }
 
     private fun action(action: Int, value: Int = 0): Button.OnPress = Button.OnPress {
         PacketDistributor.sendToServer(DepotActionPayload(action, value))
     }
 
+    private fun button(key: String, action: Int, x: Int, y: Int, w: Int, h: Int, tooltip: String? = null): Button {
+        val builder = Button.builder(Component.translatable(key), action(action)).bounds(leftPos + x, topPos + y, w, h)
+        if (tooltip != null) builder.tooltip(Tooltip.create(Component.translatable(tooltip)))
+        return addRenderableWidget(builder.build())
+    }
+
     override fun init() {
         super.init()
-        val tabWidth = 58
-        tabButtons = DepotMenu.Tab.entries.mapIndexed { i, tab ->
-            addRenderableWidget(
-                Button.builder(Component.translatable("screen.postroad.depot.tab.${tab.name.lowercase()}"), action(DepotMenu.ACTION_TAB, i))
-                    .bounds(leftPos + i * tabWidth, topPos - 22, tabWidth - 2, 20)
-                    .build(),
-            )
-        }
-        dumpButton = addRenderableWidget(
-            Button.builder(Component.translatable("screen.postroad.depot.dump"), action(DepotMenu.ACTION_DUMP))
-                .bounds(leftPos + imageWidth - 56, topPos - 22, 56, 20)
-                .tooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("screen.postroad.depot.dump.tooltip")))
-                .build(),
-        )
         prevPage = addRenderableWidget(Button.builder(Component.literal("<"), action(DepotMenu.ACTION_PAGE, -1)).bounds(leftPos + imageWidth - 34, topPos + 4, 12, 12).build())
         nextPage = addRenderableWidget(Button.builder(Component.literal(">"), action(DepotMenu.ACTION_PAGE, 1)).bounds(leftPos + imageWidth - 20, topPos + 4, 12, 12).build())
-        homeButton = addRenderableWidget(Button.builder(Component.translatable("screen.postroad.depot.set_home"), action(DepotMenu.ACTION_SET_HOME)).bounds(leftPos + imageWidth - 70, topPos + 4, 32, 12).build())
+        homeButton = button("screen.postroad.depot.set_home", DepotMenu.ACTION_SET_HOME, imageWidth - 70, 4, 32, 12, "screen.postroad.depot.set_home.tooltip")
 
-        destinationPrev = addRenderableWidget(Button.builder(Component.literal("<"), action(DepotMenu.ACTION_DESTINATION, -1)).bounds(leftPos + 34, topPos + SEND_ROW, 12, 14).build())
-        destinationNext = addRenderableWidget(Button.builder(Component.literal(">"), action(DepotMenu.ACTION_DESTINATION, 1)).bounds(leftPos + imageWidth - 20, topPos + SEND_ROW, 12, 14).build())
-        sendButton = addRenderableWidget(Button.builder(Component.translatable("screen.postroad.depot.send"), action(DepotMenu.ACTION_SEND)).bounds(leftPos + 8, topPos + 104, 160, 18).build())
+        val row1 = GRID_BOTTOM + 3
+        selectButton = button("screen.postroad.depot.select", DepotMenu.ACTION_SELECT_MODE, 7, row1, 40, 16, "screen.postroad.depot.select.tooltip")
+        lootButton = button("screen.postroad.depot.loot", DepotMenu.ACTION_SELECT_LOOT, 49, row1, 32, 16, "screen.postroad.depot.loot.tooltip")
+        dumpButton = button("screen.postroad.depot.dump", DepotMenu.ACTION_DUMP, 83, row1, 34, 16, "screen.postroad.depot.dump.tooltip")
+        takeButton = button("screen.postroad.depot.take", DepotMenu.ACTION_TAKE_ALL, 119, row1, 34, 16, "screen.postroad.depot.take.tooltip")
+
+        val row2 = row1 + 19
+        destinationPrev = addRenderableWidget(Button.builder(Component.literal("<"), action(DepotMenu.ACTION_DESTINATION, -1)).bounds(leftPos + 7, topPos + row2, 12, 16).build())
+        destinationNext = addRenderableWidget(Button.builder(Component.literal(">"), action(DepotMenu.ACTION_DESTINATION, 1)).bounds(leftPos + 105, topPos + row2, 12, 16).build())
+        sendButton = button("screen.postroad.depot.send", DepotMenu.ACTION_SEND, 119, row2, 50, 16)
         updateWidgets()
     }
 
@@ -70,71 +72,71 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
     }
 
     private fun updateWidgets() {
-        val tab = menu.tab
-        tabButtons.forEachIndexed { i, button ->
-            val t = DepotMenu.Tab.entries[i]
-            button.active = i != tab.ordinal && (menu.unlocked || t == DepotMenu.Tab.STORAGE)
-        }
-        val storage = tab == DepotMenu.Tab.STORAGE
-        val paged = storage && menu.unlocked && menu.pageCount > 1
+        val state = menu.state
+        val paged = menu.unlocked && menu.pageCount > 1
         prevPage.visible = paged
         nextPage.visible = paged
-        homeButton.visible = storage && !menu.isRemotePage()
-        dumpButton.visible = storage
-        homeButton.active = menu.state.homeName != menu.state.townName
-        val send = tab == DepotMenu.Tab.SEND
-        destinationPrev.visible = send
-        destinationNext.visible = send
-        sendButton.visible = send
+        homeButton.visible = !menu.isRemotePage()
+        homeButton.active = state.homeName != state.townName
+
+        selectButton.message = Component.translatable(if (menu.selectMode) "screen.postroad.depot.select_done" else "screen.postroad.depot.select")
+        val canSend = menu.unlocked && state.destinationNames.isNotEmpty()
+        lootButton.active = canSend
+        destinationPrev.visible = canSend
+        destinationNext.visible = canSend
+        destinationPrev.active = state.destinationNames.size > 1
+        destinationNext.active = state.destinationNames.size > 1
+        sendButton.visible = canSend
+        sendButton.active = state.selected.isNotEmpty()
+        sendButton.message = if (state.selected.isEmpty()) Component.translatable("screen.postroad.depot.send")
+        else Component.translatable("screen.postroad.depot.send_n", state.selected.size)
+        sendButton.tooltip = Tooltip.create(
+            if (state.transitLines.isEmpty()) Component.translatable("screen.postroad.depot.send.tooltip")
+            else Component.literal(state.transitLines.joinToString("\n", prefix = Component.translatable("screen.postroad.depot.in_transit").string + "\n")),
+        )
     }
 
     override fun renderBg(graphics: GuiGraphics, partialTick: Float, mouseX: Int, mouseY: Int) {
-        graphics.blit(TEXTURE, leftPos, topPos, 0, 0, imageWidth, imageHeight)
-        val rows = menu.activeSlots / 9
-        if (rows < 6) {
-            graphics.fill(leftPos + 7, topPos + 17 + rows * 18, leftPos + 169, topPos + 17 + 6 * 18, 0xFFC6C6C6.toInt())
-        }
+        // Top: title + 6 rows. Middle: the button strip. Bottom: the inventory part of the texture.
+        graphics.blit(TEXTURE, leftPos, topPos, 0, 0, imageWidth, GRID_BOTTOM)
+        graphics.blit(TEXTURE, leftPos, topPos + GRID_BOTTOM, 0, 17, 7, STRIP)
+        graphics.blit(TEXTURE, leftPos + imageWidth - 7, topPos + GRID_BOTTOM, imageWidth - 7, 17, 7, STRIP)
+        graphics.fill(leftPos + 7, topPos + GRID_BOTTOM, leftPos + imageWidth - 7, topPos + GRID_BOTTOM + STRIP, PANEL)
+        graphics.blit(TEXTURE, leftPos, topPos + GRID_BOTTOM + STRIP, 0, 126, imageWidth, 96)
+
         if (menu.isRemotePage()) {
-            for (index in 0 until menu.activeSlots) {
+            for (index in 0 until DepotMenu.GRID) {
                 val slot = menu.slots[index]
                 if (slot.hasItem() && !menu.mayMove(slot.item)) {
-                    graphics.fill(leftPos + slot.x, topPos + slot.y, leftPos + slot.x + 16, topPos + slot.y + 16, 0x99404040.toInt())
+                    graphics.fill(leftPos + slot.x, topPos + slot.y, leftPos + slot.x + 16, topPos + slot.y + 16, LOCKED)
                 }
             }
         }
-    }
-
-    private fun drawCentered(graphics: GuiGraphics, text: String, centerX: Int, y: Int, color: Int) {
-        graphics.drawString(font, text, centerX - font.width(text) / 2, y, color, false)
+        for (index in menu.state.selected) {
+            val slot = menu.slots.getOrNull(index) ?: continue
+            graphics.fill(leftPos + slot.x - 1, topPos + slot.y - 1, leftPos + slot.x + 17, topPos + slot.y + 17, SELECTED)
+        }
     }
 
     override fun renderLabels(graphics: GuiGraphics, mouseX: Int, mouseY: Int) {
         val state = menu.state
-        val header: String = when (menu.tab) {
-            DepotMenu.Tab.STORAGE -> {
-                val name = state.pageNames.getOrElse(menu.page) { state.townName }
-                val paged = menu.unlocked && menu.pageCount > 1
-                // Buttons take the right of the title row; drop the counter, then trim, so nothing overlaps.
-                val available = imageWidth - 8 - (if (paged) 76 else 42) - 4
-                val marker = if (menu.isRemotePage()) "" else "» "
-                val counter = if (paged) " (${menu.page + 1}/${menu.pageCount})" else ""
-                val full = marker + name + counter
-                if (font.width(full) <= available) full else font.plainSubstrByWidth(marker + name, available - font.width("…")) + "…"
-            }
-            DepotMenu.Tab.SEND -> Component.translatable("screen.postroad.depot.title.send", state.townName).string
-        }
+        val name = state.pageNames.getOrElse(menu.page) { state.townName }
+        val paged = menu.unlocked && menu.pageCount > 1
+        val available = imageWidth - 8 - (if (paged) 76 else 42) - 4
+        val marker = if (menu.isRemotePage()) "" else "» "
+        val counter = if (paged) " (${menu.page + 1}/${menu.pageCount})" else ""
+        val full = marker + name + counter
+        val header = if (font.width(full) <= available) full else font.plainSubstrByWidth(marker + name, available - font.width("…")) + "…"
         graphics.drawString(font, header, titleLabelX, titleLabelY, TEXT, false)
         graphics.drawString(font, playerInventoryTitle, inventoryLabelX, inventoryLabelY, TEXT, false)
 
-        if (menu.tab == DepotMenu.Tab.SEND) {
-            graphics.drawString(font, Component.translatable("screen.postroad.depot.to"), 9, SEND_ROW + 3, TEXT, false)
-            drawCentered(graphics, state.destinationNames.getOrElse(state.destinationIndex) { "—" }, 101, SEND_ROW + 3, TEXT_STRONG)
-            var y = SEND_ROW + 22
-            val lines = state.transitLines.ifEmpty { listOf(Component.translatable("screen.postroad.depot.no_transit").string) }
-            for (line in lines.take(4)) {
-                graphics.drawString(font, font.plainSubstrByWidth(line, 158), 9, y, TEXT_MUTED, false)
-                y += 10
-            }
+        val row2 = GRID_BOTTOM + 3 + 19
+        if (menu.unlocked && state.destinationNames.isNotEmpty()) {
+            val destination = state.destinationNames.getOrElse(state.destinationIndex) { "—" }
+            val text = font.plainSubstrByWidth(destination, 82)
+            graphics.drawString(font, text, 62 - font.width(text) / 2, row2 + 4, TEXT_STRONG, false)
+        } else if (!menu.unlocked) {
+            graphics.drawString(font, font.plainSubstrByWidth(Component.translatable("screen.postroad.depot.not_chartered").string, 160), 9, row2 + 4, TEXT_MUTED, false)
         }
     }
 
@@ -143,6 +145,9 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         val slot = hoveredSlot
         if (slot != null && slot.index < DepotMenu.GRID && menu.isRemotePage() && !menu.mayMove(stack)) {
             tooltip.add(Component.translatable("screen.postroad.depot.locked", menu.state.pageNames.getOrElse(menu.page) { "?" }))
+        }
+        if (menu.selectMode && slot != null) {
+            tooltip.add(Component.translatable(if (slot.index in menu.state.selected) "screen.postroad.depot.click_unmark" else "screen.postroad.depot.click_mark"))
         }
         return tooltip
     }
@@ -154,7 +159,11 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
 
     companion object {
         private val TEXTURE: ResourceLocation = ResourceLocation.withDefaultNamespace("textures/gui/container/generic_54.png")
-        private const val SEND_ROW = 18 + 18 + 8
+        private const val GRID_BOTTOM = 17 + 6 * 18 + 1
+        private const val STRIP = 44
+        private const val PANEL = 0xFFC6C6C6.toInt()
+        private const val LOCKED = 0x99404040.toInt()
+        private const val SELECTED = 0x8040C040.toInt()
         private const val TEXT = 0x404040
         private const val TEXT_STRONG = 0x202020
         private const val TEXT_MUTED = 0x606060
