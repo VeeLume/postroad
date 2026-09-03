@@ -54,7 +54,6 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         super.init()
         prevPage = addRenderableWidget(Button.builder(Component.literal("<"), action(DepotMenu.ACTION_PAGE, -1)).bounds(leftPos + imageWidth - 34, topPos + 4, 12, 12).build())
         nextPage = addRenderableWidget(Button.builder(Component.literal(">"), action(DepotMenu.ACTION_PAGE, 1)).bounds(leftPos + imageWidth - 20, topPos + 4, 12, 12).build())
-        homeButton = button("screen.postroad.depot.set_home", DepotMenu.ACTION_SET_HOME, imageWidth - 70, 4, 32, 12, "screen.postroad.depot.set_home.tooltip")
 
         val row1 = GRID_BOTTOM + 3
         selectButton = button("screen.postroad.depot.select", DepotMenu.ACTION_SELECT_MODE, 7, row1, 40, 16, "screen.postroad.depot.select.tooltip")
@@ -68,9 +67,10 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         sendButton = button("screen.postroad.depot.send", DepotMenu.ACTION_SEND, 119, row2, 50, 16)
 
         val row3 = row2 + 19
-        expressButton = button("screen.postroad.depot.express", DepotMenu.ACTION_EXPRESS, 7, row3, 70, 16, "screen.postroad.depot.express.tooltip")
-        sellButton = button("screen.postroad.depot.sell", DepotMenu.ACTION_SELL, 79, row3, 50, 16, "screen.postroad.depot.sell.tooltip")
-        travelButton = button("screen.postroad.depot.travel", DepotMenu.ACTION_TRAVEL, imageWidth - 34 - 62, 4, 30, 12, "screen.postroad.depot.travel.tooltip")
+        expressButton = button("screen.postroad.depot.express", DepotMenu.ACTION_EXPRESS, 7, row3, 56, 16, "screen.postroad.depot.express.tooltip")
+        sellButton = button("screen.postroad.depot.sell", DepotMenu.ACTION_SELL, 65, row3, 40, 16, "screen.postroad.depot.sell.tooltip")
+        homeButton = button("screen.postroad.depot.set_home", DepotMenu.ACTION_SET_HOME, 107, row3, 34, 16, "screen.postroad.depot.set_home.tooltip")
+        travelButton = button("screen.postroad.depot.travel", DepotMenu.ACTION_TRAVEL, 143, row3, 26, 16, "screen.postroad.depot.travel.tooltip")
         updateWidgets()
     }
 
@@ -85,7 +85,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         prevPage.visible = paged
         nextPage.visible = paged
         homeButton.visible = !menu.isRemotePage()
-        travelButton.visible = !menu.isRemotePage() && menu.pageCount <= 1 || !menu.isRemotePage()
+        travelButton.visible = !menu.isRemotePage()
         homeButton.active = state.homeName != state.townName
 
         selectButton.message = Component.translatable(if (menu.selectMode) "screen.postroad.depot.select_done" else "screen.postroad.depot.select")
@@ -146,7 +146,8 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         val state = menu.state
         val name = state.pageNames.getOrElse(menu.page) { state.townName }
         val paged = menu.unlocked && menu.pageCount > 1
-        val available = imageWidth - 8 - (if (paged) 76 else 42) - 4
+        val walletWidth = 20 + font.width(state.wallet.toString())
+        val available = imageWidth - 8 - (if (paged) 34 else 8) - walletWidth - 6
         val marker = if (menu.isRemotePage()) "" else "» "
         val counter = if (paged) " (${menu.page + 1}/${menu.pageCount})" else ""
         val full = marker + name + counter
@@ -154,10 +155,11 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         graphics.drawString(font, header, titleLabelX, titleLabelY, TEXT, false)
         graphics.drawString(font, playerInventoryTitle, inventoryLabelX, inventoryLabelY, TEXT, false)
 
-        val row3 = GRID_BOTTOM + 3 + 38
         val wallet = state.wallet.toString()
-        graphics.renderItem(COIN, imageWidth - 8 - 16, row3)
-        graphics.drawString(font, wallet, imageWidth - 8 - 18 - font.width(wallet), row3 + 4, TEXT_STRONG, false)
+        val pagedTitle = menu.unlocked && menu.pageCount > 1
+        val walletRight = if (pagedTitle) imageWidth - 34 - 4 else imageWidth - 8
+        graphics.renderItem(COIN, walletRight - 16, 2)
+        graphics.drawString(font, wallet, walletRight - 18 - font.width(wallet), 6, TEXT_STRONG, false)
 
         val row2 = GRID_BOTTOM + 3 + 19
         if (menu.unlocked && state.destinationNames.isNotEmpty()) {

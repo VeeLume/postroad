@@ -108,21 +108,24 @@ object TravelService {
             .minByOrNull { it.second }?.first
     }
 
-    /** A standable spot next to [pos]: two passable blocks over something solid, nearest first. */
+    /**
+     * A standable spot *next to* [pos] (never in its column — that is the sign or the depot):
+     * feet and head without collision, something with collision below. Nearest first.
+     */
     fun safeSpot(level: ServerLevel, pos: BlockPos): BlockPos {
         val offsets = listOf(
-            BlockPos(0, 0, 0), BlockPos(1, 0, 0), BlockPos(-1, 0, 0), BlockPos(0, 0, 1), BlockPos(0, 0, -1),
+            BlockPos(1, 0, 0), BlockPos(-1, 0, 0), BlockPos(0, 0, 1), BlockPos(0, 0, -1),
             BlockPos(1, 0, 1), BlockPos(-1, 0, -1), BlockPos(1, 0, -1), BlockPos(-1, 0, 1),
+            BlockPos(2, 0, 0), BlockPos(-2, 0, 0), BlockPos(0, 0, 2), BlockPos(0, 0, -2),
         )
-        for (dy in listOf(0, 1, -1, 2)) {
+        fun passable(p: BlockPos) = level.getBlockState(p).getCollisionShape(level, p).isEmpty
+        fun solid(p: BlockPos) = !level.getBlockState(p).getCollisionShape(level, p).isEmpty
+        for (dy in listOf(0, -1, 1, -2, 2)) {
             for (o in offsets) {
                 val p = pos.offset(o.x, dy, o.z)
-                val feet = level.getBlockState(p)
-                val head = level.getBlockState(p.above())
-                val ground = level.getBlockState(p.below())
-                if (!feet.isSolid && !head.isSolid && ground.isSolid) return p
+                if (passable(p) && passable(p.above()) && solid(p.below())) return p
             }
         }
-        return pos.above()
+        return pos.above(2)
     }
 }

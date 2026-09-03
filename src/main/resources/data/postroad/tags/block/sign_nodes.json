@@ -3,11 +3,11 @@
   "values": [
     "#minecraft:all_signs",
     {
-      "id": "supplementaries:sign_post",
+      "id": "supplementaries:way_sign",
       "required": false
     },
     {
-      "id": "supplementaries:sign_post_wall",
+      "id": "supplementaries:sign_post",
       "required": false
     }
   ]

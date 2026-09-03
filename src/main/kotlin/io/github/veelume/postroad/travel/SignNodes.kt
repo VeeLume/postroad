@@ -112,23 +112,17 @@ object SignNodes {
         }
     }
 
-    /** Supplementaries keeps its arm text under SignUp/SignDown as a serialized component. */
+    /** Supplementaries way signs: `SignUp`/`SignDown` → `TextHolder.message` (a list of strings), active arms first. */
     private fun findText(tag: CompoundTag, level: ServerLevel): String? {
-        for (key in listOf("SignUp", "SignDown")) {
-            val arm = tag.getCompound(key)
+        val arms = listOf("SignUp", "SignDown").map { tag.getCompound(it) }.sortedByDescending { it.getBoolean("Active") }
+        for (arm in arms) {
             if (arm.isEmpty) continue
-            val raw = when {
-                arm.contains("Text") -> arm.getString("Text")
-                arm.contains("text") -> arm.getString("text")
-                else -> ""
+            val holder = arm.getCompound("TextHolder")
+            val messages = holder.getList("message", net.minecraft.nbt.Tag.TAG_STRING.toInt())
+            for (i in 0 until messages.size) {
+                val line = messages.getString(i).trim()
+                if (line.isNotEmpty()) return line
             }
-            if (raw.isBlank()) continue
-            val text = try {
-                Component.Serializer.fromJson(raw, level.registryAccess())?.string
-            } catch (e: Exception) {
-                raw
-            }
-            if (!text.isNullOrBlank()) return text.trim()
         }
         return null
     }
