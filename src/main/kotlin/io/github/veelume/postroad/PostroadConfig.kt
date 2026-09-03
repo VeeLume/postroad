@@ -60,6 +60,7 @@ object PostroadConfig {
     private val TIER_FACTOR_DIRT: ModConfigSpec.IntValue
     private val TIER_FACTOR_GRAVEL: ModConfigSpec.IntValue
     private val TIER_FACTOR_PAVED: ModConfigSpec.IntValue
+    private val AUTO_NAME_SIGNS: ModConfigSpec.BooleanValue
     private val TARGET_POOLS: ModConfigSpec.ConfigValue<List<out String>>
 
     val SPEC: ModConfigSpec
@@ -121,6 +122,10 @@ object PostroadConfig {
         TIER_FACTOR_PAVED = BUILDER.comment("Fare divisor for paved roads, in percent.").defineInRange("tierFactorPaved", 200, 1, 1000)
         BUILDER.pop()
 
+        BUILDER.push("signs")
+        AUTO_NAME_SIGNS = BUILDER.comment("When a way sign is linked, point its arms along the path and write 'To: <next node>' on them.").define("autoName", true)
+        BUILDER.pop()
+
         SPEC = BUILDER.build()
     }
 
@@ -142,4 +147,5 @@ object PostroadConfig {
     val tierFactorDirt: Double get() = TIER_FACTOR_DIRT.get() / 100.0
     val tierFactorGravel: Double get() = TIER_FACTOR_GRAVEL.get() / 100.0
     val tierFactorPaved: Double get() = TIER_FACTOR_PAVED.get() / 100.0
+    val autoNameSigns: Boolean get() = AUTO_NAME_SIGNS.get()
 }

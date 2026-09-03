@@ -87,7 +87,8 @@ object TravelService {
             network.charge(name, fare, today, LedgerEntry.OP_FARE, "${from.name} → ${to.name}, ${route.length.toInt()} blocks")
         }
         Charting.abort(player, "message.postroad.chart.aborted_teleport")
-        val spot = safeSpot(level, to.pos)
+        val preferred = network.paths[to.pathId]?.points?.getOrNull(to.pointIndex) ?: to.pos
+        val spot = safeSpot(level, to.pos, preferred)
         player.teleportTo(level, spot.x + 0.5, spot.y.toDouble(), spot.z + 0.5, player.yRot, player.xRot)
         PostroadAdvancements.award(player, PostroadAdvancements.FIRST_JOURNEY)
         if (fare > 0) PostroadAdvancements.award(player, PostroadAdvancements.LONG_JOURNEY)
@@ -112,12 +113,14 @@ object TravelService {
      * A standable spot *next to* [pos] (never in its column — that is the sign or the depot):
      * feet and head without collision, something with collision below. Nearest first.
      */
-    fun safeSpot(level: ServerLevel, pos: BlockPos): BlockPos {
-        val offsets = listOf(
+    fun safeSpot(level: ServerLevel, pos: BlockPos, preferTowards: BlockPos? = null): BlockPos {
+        var offsets = listOf(
             BlockPos(1, 0, 0), BlockPos(-1, 0, 0), BlockPos(0, 0, 1), BlockPos(0, 0, -1),
             BlockPos(1, 0, 1), BlockPos(-1, 0, -1), BlockPos(1, 0, -1), BlockPos(-1, 0, 1),
             BlockPos(2, 0, 0), BlockPos(-2, 0, 0), BlockPos(0, 0, 2), BlockPos(0, 0, -2),
         )
+        // In front of the sign means on its road: try the spots nearest the linked path point first.
+        if (preferTowards != null) offsets = offsets.sortedBy { pos.offset(it).distSqr(preferTowards) }
         fun passable(p: BlockPos) = level.getBlockState(p).getCollisionShape(level, p).isEmpty
         fun solid(p: BlockPos) = !level.getBlockState(p).getCollisionShape(level, p).isEmpty
         for (dy in listOf(0, -1, 1, -2, 2)) {

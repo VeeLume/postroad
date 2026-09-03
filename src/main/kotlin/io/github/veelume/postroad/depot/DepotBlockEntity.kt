@@ -38,12 +38,26 @@ class DepotBlockEntity(pos: BlockPos, state: BlockState) : BlockEntity(PostroadB
                 is PlaceResolver.Result.Bound -> {
                     placeId = result.placeId
                     setChanged()
+                    labelSigns(level)
                 }
                 is PlaceResolver.Result.Redundant -> demote(level, result.placeId)
             }
         } catch (e: Exception) {
             Postroad.LOGGER.warn("Depot at {} could not register its place, retrying: {}", blockPos.toShortString(), e.toString())
             retryIn = 100
+        }
+    }
+
+    /** Writes the town name onto every hanging sign of the courier post around this depot. */
+    private fun labelSigns(level: ServerLevel) {
+        val name = place(level)?.name ?: return
+        val from = blockPos.offset(-5, -1, -5)
+        val to = blockPos.offset(5, 4, 5)
+        for (pos in BlockPos.betweenClosed(from, to)) {
+            val entity = level.getBlockEntity(pos) as? net.minecraft.world.level.block.entity.SignBlockEntity ?: continue
+            if (level.getBlockState(pos).block !is net.minecraft.world.level.block.CeilingHangingSignBlock &&
+                level.getBlockState(pos).block !is net.minecraft.world.level.block.WallHangingSignBlock) continue
+            io.github.veelume.postroad.travel.SignWriter.labelTownSign(level, entity, name)
         }
     }
 

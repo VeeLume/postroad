@@ -86,9 +86,19 @@ object SignNodes {
             return
         }
         val (path, index) = near
-        val name = signName(level, pos) ?: nearestTownName(network, dimension, pos)?.let { Component.translatable("message.postroad.sign.default_name", it).string } ?: "Signpost"
-        network.nodes[id] = RoadNode(id, RoadNode.KIND_SIGN, dimension, pos, path.id, index, name, null)
+        val ownText = signName(level, pos)?.takeUnless { it.startsWith(Component.translatable("sign.postroad.to", "").string.trim()) }
+        val name = ownText ?: nearestTownName(network, dimension, pos)?.let { Component.translatable("message.postroad.sign.default_name", it).string } ?: "Signpost"
+        val node = RoadNode(id, RoadNode.KIND_SIGN, dimension, pos, path.id, index, name, null)
+        network.nodes[id] = node
         network.setDirty()
+        if (PostroadConfig.autoNameSigns) {
+            level.getBlockEntity(pos)?.let { entity ->
+                if (entity !is SignBlockEntity) {
+                    val arms = SignWriter.pointWaySign(level, entity, network, node)
+                    if (arms > 0) player.displayClientMessage(Component.translatable("message.postroad.sign.arms_set", arms), true)
+                }
+            }
+        }
         PostroadAdvancements.award(player, PostroadAdvancements.SIGN_LINKED)
         player.displayClientMessage(Component.translatable("message.postroad.sign.linked", name, path.length.toInt()).withStyle(ChatFormatting.GOLD), false)
         Postroad.LOGGER.info("{} linked sign '{}' at {} to path {}", player.gameProfile.name, name, pos.toShortString(), path.id)

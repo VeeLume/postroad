@@ -127,10 +127,15 @@ per player on the server.
    The ledger gets a `path` entry; `path_charted` fires. Below 30 %, the walk
    is refused with the share and the failing stretches described ("41 % road
    — mostly grass between 120 and 260 blocks in").
-4. **Place a sign** anywhere along the path — a Supplementaries sign post on a
-   Quark post, or a vanilla sign — and **use the map on it**: *Add to path*
-   links it to the nearest path point within 8 blocks and names it from the
-   sign's text; *Remove from path* unlinks it. This replaces Via Romana's
+4. **Place a sign** anywhere along the path — a Supplementaries way sign on a
+   Quark post, or a vanilla/hanging sign — and **use the map on it**: it links
+   to the nearest path point within 8 blocks and takes the sign's own text as
+   its name (else "Signpost near <town>"). Using the map again unlinks it.
+   **Auto-naming** (config `signs.autoName`): a way sign's arms are pointed
+   along the path, one per direction, at the next node that way, and written
+   "To: <name>" through Supplementaries' own `pointToward`. The courier post
+   carries a hanging sign over its door that the depot labels with the town
+   name when it registers. This replaces Via Romana's
    extra button in the sign editor, which we cannot add to Supplementaries'
    screen without a mixin.
 5. **Remove branch / Sever path** act on the nearest path point: remove
@@ -156,8 +161,8 @@ per player on the server.
   `gravel 1.5`, `paved 2.0`, using the worst tier on the route. All config.
 - **Pay**: wallet first, road fund for the rest; refused with the shortfall
   shown if neither covers it. Ledger entry `fare` with the destination.
-- **Arrive** at the node's path point, on a safe block found by scanning
-  upward from it.
+- **Arrive** next to the node, on the standable spot nearest its path point
+  — in front of the sign, on the road — never inside the sign's column.
 - **Fresh loot**: before the teleport, every stamped-and-fresh stack in the
   traveller's inventory (hotbar included) is removed and sent as a parcel to
   the destination town — the node's town, or for a sign or junction the
@@ -165,6 +170,12 @@ per player on the server.
   is offered on the travel screen for the valuables part. The traveller is
   told what was mailed.
 - No cooldown, no lockout. Distance and coins are the limits.
+
+## Later
+
+- A non-directional way sign block of our own (a post with a plaque); vanilla
+  and hanging signs are the fallback until then.
+- A drawn map of the network like Via Romana's.
 
 ## Advancements
 

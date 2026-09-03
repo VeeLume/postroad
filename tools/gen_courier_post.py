@@ -27,43 +27,43 @@ STYLES: dict[str, dict[str, str | None]] = {
     "oak": dict(base="minecraft:cobblestone", corner="minecraft:stripped_oak_log", wall="minecraft:oak_planks",
                 floor="minecraft:oak_planks", roof="minecraft:oak_planks", roof_stairs="minecraft:oak_stairs",
                 roof_slab="minecraft:oak_slab", door="minecraft:oak_door", window="minecraft:glass_pane",
-                step="minecraft:oak_stairs"),
+                step="minecraft:oak_stairs", sign_wood="oak"),
     "spruce": dict(base="minecraft:cobblestone", corner="minecraft:stripped_spruce_log", wall="minecraft:spruce_planks",
                    floor="minecraft:spruce_planks", roof="minecraft:spruce_planks", roof_stairs="minecraft:spruce_stairs",
                    roof_slab="minecraft:spruce_slab", door="minecraft:spruce_door", window="minecraft:glass_pane",
-                   step="minecraft:spruce_stairs"),
+                   step="minecraft:spruce_stairs", sign_wood="spruce"),
     "birch": dict(base="minecraft:cobblestone", corner="minecraft:stripped_birch_log", wall="minecraft:birch_planks",
                   floor="minecraft:birch_planks", roof="minecraft:spruce_planks", roof_stairs="minecraft:spruce_stairs",
                   roof_slab="minecraft:spruce_slab", door="minecraft:birch_door", window="minecraft:glass_pane",
-                  step="minecraft:birch_stairs"),
+                  step="minecraft:birch_stairs", sign_wood="birch"),
     "acacia": dict(base="minecraft:orange_terracotta", corner="minecraft:stripped_acacia_log", wall="minecraft:acacia_planks",
                    floor="minecraft:acacia_planks", roof="minecraft:acacia_planks", roof_stairs="minecraft:acacia_stairs",
                    roof_slab="minecraft:acacia_slab", door="minecraft:acacia_door", window="minecraft:glass_pane",
-                   step="minecraft:acacia_stairs"),
+                   step="minecraft:acacia_stairs", sign_wood="acacia"),
     "jungle": dict(base="minecraft:mossy_cobblestone", corner="minecraft:stripped_jungle_log", wall="minecraft:jungle_planks",
                    floor="minecraft:jungle_planks", roof="minecraft:jungle_planks", roof_stairs="minecraft:jungle_stairs",
                    roof_slab="minecraft:jungle_slab", door="minecraft:jungle_door", window="minecraft:glass_pane",
-                   step="minecraft:jungle_stairs"),
+                   step="minecraft:jungle_stairs", sign_wood="jungle"),
     "cherry": dict(base="minecraft:stone_bricks", corner="minecraft:stripped_cherry_log", wall="minecraft:cherry_planks",
                    floor="minecraft:cherry_planks", roof="minecraft:dark_oak_planks", roof_stairs="minecraft:dark_oak_stairs",
                    roof_slab="minecraft:dark_oak_slab", door="minecraft:cherry_door", window="minecraft:glass_pane",
-                   step="minecraft:cherry_stairs"),
+                   step="minecraft:cherry_stairs", sign_wood="cherry"),
     "dark_oak": dict(base="minecraft:mossy_cobblestone", corner="minecraft:stripped_dark_oak_log", wall="minecraft:dark_oak_planks",
                      floor="minecraft:dark_oak_planks", roof="minecraft:dark_oak_planks", roof_stairs="minecraft:dark_oak_stairs",
                      roof_slab="minecraft:dark_oak_slab", door="minecraft:dark_oak_door", window="minecraft:glass_pane",
-                     step="minecraft:dark_oak_stairs"),
+                     step="minecraft:dark_oak_stairs", sign_wood="dark_oak"),
     "desert": dict(base="minecraft:sandstone", corner="minecraft:cut_sandstone", wall="minecraft:smooth_sandstone",
                    floor="minecraft:sandstone", roof="minecraft:smooth_sandstone", roof_stairs="minecraft:sandstone_stairs",
                    roof_slab="minecraft:sandstone_slab", door=None, window=None,
-                   step="minecraft:sandstone_stairs"),
+                   step="minecraft:sandstone_stairs", sign_wood="bamboo"),
     "badlands": dict(base="minecraft:terracotta", corner="minecraft:stripped_spruce_log", wall="minecraft:orange_terracotta",
                      floor="minecraft:terracotta", roof="minecraft:terracotta", roof_stairs="minecraft:red_sandstone_stairs",
                      roof_slab="minecraft:red_sandstone_slab", door=None, window=None,
-                     step="minecraft:red_sandstone_stairs"),
+                     step="minecraft:red_sandstone_stairs", sign_wood="spruce"),
     "iberian": dict(base="minecraft:stone_bricks", corner="minecraft:stripped_dark_oak_log", wall="minecraft:white_terracotta",
                     floor="minecraft:dark_oak_planks", roof="minecraft:dark_oak_planks", roof_stairs="minecraft:dark_oak_stairs",
                     roof_slab="minecraft:dark_oak_slab", door="minecraft:dark_oak_door", window="minecraft:glass_pane",
-                    step="minecraft:stone_brick_stairs"),
+                    step="minecraft:stone_brick_stairs", sign_wood="dark_oak"),
 }
 
 AIR = "minecraft:air"
@@ -153,6 +153,10 @@ def build(style: str, p: dict[str, str | None]) -> Path:
     # Two torches outside, flanking the door on the street side.
     put(0, 2, 2, "minecraft:wall_torch", facing="west")
     put(0, 2, 4, "minecraft:wall_torch", facing="west")
+    # Porch: a slab over the step and a hanging sign under it. The depot writes the town name on it.
+    put(0, 4, 3, p["roof_slab"], type="bottom", waterlogged="false")
+    put(0, 3, 3, f"minecraft:{p['sign_wood']}_hanging_sign", attached="false", rotation="4", waterlogged="false",
+        nbt=Compound({"id": String("minecraft:hanging_sign"), "is_waxed": nbtlib.tag.Byte(1)}))
 
     # --- y = 4..5: stepped roof --------------------------------------------------
     for x in range(1, 6):
