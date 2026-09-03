@@ -98,5 +98,7 @@
   "screen.postroad.depot.timing.instant": "Everything marked arrives at once.",
   "screen.postroad.depot.timing.days": "Marked unstackables take %s day(s). Express makes them instant.",
   "screen.postroad.depot.timing.express": "Express on: everything arrives at once for %s coins.",
-  "screen.postroad.depot.sent_express": "%s item(s) sent to %s — express, %s coins, there already."
+  "screen.postroad.depot.sent_express": "%s item(s) sent to %s — express, %s coins, there already.",
+  "advancement.postroad.road_walked.title": "On the Road",
+  "advancement.postroad.road_walked.description": "Walk on a road. Any road."
 }

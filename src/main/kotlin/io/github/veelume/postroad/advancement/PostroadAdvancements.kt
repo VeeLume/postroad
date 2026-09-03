@@ -15,6 +15,7 @@ object PostroadAdvancements {
     const val POSTAL_NETWORK = "postal_network"
     const val PARCEL_SENT = "parcel_sent"
     const val MAILBOX_PLACED = "mailbox_placed"
+    const val ROAD_WALKED = "road_walked"
 
     private const val CRITERION = "impossible"
 

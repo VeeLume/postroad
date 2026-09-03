@@ -26,6 +26,8 @@ live in `docs/` (one per increment). This file is about the code.
   (all click behaviour, server side).
 - `loot/` — fresh-loot data component, the global loot modifier that stamps it, client tooltip.
 - `worldgen/CourierPostInjector` — appends the courier post to village house pools at server start.
+- `roads/` — `Tier`, `RoadRules` (data file `data/postroad/roads/rules.json`, reload listener), `RoadClassifier`
+  (ground sampling + walk verdict), `RoadBuff` (movement-speed modifier every 10 ticks, player and mount).
 - `mailbox/` — the player's mailbox block; contents are in `Network`, the block entity only holds its place id.
 - `mail/MailService` — parcels: lane split, arrival days, delivery on day change; `network/Parcel`.
 - `menu/` — `DepotMenu` (one 54-slot grid, backing container swapped per tab; ints via data

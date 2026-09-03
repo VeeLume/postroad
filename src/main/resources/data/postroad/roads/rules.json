@@ -1,0 +1,56 @@
+{
+  "minRoadShare": 0.3,
+  "sampleSpacingMin": 4,
+  "sampleSpacingMax": 8,
+  "sampleRadius": 2,
+  "tiers": {
+    "dirt": {
+      "blocks": [
+        "minecraft:dirt_path",
+        "minecraft:packed_mud",
+        "minecraft:coarse_dirt",
+        "minecraft:rooted_dirt"
+      ],
+      "keywords": [
+        "dirt_path"
+      ]
+    },
+    "gravel": {
+      "blocks": [
+        "minecraft:gravel"
+      ],
+      "keywords": [
+        "gravel"
+      ]
+    },
+    "paved": {
+      "blocks": [],
+      "keywords": [
+        "sandstone",
+        "polished",
+        "cobble",
+        "brick",
+        "smooth",
+        "basalt",
+        "path",
+        "road",
+        "concrete",
+        "pavement",
+        "glazed",
+        "tile",
+        "wall",
+        "fence",
+        "slab",
+        "stairs",
+        "wool",
+        "carpet",
+        "plank",
+        "log",
+        "wood",
+        "rail",
+        "button",
+        "pressure_plate"
+      ]
+    }
+  }
+}

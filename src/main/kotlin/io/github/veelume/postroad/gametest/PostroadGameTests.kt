@@ -332,6 +332,57 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun road_classifier_tiers_and_threshold(helper: GameTestHelper) {
+        val rules = io.github.veelume.postroad.roads.RoadRules.current
+        val cl = io.github.veelume.postroad.roads.RoadClassifier
+        // Three strips on the arena floor (y = 0): dirt path, gravel, cobblestone; the rest is stone.
+        for (x in 0..6) {
+            helper.setBlock(BlockPos(x, 0, 1), Blocks.DIRT_PATH)
+            helper.setBlock(BlockPos(x, 0, 3), Blocks.GRAVEL)
+            helper.setBlock(BlockPos(x, 0, 5), Blocks.COBBLESTONE)
+        }
+        val level = helper.level
+        helper.assertValueEqual(rules.classify(Blocks.DIRT_PATH.defaultBlockState()), io.github.veelume.postroad.roads.Tier.DIRT, "dirt path is dirt tier")
+        helper.assertValueEqual(rules.classify(Blocks.GRAVEL.defaultBlockState()), io.github.veelume.postroad.roads.Tier.GRAVEL, "gravel is gravel tier")
+        helper.assertValueEqual(rules.classify(Blocks.COBBLESTONE.defaultBlockState()), io.github.veelume.postroad.roads.Tier.PAVED, "cobblestone is paved")
+        helper.assertValueEqual(rules.classify(Blocks.OAK_PLANKS.defaultBlockState()), io.github.veelume.postroad.roads.Tier.PAVED, "planks count as paved (bridges)")
+        helper.assertTrue(rules.classify(Blocks.GRASS_BLOCK.defaultBlockState()) == null, "grass is not road")
+        helper.assertTrue(rules.classify(Blocks.STONE.defaultBlockState()) == null, "stone is not road")
+
+        helper.assertValueEqual(cl.sample(level, helper.absolutePos(BlockPos(3, 0, 1)), radius = 0), io.github.veelume.postroad.roads.Tier.DIRT, "standing on the dirt strip")
+        helper.assertValueEqual(cl.sample(level, helper.absolutePos(BlockPos(3, 0, 3)), radius = 0), io.github.veelume.postroad.roads.Tier.GRAVEL, "standing on the gravel strip")
+        helper.assertValueEqual(cl.sample(level, helper.absolutePos(BlockPos(3, 0, 5)), radius = 0), io.github.veelume.postroad.roads.Tier.PAVED, "standing on the cobble strip")
+        helper.assertTrue(cl.sample(level, helper.absolutePos(BlockPos(3, 0, 0)), radius = 0) == null, "stone row is not road")
+        helper.assertValueEqual(cl.sample(level, helper.absolutePos(BlockPos(3, 0, 2)), radius = 1), io.github.veelume.postroad.roads.Tier.GRAVEL, "between dirt and gravel, ties go to the better tier")
+
+        val walk = listOf(io.github.veelume.postroad.roads.Tier.DIRT, null, null, io.github.veelume.postroad.roads.Tier.DIRT, null, null, io.github.veelume.postroad.roads.Tier.GRAVEL, null, null, null)
+        val verdict = cl.evaluate(walk)
+        helper.assertValueEqual(verdict.roadShare, 0.3, "three road samples of ten")
+        helper.assertTrue(verdict.isRoad, "30 % is road")
+        helper.assertValueEqual(verdict.tier, io.github.veelume.postroad.roads.Tier.DIRT, "majority tier")
+        helper.assertTrue(!cl.evaluate(listOf(io.github.veelume.postroad.roads.Tier.PAVED, null, null, null)).isRoad, "25 % is not road")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun road_buff_follows_the_ground(helper: GameTestHelper) {
+        val buff = io.github.veelume.postroad.roads.RoadBuff
+        val player = helper.makeMockPlayer(GameType.SURVIVAL)
+        helper.setBlock(BlockPos(2, 0, 2), Blocks.COBBLESTONE)
+        val onRoad = helper.absoluteVec(net.minecraft.world.phys.Vec3(2.5, 1.0, 2.5))
+        player.setPos(onRoad.x, onRoad.y, onRoad.z)
+        val tier = buff.update(player)
+        helper.assertValueEqual(tier, io.github.veelume.postroad.roads.Tier.PAVED, "paved under the player")
+        helper.assertValueEqual(buff.currentStrength(player), io.github.veelume.postroad.PostroadConfig.buffPaved, "paved buff applied")
+
+        val onStone = helper.absoluteVec(net.minecraft.world.phys.Vec3(5.5, 1.0, 5.5))
+        player.setPos(onStone.x, onStone.y, onStone.z)
+        helper.assertTrue(buff.update(player) == null, "stone is not road")
+        helper.assertValueEqual(buff.currentStrength(player), 0.0, "buff removed off the road")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun names_are_deterministic_per_seed_and_place(helper: GameTestHelper) {
         val culture = Culture(
             id = "test",

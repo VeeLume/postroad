@@ -6,6 +6,8 @@ import io.github.veelume.postroad.client.ClientSetup
 import io.github.veelume.postroad.menu.PostroadNetworking
 import io.github.veelume.postroad.mail.MailService
 import io.github.veelume.postroad.names.CultureRegistry
+import io.github.veelume.postroad.roads.RoadBuff
+import io.github.veelume.postroad.roads.RoadRules
 import io.github.veelume.postroad.registry.PostroadBlockEntities
 import io.github.veelume.postroad.registry.PostroadBlocks
 import io.github.veelume.postroad.registry.PostroadComponents
@@ -25,6 +27,7 @@ import net.neoforged.neoforge.event.AddReloadListenerEvent
 import net.neoforged.neoforge.event.RegisterCommandsEvent
 import net.neoforged.neoforge.event.server.ServerAboutToStartEvent
 import net.neoforged.neoforge.event.server.ServerStartedEvent
+import net.neoforged.neoforge.event.tick.PlayerTickEvent
 import net.neoforged.neoforge.event.tick.ServerTickEvent
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent
 import net.neoforged.neoforge.registries.datamaps.RegisterDataMapTypesEvent
@@ -60,7 +63,8 @@ object Postroad {
 
         ModLoadingContext.get().activeContainer.registerConfig(ModConfig.Type.COMMON, PostroadConfig.SPEC)
 
-        FORGE_BUS.addListener(AddReloadListenerEvent::class.java, Consumer { it.addListener(CultureRegistry) })
+        FORGE_BUS.addListener(AddReloadListenerEvent::class.java, Consumer { it.addListener(CultureRegistry); it.addListener(RoadRules) })
+        FORGE_BUS.addListener(PlayerTickEvent.Post::class.java, Consumer(RoadBuff::onPlayerTick))
         FORGE_BUS.addListener(RegisterCommandsEvent::class.java, Consumer(PostroadCommands::register))
         FORGE_BUS.addListener(ServerAboutToStartEvent::class.java, Consumer(CourierPostInjector::onServerAboutToStart))
         DepotEvents.register()

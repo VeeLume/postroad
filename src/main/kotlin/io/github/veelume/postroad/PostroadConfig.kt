@@ -50,6 +50,9 @@ object PostroadConfig {
     private val VALUABLES_BLOCKS_PER_DAY: ModConfigSpec.IntValue
     private val INSTANT_DISTANCE: ModConfigSpec.IntValue
     private val EXPRESS_COINS_PER_DAY: ModConfigSpec.IntValue
+    private val BUFF_DIRT: ModConfigSpec.IntValue
+    private val BUFF_GRAVEL: ModConfigSpec.IntValue
+    private val BUFF_PAVED: ModConfigSpec.IntValue
     private val TARGET_POOLS: ModConfigSpec.ConfigValue<List<out String>>
 
     val SPEC: ModConfigSpec
@@ -92,6 +95,12 @@ object PostroadConfig {
             .defineInRange("expressCoinsPerDay", 5, 0, 100000)
         BUILDER.pop()
 
+        BUILDER.push("roads")
+        BUFF_DIRT = BUILDER.comment("Movement speed bonus in percent on dirt-tier roads.").defineInRange("buffDirt", 10, 0, 200)
+        BUFF_GRAVEL = BUILDER.comment("Movement speed bonus in percent on gravel-tier roads.").defineInRange("buffGravel", 15, 0, 200)
+        BUFF_PAVED = BUILDER.comment("Movement speed bonus in percent on paved roads.").defineInRange("buffPaved", 20, 0, 200)
+        BUILDER.pop()
+
         SPEC = BUILDER.build()
     }
 
@@ -103,4 +112,7 @@ object PostroadConfig {
     val valuablesBlocksPerDay: Double get() = VALUABLES_BLOCKS_PER_DAY.get().toDouble()
     val instantDistance: Double get() = INSTANT_DISTANCE.get().toDouble()
     val expressCoinsPerDay: Long get() = EXPRESS_COINS_PER_DAY.get().toLong()
+    val buffDirt: Double get() = BUFF_DIRT.get() / 100.0
+    val buffGravel: Double get() = BUFF_GRAVEL.get() / 100.0
+    val buffPaved: Double get() = BUFF_PAVED.get() / 100.0
 }
