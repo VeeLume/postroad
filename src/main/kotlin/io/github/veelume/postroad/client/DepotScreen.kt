@@ -30,6 +30,8 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
     private lateinit var sendButton: Button
     private lateinit var destinationPrev: Button
     private lateinit var destinationNext: Button
+    private lateinit var expressButton: Button
+    private lateinit var sellButton: Button
 
     init {
         imageWidth = 176
@@ -63,6 +65,10 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         destinationPrev = addRenderableWidget(Button.builder(Component.literal("<"), action(DepotMenu.ACTION_DESTINATION, -1)).bounds(leftPos + 7, topPos + row2, 12, 16).build())
         destinationNext = addRenderableWidget(Button.builder(Component.literal(">"), action(DepotMenu.ACTION_DESTINATION, 1)).bounds(leftPos + 105, topPos + row2, 12, 16).build())
         sendButton = button("screen.postroad.depot.send", DepotMenu.ACTION_SEND, 119, row2, 50, 16)
+
+        val row3 = row2 + 19
+        expressButton = button("screen.postroad.depot.express", DepotMenu.ACTION_EXPRESS, 7, row3, 70, 16, "screen.postroad.depot.express.tooltip")
+        sellButton = button("screen.postroad.depot.sell", DepotMenu.ACTION_SELL, 79, row3, 50, 16, "screen.postroad.depot.sell.tooltip")
         updateWidgets()
     }
 
@@ -90,10 +96,25 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         sendButton.active = state.selected.isNotEmpty()
         sendButton.message = if (state.selected.isEmpty()) Component.translatable("screen.postroad.depot.send")
         else Component.translatable("screen.postroad.depot.send_n", state.selected.size)
-        sendButton.tooltip = Tooltip.create(
-            if (state.transitLines.isEmpty()) Component.translatable("screen.postroad.depot.send.tooltip")
-            else Component.literal(state.transitLines.joinToString("\n", prefix = Component.translatable("screen.postroad.depot.in_transit").string + "\n")),
-        )
+        val timing = when {
+            state.selected.isEmpty() -> ""
+            state.valuablesDays > 0 && menu.express && state.expressCost > 0 -> Component.translatable("screen.postroad.depot.timing.express", state.expressCost).string
+            state.valuablesDays > 0 -> Component.translatable("screen.postroad.depot.timing.days", state.valuablesDays).string
+            else -> Component.translatable("screen.postroad.depot.timing.instant").string
+        }
+        val transit = if (state.transitLines.isEmpty()) "" else state.transitLines.joinToString("\n", prefix = "\n" + Component.translatable("screen.postroad.depot.in_transit").string + "\n")
+        sendButton.tooltip = Tooltip.create(Component.literal((timing.ifEmpty { Component.translatable("screen.postroad.depot.send.tooltip").string }) + transit))
+
+        expressButton.visible = canSend
+        expressButton.active = state.expressCost > 0
+        expressButton.message = when {
+            state.expressCost > 0 && menu.express -> Component.translatable("screen.postroad.depot.express_on", state.expressCost)
+            state.expressCost > 0 -> Component.translatable("screen.postroad.depot.express_off", state.expressCost)
+            else -> Component.translatable("screen.postroad.depot.express")
+        }
+        sellButton.active = state.sellCount > 0
+        sellButton.message = if (state.sellCount > 0) Component.translatable("screen.postroad.depot.sell_n", state.sellCount, state.sellValue)
+        else Component.translatable("screen.postroad.depot.sell")
     }
 
     override fun renderBg(graphics: GuiGraphics, partialTick: Float, mouseX: Int, mouseY: Int) {
@@ -130,6 +151,11 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         graphics.drawString(font, header, titleLabelX, titleLabelY, TEXT, false)
         graphics.drawString(font, playerInventoryTitle, inventoryLabelX, inventoryLabelY, TEXT, false)
 
+        val row3 = GRID_BOTTOM + 3 + 38
+        val wallet = state.wallet.toString()
+        graphics.renderItem(COIN, imageWidth - 8 - 16, row3)
+        graphics.drawString(font, wallet, imageWidth - 8 - 18 - font.width(wallet), row3 + 4, TEXT_STRONG, false)
+
         val row2 = GRID_BOTTOM + 3 + 19
         if (menu.unlocked && state.destinationNames.isNotEmpty()) {
             val destination = state.destinationNames.getOrElse(state.destinationIndex) { "—" }
@@ -159,8 +185,9 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
 
     companion object {
         private val TEXTURE: ResourceLocation = ResourceLocation.withDefaultNamespace("textures/gui/container/generic_54.png")
+        private val COIN: ItemStack by lazy { ItemStack(io.github.veelume.postroad.registry.PostroadItems.COIN.get()) }
         private const val GRID_BOTTOM = 17 + 6 * 18 + 1
-        private const val STRIP = 44
+        private const val STRIP = 63
         private const val PANEL = 0xFFC6C6C6.toInt()
         private const val LOCKED = 0x99404040.toInt()
         private const val SELECTED = 0x8040C040.toInt()

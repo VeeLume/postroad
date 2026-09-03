@@ -183,6 +183,30 @@ class Network : SavedData() {
         record(LedgerEntry(day, actor, op, amount, id, note))
     }
 
+    /**
+     * Takes [amount] coins for [player]: wallet first, the road fund for the rest. Nothing moves
+     * unless the two together cover it. Debits are recorded with negative amounts.
+     */
+    fun charge(player: String, amount: Long, day: Long, op: String, note: String = ""): Boolean {
+        if (amount <= 0) return true
+        val wallet = playerAccount(player)
+        val fromWallet = minOf(balance(wallet), amount)
+        val fromFund = amount - fromWallet
+        if (fromFund > balance(ROAD_FUND)) return false
+        if (fromWallet > 0) {
+            accounts[wallet] = balance(wallet) - fromWallet
+            record(LedgerEntry(day, player, op, -fromWallet, wallet, note))
+        }
+        if (fromFund > 0) {
+            accounts[ROAD_FUND] = balance(ROAD_FUND) - fromFund
+            record(LedgerEntry(day, player, op, -fromFund, ROAD_FUND, note))
+        }
+        return true
+    }
+
+    fun canAfford(player: String, amount: Long): Boolean =
+        amount <= 0 || balance(playerAccount(player)) + balance(ROAD_FUND) >= amount
+
     fun record(entry: LedgerEntry) {
         ledger.addLast(entry)
         val max = PostroadConfig.ledgerMaxEntries

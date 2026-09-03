@@ -105,13 +105,9 @@ object DepotInteraction {
             return ItemInteractionResult.CONSUME
         }
         val count = stack.count
-        val amount = rate.toLong() * count
-        val itemId = stack.itemHolder.registeredName
         val name = stack.hoverName
+        val amount = Buyback.sell(network, actor, place.name, stack, day) ?: 0L
         stack.shrink(count)
-        if (amount > 0) {
-            network.credit(account, amount, day, actor, LedgerEntry.OP_BUYBACK, "$count×$itemId @ ${place.name}")
-        }
         player.displayClientMessage(
             Component.translatable("message.postroad.depot.bought", count, name, amount, network.balance(account)),
             true,

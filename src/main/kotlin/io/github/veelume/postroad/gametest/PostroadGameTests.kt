@@ -217,14 +217,13 @@ class PostroadGameTests {
             val expectedDays = MailService.valuablesDays(network.distanceBetween(a, b))
             helper.assertValueEqual(valuables.arrivalDay, today + expectedDays, "valuables arrival day")
 
-            // Bulk is delivered on send into the destination's storage; the sword is still in transit.
+            // Bulk is delivered on send into the destination's storage. The two arena depots are within
+            // the instant distance, so the sword arrives at once too; the timing rule itself is tested below.
             val storage = network.storageFor(b)
             helper.assertValueEqual(storage.countItem(Items.COBBLESTONE), 40, "cobblestone delivered at once")
-            helper.assertValueEqual(storage.countItem(Items.IRON_SWORD), 0, "sword must not be delivered yet")
-            helper.assertTrue(network.parcelsFor(sender).any { it.lane == Parcel.LANE_VALUABLES }, "valuables parcel in transit")
-
+            helper.assertValueEqual(expectedDays, 0L, "arena towns are within the instant distance")
             MailService.deliverDue(server, today + expectedDays)
-            helper.assertValueEqual(storage.countItem(Items.IRON_SWORD), 1, "sword delivered on its day")
+            helper.assertValueEqual(storage.countItem(Items.IRON_SWORD), 1, "sword delivered")
             helper.assertTrue(network.parcelsFor(sender).isEmpty(), "no parcels left")
             helper.succeed()
         }
@@ -305,6 +304,31 @@ class PostroadGameTests {
             helper.assertTrue(!network.isDestination(boxId), "removed mailbox is no destination")
             helper.succeed()
         }
+    }
+
+    @GameTest(template = ARENA)
+    fun valuables_timing_and_express_pricing(helper: GameTestHelper) {
+        val instant = io.github.veelume.postroad.PostroadConfig.instantDistance
+        val perDay = io.github.veelume.postroad.PostroadConfig.valuablesBlocksPerDay
+        val base = io.github.veelume.postroad.PostroadConfig.valuablesBaseDays
+        helper.assertValueEqual(MailService.valuablesDays(instant), 0L, "at the instant distance: at once")
+        helper.assertValueEqual(MailService.valuablesDays(instant + 1), base + 1, "just beyond: base + 1 day")
+        helper.assertValueEqual(MailService.valuablesDays(perDay * 3), base + 3, "three days of distance")
+        helper.assertValueEqual(MailService.expressCost(0), 0L, "nothing to skip costs nothing")
+        helper.assertValueEqual(MailService.expressCost(2), 2 * io.github.veelume.postroad.PostroadConfig.expressCoinsPerDay, "two days of express")
+
+        val network = Network.get(helper.level.server)
+        val who = "mail-test-payer-" + java.util.UUID.randomUUID().toString().take(8)
+        val fundBefore = network.balance(Network.ROAD_FUND)
+        network.credit(Network.playerAccount(who), 3, 0, who, LedgerEntry.OP_GRANT, "test")
+        network.credit(Network.ROAD_FUND, 10, 0, who, LedgerEntry.OP_GRANT, "test")
+        helper.assertTrue(network.canAfford(who, 12), "wallet plus fund covers it")
+        helper.assertTrue(network.charge(who, 12, 0, LedgerEntry.OP_EXPRESS, "test"), "charge succeeds")
+        helper.assertValueEqual(network.balance(Network.playerAccount(who)), 0L, "wallet emptied first")
+        helper.assertValueEqual(network.balance(Network.ROAD_FUND), fundBefore + 1, "fund paid the remaining 9")
+        helper.assertTrue(!network.charge(who, 5, 0, LedgerEntry.OP_EXPRESS, "test"), "cannot overdraw")
+        helper.assertValueEqual(network.balance(Network.ROAD_FUND), fundBefore + 1, "refused charge moved nothing")
+        helper.succeed()
     }
 
     @GameTest(template = ARENA)

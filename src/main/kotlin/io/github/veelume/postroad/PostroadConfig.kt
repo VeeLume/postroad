@@ -46,9 +46,11 @@ object PostroadConfig {
     private val SETTLE_DAYS: ModConfigSpec.IntValue
     private val LEDGER_MAX_ENTRIES: ModConfigSpec.IntValue
     private val COURIER_POST_WEIGHT: ModConfigSpec.IntValue
-    private val TARGET_POOLS: ModConfigSpec.ConfigValue<List<out String>>
     private val VALUABLES_BASE_DAYS: ModConfigSpec.IntValue
     private val VALUABLES_BLOCKS_PER_DAY: ModConfigSpec.IntValue
+    private val INSTANT_DISTANCE: ModConfigSpec.IntValue
+    private val EXPRESS_COINS_PER_DAY: ModConfigSpec.IntValue
+    private val TARGET_POOLS: ModConfigSpec.ConfigValue<List<out String>>
 
     val SPEC: ModConfigSpec
 
@@ -77,11 +79,17 @@ object PostroadConfig {
 
         BUILDER.push("mail")
         VALUABLES_BASE_DAYS = BUILDER
-            .comment("In-game days a parcel with unstackables takes before the distance term.")
+            .comment("Days a parcel with unstackables takes on top of the distance term.")
             .defineInRange("valuablesBaseDays", 1, 0, 100)
         VALUABLES_BLOCKS_PER_DAY = BUILDER
-            .comment("Blocks of distance between two towns per extra day for parcels with unstackables.")
+            .comment("Blocks of distance per extra day for unstackables.")
             .defineInRange("valuablesBlocksPerDay", 1000, 1, 100000)
+        INSTANT_DISTANCE = BUILDER
+            .comment("Destinations within this many blocks receive unstackables at once.")
+            .defineInRange("instantDistance", 500, 0, 100000)
+        EXPRESS_COINS_PER_DAY = BUILDER
+            .comment("Coins per day skipped when a parcel is sent express. 0 disables express.")
+            .defineInRange("expressCoinsPerDay", 5, 0, 100000)
         BUILDER.pop()
 
         SPEC = BUILDER.build()
@@ -93,4 +101,6 @@ object PostroadConfig {
     val targetPools: List<String> get() = TARGET_POOLS.get().toList()
     val valuablesBaseDays: Long get() = VALUABLES_BASE_DAYS.get().toLong()
     val valuablesBlocksPerDay: Double get() = VALUABLES_BLOCKS_PER_DAY.get().toDouble()
+    val instantDistance: Double get() = INSTANT_DISTANCE.get().toDouble()
+    val expressCoinsPerDay: Long get() = EXPRESS_COINS_PER_DAY.get().toLong()
 }

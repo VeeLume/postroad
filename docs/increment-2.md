@@ -141,9 +141,20 @@ leaves, one click, collect at home later.** "Home" is the home town in stage
 - `bulk` — stackables only: `arrivalDay = sentDay` (delivered on the next
   daily pass or immediately if the day is unchanged; "near-instant").
 - `valuables` — any unstackable: `arrivalDay = sentDay + baseDays +
-  ceil(distance / blocksPerDay)`, distance measured between the two towns'
-  anchor positions. Defaults `baseDays = 1`, `blocksPerDay = 1000`, both
-  config. Road quality divides the distance term in increment 3.
+  ceil(distance / blocksPerDay)`, distance measured between the two places'
+  anchor positions — **unless the distance is within `instantDistance`**, in
+  which case it arrives at once (a nearby town or a mailbox down the road is
+  not a journey). Defaults `baseDays = 1`, `blocksPerDay = 1000`,
+  `instantDistance = 500`, all config. Road quality divides the distance term
+  in increment 3.
+- **Express** — the sender can pay `expressCoinsPerDay` (default 5) per day
+  skipped to make the valuables arrive at once. Wallet first, road fund for
+  the rest, refused if neither covers it, booked in the ledger as `express`.
+  This is the first coin sink and the first time the road fund pays for
+  something.
+- **Selling at the depot** — the marked stacks the depot buys (fresh loot with
+  a rate) can be sold from the same screen with a coin preview on the button;
+  the sneak-click route stays for single items.
 - Days are day-time days (sleeping advances them), consistent with the
   fresh-loot stamp.
 
@@ -187,7 +198,8 @@ stay in the modpack.
 
 ## Config additions
 
-`mail.valuablesBaseDays` (1), `mail.valuablesBlocksPerDay` (1000).
+`mail.valuablesBaseDays` (1), `mail.valuablesBlocksPerDay` (1000),
+`mail.instantDistance` (500), `mail.expressCoinsPerDay` (5).
 
 ## Test plan
 

@@ -84,5 +84,19 @@
   "jade.postroad.mailbox.transit": "%s item(s) from %s arriving in %s day(s)",
   "jade.postroad.mailbox.held": "%s item(s) from %s waiting — mailbox full",
   "message.postroad.mailbox.title_incoming": "%s · %s parcel(s) on the way",
-  "config.jade.plugin_postroad.mailbox": "Postroad mailbox"
+  "config.jade.plugin_postroad.mailbox": "Postroad mailbox",
+  "screen.postroad.depot.express": "Express",
+  "screen.postroad.depot.express_off": "Express (%s)",
+  "screen.postroad.depot.express_on": "Express ✔ (%s)",
+  "screen.postroad.depot.express.tooltip": "Pay coins to make the marked unstackables arrive at once. Wallet first, then the road fund.",
+  "screen.postroad.depot.express_unaffordable": "Express would cost %s coins — not enough in your wallet and the road fund.",
+  "screen.postroad.depot.sell": "Sell",
+  "screen.postroad.depot.sell_n": "Sell %s (%s)",
+  "screen.postroad.depot.sell.tooltip": "Sell the marked stacks the depot buys: fresh loot with a rate. Others stay marked.",
+  "screen.postroad.depot.nothing_sellable": "None of the marked stacks is fresh loot the depot buys.",
+  "screen.postroad.depot.sold": "Sold %s stack(s) for %s coins. Wallet: %s",
+  "screen.postroad.depot.timing.instant": "Everything marked arrives at once.",
+  "screen.postroad.depot.timing.days": "Marked unstackables take %s day(s). Express makes them instant.",
+  "screen.postroad.depot.timing.express": "Express on: everything arrives at once for %s coins.",
+  "screen.postroad.depot.sent_express": "%s item(s) sent to %s — express, %s coins, there already."
 }

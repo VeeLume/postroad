@@ -20,9 +20,17 @@ data class DepotState(
     val transitLines: List<String>,
     /** Menu slot indices currently marked for sending. */
     val selected: List<Int>,
+    val wallet: Long,
+    /** Days the marked unstackables would take to the shown destination; 0 = at once. */
+    val valuablesDays: Long,
+    /** Coins express would cost for that; 0 = nothing to skip or express disabled. */
+    val expressCost: Long,
+    /** Marked stacks the depot buys, and what it would pay for them. */
+    val sellCount: Int,
+    val sellValue: Long,
 ) {
     companion object {
-        val EMPTY = DepotState("", emptyList(), emptyList(), 0, "", emptyList(), emptyList())
+        val EMPTY = DepotState("", emptyList(), emptyList(), 0, "", emptyList(), emptyList(), 0L, 0L, 0L, 0, 0L)
 
         val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, DepotState> = StreamCodec.of(
             { buf, s ->
@@ -33,6 +41,11 @@ data class DepotState(
                 buf.writeUtf(s.homeName)
                 buf.writeCollection(s.transitLines) { b, v -> b.writeUtf(v) }
                 buf.writeCollection(s.selected) { b, v -> b.writeVarInt(v) }
+                buf.writeVarLong(s.wallet)
+                buf.writeVarLong(s.valuablesDays)
+                buf.writeVarLong(s.expressCost)
+                buf.writeVarInt(s.sellCount)
+                buf.writeVarLong(s.sellValue)
             },
             { buf ->
                 DepotState(
@@ -43,6 +56,11 @@ data class DepotState(
                     homeName = buf.readUtf(),
                     transitLines = buf.readList { it.readUtf() },
                     selected = buf.readList { it.readVarInt() },
+                    wallet = buf.readVarLong(),
+                    valuablesDays = buf.readVarLong(),
+                    expressCost = buf.readVarLong(),
+                    sellCount = buf.readVarInt(),
+                    sellValue = buf.readVarLong(),
                 )
             },
         )

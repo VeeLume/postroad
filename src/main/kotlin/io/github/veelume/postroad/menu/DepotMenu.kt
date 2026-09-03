@@ -1,6 +1,7 @@
 package io.github.veelume.postroad.menu
 
 import io.github.veelume.postroad.advancement.PostroadAdvancements
+import io.github.veelume.postroad.depot.Buyback
 import io.github.veelume.postroad.loot.FreshLoot
 import io.github.veelume.postroad.mail.MailService
 import io.github.veelume.postroad.network.Network
@@ -48,6 +49,7 @@ class DepotMenu private constructor(
     private val pageCountData: DataSlot = DataSlot.standalone()
     private val unlockedData: DataSlot = DataSlot.standalone()
     private val selectModeData: DataSlot = DataSlot.standalone()
+    private val expressData: DataSlot = DataSlot.standalone()
 
     /** Name state and selection; server builds it, client receives it. */
     var state: DepotState = DepotState.EMPTY
@@ -63,6 +65,7 @@ class DepotMenu private constructor(
     val pageCount: Int get() = pageCountData.get()
     val unlocked: Boolean get() = unlockedData.get() == 1
     val selectMode: Boolean get() = selectModeData.get() == 1
+    val express: Boolean get() = expressData.get() == 1
     val playerName: String get() = playerInventory.player.gameProfile.name
 
     init {
@@ -79,6 +82,7 @@ class DepotMenu private constructor(
         addDataSlot(pageCountData)
         addDataSlot(unlockedData)
         addDataSlot(selectModeData)
+        addDataSlot(expressData)
 
         if (server != null) {
             server.network.seenPlayer(playerName)
@@ -141,6 +145,11 @@ class DepotMenu private constructor(
             val key = if (parcel.isDue(today)) "command.postroad.mail.held" else "command.postroad.mail.transit"
             Component.translatable(key, parcel.items.sumOf { it.count }, town, parcel.arrivalDay - today).string
         }
+        val marked = selected.filter { slots[it].hasItem() }
+        val hasValuables = marked.any { !slots[it].item.isStackable }
+        val destination = destinations.getOrNull(destinationIndex)
+        val (days, cost) = if (hasValuables && destination != null) MailService.valuablesQuote(s.network, s.placeId, destination) else 0L to 0L
+        val quotes = marked.mapNotNull { Buyback.quote(slots[it].item, today) }
         state = DepotState(
             townName = s.network.places[s.placeId]?.name ?: "",
             pageNames = pages.map { s.network.places[it]?.name ?: it },
@@ -149,6 +158,11 @@ class DepotMenu private constructor(
             homeName = s.network.homeOf(playerName)?.name ?: "",
             transitLines = lines,
             selected = selected.toList(),
+            wallet = s.network.balance(Network.playerAccount(playerName)),
+            valuablesDays = days,
+            expressCost = cost,
+            sellCount = quotes.size,
+            sellValue = quotes.sum(),
         )
         (playerInventory.player as? ServerPlayer)?.let { PacketDistributor.sendToPlayer(it, DepotStatePayload(state)) }
     }
@@ -190,6 +204,8 @@ class DepotMenu private constructor(
                 sendState()
             }
             ACTION_SEND -> send(s, player)
+            ACTION_EXPRESS -> { expressData.set(if (express) 0 else 1); sendState() }
+            ACTION_SELL -> sell(s, player)
             ACTION_DUMP -> dump(player)
             ACTION_TAKE_ALL -> takeAll(player)
             ACTION_SET_HOME -> {
@@ -213,19 +229,54 @@ class DepotMenu private constructor(
             return
         }
         val items = indices.map { slots[it].item.copy() }
-        val parcels = MailService.send(s.level.server, playerName, s.placeId, destination, items)
+        val (days, cost) = if (items.any { !it.isStackable }) MailService.valuablesQuote(s.network, s.placeId, destination) else 0L to 0L
+        val useExpress = express && cost > 0
+        if (useExpress && !s.network.canAfford(playerName, cost)) {
+            player.displayClientMessage(Component.translatable("screen.postroad.depot.express_unaffordable", cost).withStyle(ChatFormatting.RED), false)
+            return
+        }
+        val parcels = MailService.send(s.level.server, playerName, s.placeId, destination, items, useExpress)
         indices.forEach { slots[it].set(ItemStack.EMPTY) }
         selected.clear()
         (player as? ServerPlayer)?.let { PostroadAdvancements.award(it, PostroadAdvancements.PARCEL_SENT) }
         val valuables = parcels.firstOrNull { it.lane == Parcel.LANE_VALUABLES }
         val town = s.network.places[destination]?.name ?: destination
         val count = items.sumOf { it.count }
-        val message = if (valuables == null) {
-            Component.translatable("screen.postroad.depot.sent_bulk", count, town)
-        } else {
-            Component.translatable("screen.postroad.depot.sent_valuables", count, town, valuables.arrivalDay - FreshLoot.dayOf(s.level))
+        val remaining = valuables?.let { it.arrivalDay - FreshLoot.dayOf(s.level) } ?: 0L
+        val message = when {
+            valuables == null || remaining <= 0 -> if (useExpress) Component.translatable("screen.postroad.depot.sent_express", count, town, cost)
+                else Component.translatable("screen.postroad.depot.sent_bulk", count, town)
+            else -> Component.translatable("screen.postroad.depot.sent_valuables", count, town, remaining)
         }
+        if (days > 0 && useExpress) { /* express paid inside send; message above covers it */ }
         player.displayClientMessage(message.withStyle(ChatFormatting.GOLD), false)
+        broadcastChanges()
+        sendState()
+    }
+
+    /** Sells the marked stacks the depot buys; the rest stay marked. */
+    private fun sell(s: ServerSide, player: Player) {
+        val today = FreshLoot.dayOf(s.level)
+        val placeName = s.network.places[s.placeId]?.name ?: ""
+        var sold = 0
+        var coins = 0L
+        for (index in selected.toList()) {
+            val slot = slots[index]
+            if (!slot.hasItem() || (index < GRID && !slot.mayPickup(player))) continue
+            val amount = Buyback.sell(s.network, playerName, placeName, slot.item, today) ?: continue
+            slot.set(ItemStack.EMPTY)
+            selected.remove(index)
+            sold++
+            coins += amount
+        }
+        if (sold == 0) {
+            player.displayClientMessage(Component.translatable("screen.postroad.depot.nothing_sellable"), true)
+        } else {
+            player.displayClientMessage(
+                Component.translatable("screen.postroad.depot.sold", sold, coins, s.network.balance(Network.playerAccount(playerName))).withStyle(ChatFormatting.GOLD),
+                false,
+            )
+        }
         broadcastChanges()
         sendState()
     }
@@ -294,8 +345,8 @@ class DepotMenu private constructor(
         const val GRID = 54
         const val INVENTORY_START = GRID
         const val INVENTORY_END = GRID + 27
-        const val INVENTORY_Y = 183
-        const val HOTBAR_Y = 241
+        const val INVENTORY_Y = 202
+        const val HOTBAR_Y = 260
 
         const val ACTION_PAGE = 1
         const val ACTION_DESTINATION = 3
@@ -305,6 +356,8 @@ class DepotMenu private constructor(
         const val ACTION_TAKE_ALL = 8
         const val ACTION_SELECT_MODE = 10
         const val ACTION_SELECT_LOOT = 11
+        const val ACTION_EXPRESS = 12
+        const val ACTION_SELL = 13
 
         fun client(id: Int, inventory: Inventory, buf: RegistryFriendlyByteBuf): DepotMenu =
             DepotMenu(id, inventory, buf.readBlockPos(), null)

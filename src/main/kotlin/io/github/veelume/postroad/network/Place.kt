@@ -78,6 +78,7 @@ data class LedgerEntry(
         const val OP_BUYBACK = "buyback"
         const val OP_GRANT = "grant"
         const val OP_CHARTER = "charter"
+        const val OP_EXPRESS = "express"
 
         fun fromTag(tag: CompoundTag): LedgerEntry = LedgerEntry(
             day = tag.getLong("Day"),
