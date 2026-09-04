@@ -55,6 +55,11 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
         val chunkPos = ChunkPos(chunkX, chunkZ)
         for (set in villageSets) {
             val placement = set.value().placement()
+            // The cheap spread test first; the full test also walks exclusion zones and costs ~2 ms.
+            if (placement is net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStructurePlacement) {
+                val potential = placement.getPotentialStructureChunk(seed, chunkX, chunkZ)
+                if (potential.x != chunkX || potential.z != chunkZ) continue
+            }
             if (!placement.isStructureChunk(state, chunkX, chunkZ)) continue
             val list = set.value().structures()
             if (list.size == 1) {

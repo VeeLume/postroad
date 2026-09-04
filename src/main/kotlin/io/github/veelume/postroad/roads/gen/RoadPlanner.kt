@@ -17,6 +17,13 @@ data class PlannerCosts(
     val water: Double = 40.0,
     /** A cell already on a road costs base × this; well below 1 so routes merge. */
     val reuseFactor: Double = 0.15,
+    /**
+     * The A* heuristic is straight-line distance × base × this. [reuseFactor] would be admissible
+     * (a road all the way is the cheapest imaginable) but explores nearly everything; 0.5 still
+     * finds a merge whenever riding the road saves more than half the remaining distance, and
+     * explores a corridor instead of a field.
+     */
+    val heuristicWeight: Double = 0.5,
     /** Give up when the search has expanded this many cells. */
     val maxExpansions: Int = 2_000_000,
 )
@@ -99,7 +106,7 @@ object RoadPlanner {
         val goal = to.key
         g.put(start, 0.0)
         val open = PriorityQueue<Node>(compareBy { it.f })
-        open.add(Node(start, from.distanceTo(to) * costs.base * costs.reuseFactor))
+        open.add(Node(start, from.distanceTo(to) * costs.base * costs.heuristicWeight))
         var expansions = 0
         while (open.isNotEmpty()) {
             val node = open.poll()
@@ -121,7 +128,7 @@ object RoadPlanner {
                 if (tentative < g.get(j)) {
                     g.put(j, tentative)
                     parent.put(j, i)
-                    val heuristic = Cell(nx, nz).distanceTo(to) * costs.base * costs.reuseFactor
+                    val heuristic = Cell(nx, nz).distanceTo(to) * costs.base * costs.heuristicWeight
                     open.add(Node(j, tentative + heuristic))
                 }
             }
