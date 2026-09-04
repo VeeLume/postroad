@@ -115,6 +115,9 @@ class RoadPlanStorage : SavedData() {
     val roads: MutableMap<String, PlannedRoad> = LinkedHashMap()
     val junctions: MutableList<PlannedJunction> = ArrayList()
 
+    /** Route ids the planner gave up on (water); not retried until the plan is cleared. */
+    val droppedRoutes: MutableSet<String> = HashSet()
+
     /** Dimension → [DISCOVERY_SQUARE]-block squares (packed as chunk-style longs) already searched for towns. */
     val discovered: MutableMap<ResourceLocation, LongOpenHashSet> = HashMap()
 
@@ -133,6 +136,12 @@ class RoadPlanStorage : SavedData() {
 
     fun addJunction(junction: PlannedJunction) {
         junctions.add(junction)
+        setDirty()
+    }
+
+    fun markDropped(ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        droppedRoutes.addAll(ids)
         setDirty()
     }
 
@@ -160,7 +169,7 @@ class RoadPlanStorage : SavedData() {
     }
 
     fun clear() {
-        towns.clear(); roads.clear(); junctions.clear(); discovered.clear()
+        towns.clear(); roads.clear(); junctions.clear(); discovered.clear(); droppedRoutes.clear()
         chunkIndex = null
         setDirty()
     }
@@ -170,6 +179,7 @@ class RoadPlanStorage : SavedData() {
         tag.put("Roads", ListTag().also { list -> roads.values.forEach { list.add(it.toTag()) } })
         tag.put("Junctions", ListTag().also { list -> junctions.forEach { list.add(it.toTag()) } })
         tag.put("Discovered", CompoundTag().also { d -> discovered.forEach { (dim, set) -> d.putLongArray(dim.toString(), set.toLongArray()) } })
+        tag.put("Dropped", ListTag().also { list -> droppedRoutes.forEach { list.add(net.minecraft.nbt.StringTag.valueOf(it)) } })
         return tag
     }
 
@@ -177,6 +187,7 @@ class RoadPlanStorage : SavedData() {
         tag.getList("Towns", Tag.TAG_COMPOUND.toInt()).forEach { t -> PlannedTown.fromTag(t as CompoundTag)?.let { towns[it.id] = it } }
         tag.getList("Roads", Tag.TAG_COMPOUND.toInt()).forEach { t -> PlannedRoad.fromTag(t as CompoundTag)?.let { roads[it.id] = it } }
         tag.getList("Junctions", Tag.TAG_COMPOUND.toInt()).forEach { t -> PlannedJunction.fromTag(t as CompoundTag)?.let { junctions.add(it) } }
+        tag.getList("Dropped", Tag.TAG_STRING.toInt()).forEach { droppedRoutes.add(it.asString) }
         val d = tag.getCompound("Discovered")
         for (key in d.allKeys) {
             val dim = ResourceLocation.tryParse(key) ?: continue

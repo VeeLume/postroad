@@ -40,7 +40,7 @@ data class PlannedRoute(val id: String, val from: Town, val to: Town, val cells:
 data class Junction(val cell: Cell, val joinedRoute: String, val joiningRoute: String)
 
 /** Routes in planning order and the junctions between them. */
-data class RoadPlan(val routes: List<PlannedRoute>, val junctions: List<Junction>, val dropped: Int = 0)
+data class RoadPlan(val routes: List<PlannedRoute>, val junctions: List<Junction>, val dropped: List<String> = emptyList())
 
 /**
  * Cheapest-path planner over a [Terrain]. Pure: takes terrain and towns, returns routes; marks
@@ -181,6 +181,7 @@ object RoadPlanner {
         existing: List<PlannedRoute> = emptyList(),
         coarse: Terrain? = null,
         ratio: Int = 4,
+        skip: Set<String> = emptySet(),
     ): RoadPlan {
         fun markRoad(cell: Cell) {
             terrain.set(cell.x, cell.z, Terrain.ROAD)
@@ -204,16 +205,17 @@ object RoadPlanner {
             }
         }
         val known = existing.mapTo(HashSet()) { it.id }
+        known.addAll(skip)
 
         val routes = ArrayList<PlannedRoute>()
         val junctions = ArrayList<Junction>()
-        var dropped = 0
+        val dropped = ArrayList<String>()
         for ((i, j) in ordered) {
             val id = routeId(towns[i].id, towns[j].id)
             if (id in known) continue
             val cells = (if (coarse != null) routeHierarchical(terrain, coarse, ratio, towns[i].cell, towns[j].cell, costs)
                 else route(terrain, towns[i].cell, towns[j].cell, costs)) ?: continue
-            if (longestWaterRun(terrain, cells) > costs.maxWaterRun) { dropped++; continue }
+            if (longestWaterRun(terrain, cells) > costs.maxWaterRun) { dropped.add(id); continue }
             // A junction is where the route's own new cells meet an existing road: stepping onto one, or
             // off one. Road-to-road steps pass through junctions recorded when those roads met, and the
             // route's two ends are towns, not junctions.

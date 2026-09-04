@@ -52,6 +52,7 @@ object RoadGen {
         val knownRoads: List<PlannedRoad>,
         val discovered: LongOpenHashSet,
         val discoverTowns: Boolean = true,
+        val dropped: Set<String> = emptySet(),
     )
 
     class JunctionResult(val pos: BlockPos, val joinedRoad: String, val joinedIndex: Int, val joiningRoad: String, val joiningIndex: Int)
@@ -68,7 +69,7 @@ object RoadGen {
         val discoverMillis: Long = 0,
         val chunksChecked: Int = 0,
         val coarseTilesSampled: Int = 0,
-        val dropped: Int = 0,
+        val dropped: List<String> = emptyList(),
     )
 
     /** The worker's view of one dimension; only the planner thread touches it after creation. */
@@ -163,6 +164,7 @@ object RoadGen {
             knownRoads = storage.roadsIn(dimension),
             discovered = LongOpenHashSet(storage.discovered[dimension] ?: LongOpenHashSet()),
             discoverTowns = discoverTowns,
+            dropped = HashSet(storage.droppedRoutes),
         )
     }
 
@@ -241,7 +243,7 @@ object RoadGen {
             val cells = road.points.map { terrain.blockToCell(it.x, it.z) }
             PlannedRoute(road.id, townById[road.from] ?: Town(road.from, cells.first()), townById[road.to] ?: Town(road.to, cells.last()), cells)
         }
-        val plan = RoadPlanner.planNetwork(terrain, towns, req.costs, req.neighbours, req.maxLink.toDouble() / CELL_SIZE, existing, coarse, COARSE_CELL / CELL_SIZE)
+        val plan = RoadPlanner.planNetwork(terrain, towns, req.costs, req.neighbours, req.maxLink.toDouble() / CELL_SIZE, existing, coarse, COARSE_CELL / CELL_SIZE, req.dropped)
 
         // 4. Back to blocks.
         val newRoads = plan.routes.map { route ->
@@ -294,9 +296,10 @@ object RoadGen {
             junctions++
         }
         storage.markDiscovered(result.dimension, result.discovered)
+        storage.markDropped(result.dropped)
         passesRun++
         Postroad.LOGGER.info("Road plan pass at {}: {} new town(s), {} new road(s), {} junction(s), {} pair(s) dropped for water; {} chunk(s) checked in {} ms, {} coarse + {} fine tile(s) sampled, {} ms total",
-            result.center.toShortString(), towns, roads, junctions, result.dropped, result.chunksChecked, result.discoverMillis, result.coarseTilesSampled, result.tilesSampled, result.millis)
+            result.center.toShortString(), towns, roads, junctions, result.dropped.size, result.chunksChecked, result.discoverMillis, result.coarseTilesSampled, result.tilesSampled, result.millis)
     }
 
     /** Drops the plan and every generated path nobody has charted. Refused while a pass runs. */
@@ -318,7 +321,7 @@ object RoadGen {
         val lines = ArrayList<String>()
         lines.add("Planner ${if (executor != null) "on" else "off"}; ${passesRun} pass(es) applied, ${pending.get()} pending")
         lines.add("${storage.towns.size} predicted town(s), ${storage.roads.size} planned road(s), ${storage.junctions.size} junction(s), " +
-            "${storage.discovered.values.sumOf { it.size }} square(s) searched")
+            "${storage.discovered.values.sumOf { it.size }} square(s) searched, ${storage.droppedRoutes.size} pair(s) dropped for water")
         for ((dim, w) in workers) {
             lines.add("$dim: ${w.terrain.tileCount} fine + ${w.coarse.tileCount} coarse tile(s) in memory, ${w.sampler.sampled}/${w.coarseSampler.sampled} sampled, ${w.sampler.fromCache}/${w.coarseSampler.fromCache} from cache; " +
                 "finder: ${w.finder.generated} layout(s) built, ${w.finder.prefiltered} skipped by biome")
