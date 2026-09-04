@@ -52,7 +52,17 @@ object PostroadCommands {
                         .then(Commands.literal("plan").requires { it.hasPermission(2) }.executes { roadsPlan(it) })
                         .then(Commands.literal("clear").requires { it.hasPermission(2) }.executes { roadsClear(it) })
                         .then(Commands.literal("rebuild").requires { it.hasPermission(2) }.executes { roadsRebuild(it) })
-                        .then(Commands.literal("export").requires { it.hasPermission(2) }.executes { roadsExport(it) }),
+                        .then(Commands.literal("export").requires { it.hasPermission(2) }.executes { roadsExport(it) })
+                        .then(
+                            Commands.literal("probe")
+                                .executes { roadsProbe(it, BlockPos.containing(it.source.position)) }
+                                .then(
+                                    Commands.argument("x", IntegerArgumentType.integer()).then(
+                                        Commands.argument("z", IntegerArgumentType.integer())
+                                            .executes { roadsProbe(it, BlockPos(IntegerArgumentType.getInteger(it, "x"), 0, IntegerArgumentType.getInteger(it, "z"))) },
+                                    ),
+                                ),
+                        ),
                 )
                 .then(Commands.literal("nodes").executes { nodes(it) })
                 .then(
@@ -194,6 +204,18 @@ object PostroadCommands {
         val queued = io.github.veelume.postroad.roads.gen.RoadGen.schedule(level, pos)
         ctx.source.sendSuccess({ Component.literal(if (queued) "Road plan pass queued around ${pos.toShortString()}." else "The road planner is off (config plan.enabled).") }, true)
         return if (queued) 1 else 0
+    }
+
+    /** Sampler vs. world at one column: the planner's surface estimate against the generator and the real heightmap. */
+    private fun roadsProbe(ctx: CommandContext<CommandSourceStack>, pos: BlockPos): Int {
+        val level = ctx.source.level
+        val sampler = io.github.veelume.postroad.roads.gen.WorldTerrainSampler(level, null, 4)
+        val estimate = sampler.surface(pos.x, pos.z)
+        val base = level.chunkSource.generator.getBaseHeight(pos.x, pos.z, net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG, level, level.chunkSource.randomState())
+        val real = if (level.hasChunk(pos.x shr 4, pos.z shr 4)) level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, pos.x, pos.z) else -1
+        val biome = level.chunkSource.generator.biomeSource.getNoiseBiome(pos.x shr 2, base shr 2, pos.z shr 2, level.chunkSource.randomState().sampler()).unwrapKey().map { it.location().toString() }.orElse("?")
+        ctx.source.sendSuccess({ Component.literal("(${pos.x}, ${pos.z}): estimate $estimate, generator base $base, real ${if (real < 0) "unloaded" else real.toString()}, sea ${level.chunkSource.generator.seaLevel}, biome $biome") }, false)
+        return 1
     }
 
     private fun roadsExport(ctx: CommandContext<CommandSourceStack>): Int {

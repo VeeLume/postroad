@@ -134,7 +134,8 @@ class WorldTerrainSampler(level: ServerLevel, private val cacheDir: Path?, priva
             val mid = lo + ((hi - lo) / 2 / step) * step
             if (density.compute(DensityFunction.SinglePointContext(x, mid, z)) > SOLID) lo = mid else hi = mid
         }
-        return lo
+        // hi is the first air sample: the surface height the generator's heightmaps report (probe-verified: lo sat 8 below).
+        return hi
     }
 
     private fun file(tx: Int, tz: Int): Path? {

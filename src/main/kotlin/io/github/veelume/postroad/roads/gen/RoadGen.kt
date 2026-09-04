@@ -68,6 +68,7 @@ object RoadGen {
         val discoverMillis: Long = 0,
         val chunksChecked: Int = 0,
         val coarseTilesSampled: Int = 0,
+        val dropped: Int = 0,
     )
 
     /** The worker's view of one dimension; only the planner thread touches it after creation. */
@@ -260,7 +261,7 @@ object RoadGen {
             else JunctionResult(terrain.cellToBlock(j.cell.x, j.cell.z), j.joinedRoute, joined, j.joiningRoute, joining)
         }
         return PassResult(req.dimension, req.center, newTowns, newRoads, newJunctions, discoveredNow,
-            (System.nanoTime() - t0) / 1_000_000, worker.sampler.sampled - sampledBefore, discoverMillis, chunksChecked, worker.coarseSampler.sampled - coarseBefore)
+            (System.nanoTime() - t0) / 1_000_000, worker.sampler.sampled - sampledBefore, discoverMillis, chunksChecked, worker.coarseSampler.sampled - coarseBefore, plan.dropped)
     }
 
     // ---- applying results (server thread) ------------------------------------------------------
@@ -294,8 +295,8 @@ object RoadGen {
         }
         storage.markDiscovered(result.dimension, result.discovered)
         passesRun++
-        Postroad.LOGGER.info("Road plan pass at {}: {} new town(s), {} new road(s), {} junction(s); {} chunk(s) checked in {} ms, {} coarse + {} fine tile(s) sampled, {} ms total",
-            result.center.toShortString(), towns, roads, junctions, result.chunksChecked, result.discoverMillis, result.coarseTilesSampled, result.tilesSampled, result.millis)
+        Postroad.LOGGER.info("Road plan pass at {}: {} new town(s), {} new road(s), {} junction(s), {} pair(s) dropped for water; {} chunk(s) checked in {} ms, {} coarse + {} fine tile(s) sampled, {} ms total",
+            result.center.toShortString(), towns, roads, junctions, result.dropped, result.chunksChecked, result.discoverMillis, result.coarseTilesSampled, result.tilesSampled, result.millis)
     }
 
     /** Drops the plan and every generated path nobody has charted. Refused while a pass runs. */

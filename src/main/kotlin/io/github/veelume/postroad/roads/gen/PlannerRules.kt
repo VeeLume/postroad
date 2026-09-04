@@ -32,6 +32,7 @@ object PlannerRules : SimpleJsonResourceReloadListener(Gson(), "roads") {
                 reuseFactor = GsonHelper.getAsDouble(obj, "reuseFactor", d.reuseFactor),
                 heuristicWeight = GsonHelper.getAsDouble(obj, "heuristicWeight", d.heuristicWeight),
                 maxExpansions = GsonHelper.getAsInt(obj, "maxExpansions", d.maxExpansions),
+                maxWaterRun = GsonHelper.getAsInt(obj, "maxWaterRun", d.maxWaterRun),
             )
             Postroad.LOGGER.info("Loaded planner costs: {}", current)
         } catch (e: Exception) {

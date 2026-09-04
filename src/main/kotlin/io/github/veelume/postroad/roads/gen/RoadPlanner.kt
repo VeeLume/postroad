@@ -26,6 +26,8 @@ data class PlannerCosts(
     val heuristicWeight: Double = 0.5,
     /** Give up when the search has expanded this many cells. */
     val maxExpansions: Int = 2_000_000,
+    /** A route with more consecutive water cells than this is dropped: no road between islands until bridges exist. */
+    val maxWaterRun: Int = 6,
 )
 
 /** A town the planner links: an id the network will know it by, and the cell it sits on. */
@@ -38,7 +40,7 @@ data class PlannedRoute(val id: String, val from: Town, val to: Town, val cells:
 data class Junction(val cell: Cell, val joinedRoute: String, val joiningRoute: String)
 
 /** Routes in planning order and the junctions between them. */
-data class RoadPlan(val routes: List<PlannedRoute>, val junctions: List<Junction>)
+data class RoadPlan(val routes: List<PlannedRoute>, val junctions: List<Junction>, val dropped: Int = 0)
 
 /**
  * Cheapest-path planner over a [Terrain]. Pure: takes terrain and towns, returns routes; marks
@@ -205,11 +207,13 @@ object RoadPlanner {
 
         val routes = ArrayList<PlannedRoute>()
         val junctions = ArrayList<Junction>()
+        var dropped = 0
         for ((i, j) in ordered) {
             val id = routeId(towns[i].id, towns[j].id)
             if (id in known) continue
             val cells = (if (coarse != null) routeHierarchical(terrain, coarse, ratio, towns[i].cell, towns[j].cell, costs)
                 else route(terrain, towns[i].cell, towns[j].cell, costs)) ?: continue
+            if (longestWaterRun(terrain, cells) > costs.maxWaterRun) { dropped++; continue }
             // A junction is where the route's own new cells meet an existing road: stepping onto one, or
             // off one. Road-to-road steps pass through junctions recorded when those roads met, and the
             // route's two ends are towns, not junctions.
@@ -228,7 +232,18 @@ object RoadPlanner {
             routes.add(PlannedRoute(id, towns[i], towns[j], cells))
             known.add(id)
         }
-        return RoadPlan(routes, junctions)
+        return RoadPlan(routes, junctions, dropped)
+    }
+
+    /** Longest stretch of consecutive water cells on a route. */
+    fun longestWaterRun(terrain: Terrain, cells: List<Cell>): Int {
+        var run = 0
+        var best = 0
+        for (c in cells) {
+            run = if (terrain.has(c.x, c.z, Terrain.WATER)) run + 1 else 0
+            if (run > best) best = run
+        }
+        return best
     }
 
     private fun addJunction(junctions: MutableList<Junction>, cell: Cell, joined: String, joining: String) {
