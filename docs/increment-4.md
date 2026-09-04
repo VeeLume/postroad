@@ -113,12 +113,24 @@ works. Out for now: the Rust core (see Decisions).
   where it joins is a **junction**. A route that never touches an existing
   road is a new trunk. This is the Steiner-ish behaviour the design asked for
   without a Steiner solver.
+- **Two levels.** Finding merges needs a weak heuristic, and a weak
+  heuristic explores a wide ellipse; with 64 routes the ellipses covered the
+  whole square and every cell had to be sampled (the first measured pass:
+  4292 tiles, 327 s of planning). So each route is planned twice: first on a
+  **coarse map** of 16-block cells (existing roads and structure boxes marked
+  there too, weak heuristic, slopes scaled to the cell), which is where the
+  merge is decided; then on the fine 4-block map inside a **corridor** one
+  coarse cell either side of the coarse path, with the usual costs, so the
+  road follows the actual valley and snaps onto the existing road's cells.
+  The fine map is only sampled inside corridors.
 - **Output**: one `RoadPath` per planned route (points every 4 blocks,
   tiers `paved` for trunks), `PathLink`s at junctions, and a junction record
   (position, the paths meeting there) for the builder.
-- **A* on 4-block cells over a 3000×3000-block area** is 560k cells worst
-  case, sub-second in Kotlin per route with a good heuristic; the sampling,
-  not the search, is the cost. Both are off-thread.
+- **The search is cheap, the map is not.** Sampling costs ~0.26 ms per fine
+  cell on Tectonic worldgen; the searches themselves are sub-second. Both
+  run on the planner thread. A `/postroad roads export` draws the plan as a
+  PNG (heights, water, town boxes, roads, junctions) so the network can be
+  judged by eye before a block is placed.
 
 ## Builder
 
