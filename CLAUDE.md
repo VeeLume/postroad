@@ -45,6 +45,11 @@ live in `docs/` (one per increment). This file is about the code.
   candidates → tick-time filtering against the plan → per-chunk build under `build.blocksPerTick`: 3-wide strip on
   the real heightmap, lampposts, junction signposts linked as sign nodes via `SignNodes.linkGenerated`).
   `Charting.markGenerated` charts a generated road a walk followed instead of recording a duplicate.
+  `RoadDebug` (+ `client/RoadDebugRenderer`): `/postroad roads debug` toggles a per-player in-world overlay of
+  roads/junctions/towns/nodes within 512 blocks, sent every 2 s; `/postroad roads export` draws the plan as a PNG;
+  `/postroad roads probe <x> <z>` compares the sampler's surface with the generator and the real heightmap.
+  The sampler calibrates a surface offset against `getBaseHeight` once per world (Tectonic's real surface sits
+  a few blocks above the density crossing).
 - `roads/Routing` — Dijkstra over anchors (nodes + link ends) on the path polylines.
 - `travel/` — `Fares`, `TravelService` (open list, depart: fare, fresh-loot mailing, teleport), `SignNodes`
   (map-on-sign links/unlinks, left-click opens travel; block tag `#postroad:sign_nodes`), payloads + `TravelClient`.
