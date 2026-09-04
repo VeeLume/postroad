@@ -1,8 +1,27 @@
 {
   "base": 1.0,
-  "slopePenalty": 0.6,
-  "slopeCap": 60.0,
-  "maxStep": 3.0,
+  "steps": [
+    {
+      "name": "flat",
+      "upTo": 0,
+      "cost": 0.0
+    },
+    {
+      "name": "step",
+      "upTo": 2,
+      "cost": 1.0
+    },
+    {
+      "name": "stairs",
+      "upTo": 6,
+      "cost": 6.0
+    },
+    {
+      "name": "serpentine",
+      "upTo": 12,
+      "cost": 40.0
+    }
+  ],
   "bandPenalty": 0.08,
   "bandMargin": 6.0,
   "water": 40.0,

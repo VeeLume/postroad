@@ -104,9 +104,18 @@ works. Out for now: the Rust core (see Decisions).
   lava (impassable), impassable structure cells, and a **reuse discount**: a
   cell already on a planned road costs a fraction of base. Cost is
   data-driven (`data/postroad/roads/planner.json`).
-- **Rules from the first in-world look** (playtest 15): more than `maxStep`
-  (3) blocks of height change per 4-block cell is impassable on new ground —
-  cliffs were cheap under the old cap and roads climbed them; an **elevation
+- **Step classes** (playtest 15, Valerie's model): the height change over a
+  4-block cell is classed — *flat* (0, free), *step* (≤ 2 blocks, a slab, +1),
+  *stairs* (≤ 6, a run of stairs with fill and cut, +6), *serpentine* (≤ 12,
+  +40, switchbacks later) — and beyond the last class new ground is
+  impassable. Existing road cells carry no step cost, so a second route
+  rides an existing stair section instead of cutting its own: shared
+  climbs, the natural pattern. A diagonal step covers 5.7 blocks and is
+  judged per distance, so a cliff taken diagonally is one class gentler.
+  The builder shapes the same classes: it smooths the road's profile to
+  one block per column, fills below (`fill` block, ≤ 6) and cuts above
+  (headroom 3), puts a slab on a lone step and stairs facing uphill on a
+  run. Bridges and elevated roads will be further classes. An **elevation
   band**: cells above the higher town or below the lower one (past a margin)
   cost `bandPenalty` per block, so a road keeps to its towns' height and goes
   around a mountain instead of over it; a town's **exit** is where the line

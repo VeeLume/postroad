@@ -515,18 +515,28 @@ class PostroadGameTests {
         val around = planner.route(hill, cell(5, 30), cell(55, 30)) ?: return helper.fail("hill route not found")
         val peak = around.maxOf { hill.heightAt(it.x, it.z) }
         helper.assertTrue(peak < 64 + 30, "route stays off the summit (peak height $peak)")
-        // A gentle ridge (2 blocks per cell) is passable; a cliff (8 per cell) is not, and a road across it is refused.
+        // Step classes: a gentle ridge (2 blocks per cell) is crossed; a 16-block wall is impassable; a
+        // 10-block wall (serpentine class) is crossed when there is no way around, and avoided when there is.
         val ridge = g.flat(40, 20, 64)
         for (z in 0 until 20) { ridge.setHeight(20, z, 66); ridge.setHeight(21, z, 68); ridge.setHeight(22, z, 66) }
         helper.assertTrue(planner.route(ridge, cell(5, 10), cell(35, 10)) != null, "a gentle ridge is crossed")
         val cliff = g.flat(40, 20, 64)
-        for (z in 0 until 20) for (x in 20 until 40) cliff.setHeight(x, z, 80)
-        helper.assertTrue(planner.route(cliff, cell(5, 10), cell(35, 10)) == null, "a 16-block cliff with no way around is unreachable")
+        for (z in 0 until 20) for (x in 20 until 40) cliff.setHeight(x, z, 84)
+        helper.assertTrue(planner.route(cliff, cell(5, 10), cell(35, 10)) == null, "a 20-block wall with no way around is unreachable (even diagonally)")
+        val wall = g.flat(40, 20, 64)
+        for (z in 0 until 20) for (x in 20 until 40) wall.setHeight(x, z, 74)
+        helper.assertTrue(planner.route(wall, cell(5, 10), cell(35, 10)) != null, "a 10-block wall is climbed (serpentine) when there is no way around")
+        val ramp = g.flat(60, 40, 64)
+        for (z in 0 until 40) for (x in 20 until 60) ramp.setHeight(x, z, 74)
+        for (z in 0 until 40) for (x in 20 until 30) ramp.setHeight(x, z, 64 + (x - 19))   // a 1-block-per-cell ramp at the north edge...
+        for (z in 10 until 40) for (x in 20 until 30) ramp.setHeight(x, z, if (x < 25) 64 else 74) // ...and a 10-block wall elsewhere
+        val climbed = planner.route(ramp, cell(5, 30), cell(55, 30)) ?: return helper.fail("ramp route not found")
+        helper.assertTrue(climbed.any { it.z < 10 }, "the route detours to the ramp instead of climbing the wall")
         // The band rule: a low valley route beats a route over a plateau above both towns.
         val plateau = g.flat(60, 40, 64)
-        for (z in 15..25) for (x in 10..50) plateau.setHeight(x, z, 64 + 2 * (minOf(x - 9, 51 - x, z - 14, 26 - z).coerceAtMost(3)))
+        for (z in 15..25) for (x in 10..50) plateau.setHeight(x, z, 64 + 4 * (minOf(x - 9, 51 - x, z - 14, 26 - z).coerceAtMost(4)))
         val flat = planner.route(plateau, cell(5, 20), cell(55, 20)) ?: return helper.fail("plateau route not found")
-        helper.assertTrue(flat.count { plateau.heightAt(it.x, it.z) > 66 } < flat.size / 2, "route keeps to the towns' elevation rather than the plateau")
+        helper.assertTrue(flat.count { plateau.heightAt(it.x, it.z) > 70 } < flat.size / 2, "route keeps to the towns' elevation rather than a 16-block plateau (${flat.count { plateau.heightAt(it.x, it.z) > 70 }} of ${flat.size} cells up)")
         // A town inside a box is left on the side facing the other town.
         val sided = g.flat(60, 40, 64)
         sided.fill(20, 10, 30, 30, g.BLOCKED)
@@ -689,6 +699,12 @@ class PostroadGameTests {
             io.github.veelume.postroad.roads.gen.RoadGen.GENERATED_BY, 0, charted = false))
         // Real ground so the styles file allows the replacement (the arena floor is stone: replaceable).
         val chunk = net.minecraft.world.level.ChunkPos.asLong(start.x shr 4, start.z shr 4)
+        // A two-block step across the road's path: the builder must turn it into one-block steps with stairs or a slab.
+        for (dz in -1..1) for (sx in 0..1) {
+            helper.setBlock(BlockPos(9 + sx, 1, 4 + dz), Blocks.STONE)
+            helper.setBlock(BlockPos(9 + sx, 2, 4 + dz), Blocks.STONE)
+        }
+        for (dz in -1..1) for (sx in 2..8) { helper.setBlock(BlockPos(9 + sx, 1, 4 + dz), Blocks.STONE); helper.setBlock(BlockPos(9 + sx, 2, 4 + dz), Blocks.STONE) }
         val placed = io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk)
         val floor = level.getBlockState(BlockPos(start.x + 4, floorY, start.z))
         val above = level.getBlockState(BlockPos(start.x + 4, floorY + 1, start.z))
@@ -699,6 +715,19 @@ class PostroadGameTests {
         val centre = level.getBlockState(BlockPos(start.x + 4, floorY, start.z))
         helper.assertTrue(!centre.`is`(Blocks.STONE) && !centre.`is`(Blocks.POLISHED_ANDESITE), "the road centre is a palette block (${centre.block})")
         helper.assertValueEqual(io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk), 0, "a second build places nothing")
+        // Walkable: along the centre line no two neighbouring columns differ by more than one block, and a rise carries stairs or a slab.
+        var maxJump = 0
+        var shaped = 0
+        var prevTop = Int.MIN_VALUE
+        for (x in start.x..(start.x + 16)) {
+            val top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, start.z) - 1
+            val s = level.getBlockState(BlockPos(x, top, start.z))
+            if (s.block is net.minecraft.world.level.block.StairBlock || s.block is net.minecraft.world.level.block.SlabBlock) shaped++
+            if (prevTop != Int.MIN_VALUE) maxJump = maxOf(maxJump, kotlin.math.abs(top - prevTop))
+            prevTop = top
+        }
+        helper.assertTrue(maxJump <= 1, "the road climbs the step one block at a time (max jump $maxJump)")
+        helper.assertTrue(shaped >= 1, "the rise carries stairs or a slab ($shaped shaped columns)")
 
         // Walking the road charts it instead of recording a duplicate.
         val player = helper.makeMockServerPlayerInLevel()

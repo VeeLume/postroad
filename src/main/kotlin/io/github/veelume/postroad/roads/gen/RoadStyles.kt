@@ -33,7 +33,9 @@ class Palette(private val entries: List<Pair<BlockState, Int>>) {
 }
 
 /** One family's look: road centre, shoulders, lamppost. */
-class RoadStyle(val surface: Palette, val edge: Palette, val post: BlockState, val lamp: BlockState)
+class RoadStyle(val surface: Palette, val edge: Palette, val post: BlockState, val lamp: BlockState,
+                val stairs: BlockState = Blocks.COBBLESTONE_STAIRS.defaultBlockState(), val slab: BlockState = Blocks.COBBLESTONE_SLAB.defaultBlockState(),
+                val fill: BlockState = Blocks.COBBLESTONE.defaultBlockState())
 
 /**
  * Road palettes per biome family and what the builder may replace or clear, from
@@ -139,7 +141,10 @@ object RoadStyles : SimpleJsonResourceReloadListener(Gson(), "roads") {
             val edge = palette(f.getAsJsonArray("edge"))
             val post = f.get("post")?.asString?.let { block(it) }?.defaultBlockState() ?: Blocks.OAK_FENCE.defaultBlockState()
             val lamp = f.get("lamp")?.asString?.let { block(it) }?.defaultBlockState() ?: Blocks.LANTERN.defaultBlockState()
-            styles[index] = RoadStyle(if (surface.isEmpty) RoadStyleSet.FALLBACK_STYLE.surface else surface, if (edge.isEmpty) surface else edge, post, lamp)
+            val stairs = f.get("stairs")?.asString?.let { block(it) }?.defaultBlockState() ?: Blocks.COBBLESTONE_STAIRS.defaultBlockState()
+            val slab = f.get("slab")?.asString?.let { block(it) }?.defaultBlockState() ?: Blocks.COBBLESTONE_SLAB.defaultBlockState()
+            val fill = f.get("fill")?.asString?.let { block(it) }?.defaultBlockState() ?: Blocks.COBBLESTONE.defaultBlockState()
+            styles[index] = RoadStyle(if (surface.isEmpty) RoadStyleSet.FALLBACK_STYLE.surface else surface, if (edge.isEmpty) surface else edge, post, lamp, stairs, slab, fill)
         }
         return RoadStyleSet(
             styles,

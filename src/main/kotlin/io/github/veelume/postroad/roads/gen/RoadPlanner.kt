@@ -11,11 +11,12 @@ import kotlin.math.sqrt
 /** What a step costs. Loaded from `data/postroad/roads/planner.json` ([PlannerRules]); these are the defaults. */
 data class PlannerCosts(
     val base: Double = 1.0,
-    /** Multiplied by (height difference per cell)², capped at [slopeCap]. */
-    val slopePenalty: Double = 0.6,
-    val slopeCap: Double = 60.0,
-    /** More than this many blocks of height change per 4-block cell is impassable (3 ≈ 37°). */
-    val maxStep: Double = 3.0,
+    /**
+     * Height change per 4-block cell, classed: flat, a step (a slab), stairs, serpentine — each class up to
+     * [StepClass.upTo] blocks costs [StepClass.cost] extra per cell; more than the last class is impassable.
+     * Existing road cells carry no step cost, so a second route rides an existing stair section.
+     */
+    val steps: List<StepClass> = listOf(StepClass("flat", 0.0, 0.0), StepClass("step", 2.0, 1.0), StepClass("stairs", 6.0, 6.0), StepClass("serpentine", 12.0, 40.0)),
     /** Per block a cell sits above the higher town or below the lower one (beyond [bandMargin]), per cell. */
     val bandPenalty: Double = 0.08,
     val bandMargin: Double = 6.0,
@@ -34,6 +35,9 @@ data class PlannerCosts(
     /** A route with more consecutive water cells than this is dropped: no road between islands until bridges exist. */
     val maxWaterRun: Int = 6,
 )
+
+/** One class of height change per cell: its name, the largest change it covers, and what it costs per cell. */
+data class StepClass(val name: String, val upTo: Double, val cost: Double)
 
 /** A town the planner links: an id the network will know it by, and the cell it sits on. */
 data class Town(val id: String, val cell: Cell)
@@ -76,11 +80,15 @@ object RoadPlanner {
         val h = terrain.heightAt(x, z)
         val onRoad = terrain.has(x, z, Terrain.ROAD)
         val dh = abs(h - fromHeight).toDouble() / (slopeDivisor * (if (diagonal) SQRT2 else 1.0))
-        // Existing roads were already judged passable; new ground must not be steeper than maxStep.
-        if (!onRoad && dh > costs.maxStep) return null
         var cost = costs.base * (if (diagonal) SQRT2 else 1.0)
-        if (onRoad) cost *= costs.reuseFactor
-        cost += min(costs.slopePenalty * dh * dh, costs.slopeCap)
+        if (onRoad) {
+            // Existing roads were already judged and built; riding them costs the discount only.
+            cost *= costs.reuseFactor
+        } else {
+            // New ground: the step class of this change, or impassable beyond the last class.
+            val cls = costs.steps.firstOrNull { dh <= it.upTo } ?: return null
+            cost += cls.cost
+        }
         if (terrain.has(x, z, Terrain.WATER)) cost += costs.water
         if (band != null && !onRoad) {
             val above = h - band.high

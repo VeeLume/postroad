@@ -26,9 +26,10 @@ object PlannerRules : SimpleJsonResourceReloadListener(Gson(), "roads") {
             val d = PlannerCosts()
             current = PlannerCosts(
                 base = GsonHelper.getAsDouble(obj, "base", d.base),
-                slopePenalty = GsonHelper.getAsDouble(obj, "slopePenalty", d.slopePenalty),
-                slopeCap = GsonHelper.getAsDouble(obj, "slopeCap", d.slopeCap),
-                maxStep = GsonHelper.getAsDouble(obj, "maxStep", d.maxStep),
+                steps = if (obj.has("steps")) GsonHelper.getAsJsonArray(obj, "steps").map { e ->
+                    val o = e.asJsonObject
+                    StepClass(GsonHelper.getAsString(o, "name", "?") ?: "?", GsonHelper.getAsDouble(o, "upTo", 0.0), GsonHelper.getAsDouble(o, "cost", 0.0))
+                }.sortedBy { it.upTo } else d.steps,
                 bandPenalty = GsonHelper.getAsDouble(obj, "bandPenalty", d.bandPenalty),
                 bandMargin = GsonHelper.getAsDouble(obj, "bandMargin", d.bandMargin),
                 water = GsonHelper.getAsDouble(obj, "water", d.water),
