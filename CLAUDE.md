@@ -63,6 +63,14 @@ live in `docs/` (one per increment). This file is about the code.
   them (`RoadBuilder.generatedWithRoad` = the chunk's *own* start; starts referenced from neighbours don't count).
   The sampler calibrates a surface offset against `getBaseHeight` once per world (Tectonic's real surface sits
   a few blocks above the density crossing).
+  **Terrain sources:** `DhTerrain` reads Distant Horizons' generated terrain through its API when the mod is
+  present (optional compile dep `distanthorizonsapi`; DH classes only referenced inside `DhTerrainAccess`); cells
+  without DH data fall back to the density estimate and carry `Terrain.ESTIMATED`; such tiles are `provisional`
+  (memory only, re-sampled after a minute) and never reach the `known`/`known16` disk caches.
+  `/postroad roads debug terrain` draws the planner's cells (step class colours, flags, estimate-vs-real ticks,
+  estimates faint). `TownFinder` replays every structure set: villages become towns, other surface structures
+  obstacles (`PlannedObstacle`, blocked with `plan.structureMargin`); structures that come out buried a few times
+  in a row are skipped for good.
 - `roads/Routing` — Dijkstra over anchors (nodes + link ends) on the path polylines.
 - `travel/` — `Fares`, `TravelService` (open list, depart: fare, fresh-loot mailing, teleport), `SignNodes`
   (map-on-sign links/unlinks, left-click opens travel; block tag `#postroad:sign_nodes`), payloads + `TravelClient`.
