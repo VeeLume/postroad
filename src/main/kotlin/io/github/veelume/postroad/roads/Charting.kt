@@ -105,6 +105,7 @@ object Charting {
         }
         val level = session.level
         val network = Network.get(level.server)
+        markGenerated(player, session, network)?.let { return it }
         val path = RoadPath(
             id = UUID.randomUUID().toString().take(8),
             dimension = level.dimension().location(),
@@ -131,6 +132,39 @@ object Charting {
             false,
         )
         Postroad.LOGGER.info("{} charted path {} ({} blocks, {}, {} links, towns {})", player.gameProfile.name, path.id, path.length.toInt(), path.tier, linked, towns)
+        return path
+    }
+
+    /**
+     * A walk that mostly follows one uncharted generated road charts that road instead of recording
+     * a duplicate: the path is marked charted, its tiers take the sampled values where the walk
+     * covered them, and towns along it attach. Null if no generated road fits.
+     */
+    fun markGenerated(player: ServerPlayer, session: Session, network: Network): RoadPath? {
+        val dimension = session.level.dimension().location()
+        val join = PostroadConfig.joinDistance
+        val candidates = network.paths.values.filter { it.dimension == dimension && !it.charted && it.recordedBy == io.github.veelume.postroad.roads.gen.RoadGen.GENERATED_BY }
+        if (candidates.isEmpty()) return null
+        var best: RoadPath? = null
+        var bestHits: List<Int?> = emptyList()
+        for (path in candidates) {
+            val hits = session.points.map { p -> path.nearestIndex(p)?.takeIf { it.second <= join }?.first }
+            val share = hits.count { it != null }.toDouble() / hits.size
+            if (share >= PostroadConfig.chartMarkShare && hits.count { it != null } > bestHits.count { it != null }) { best = path; bestHits = hits }
+        }
+        val path = best ?: return null
+        for ((k, idx) in bestHits.withIndex()) {
+            if (idx == null) continue
+            session.tiers[k]?.let { path.tiers[idx] = it }
+        }
+        path.charted = true
+        val towns = network.attachTowns(path, join)
+        network.setDirty()
+        network.record(LedgerEntry(FreshLoot.dayOf(session.level), player.gameProfile.name, LedgerEntry.OP_PATH, 0, "network",
+            "${path.length.toInt()} blocks, generated road ${path.id} charted, ${towns.size} town(s)"))
+        PostroadAdvancements.award(player, PostroadAdvancements.PATH_CHARTED)
+        player.displayClientMessage(Component.translatable("message.postroad.chart.marked", path.length.toInt(), towns.size).withStyle(ChatFormatting.GOLD), false)
+        Postroad.LOGGER.info("{} charted generated road {} ({} blocks, towns {})", player.gameProfile.name, path.id, path.length.toInt(), towns)
         return path
     }
 

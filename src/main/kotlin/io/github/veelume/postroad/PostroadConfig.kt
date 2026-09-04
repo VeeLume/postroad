@@ -69,6 +69,10 @@ object PostroadConfig {
     private val PLAN_NEIGHBOURS: ModConfigSpec.IntValue
     private val PLAN_REPASS_DISTANCE: ModConfigSpec.IntValue
     private val PLAN_STRUCTURE_MARGIN: ModConfigSpec.IntValue
+    private val BUILD_BLOCKS_PER_TICK: ModConfigSpec.IntValue
+    private val BUILD_LAMP_INTERVAL: ModConfigSpec.IntValue
+    private val BUILD_WIDTH: ModConfigSpec.IntValue
+    private val CHART_MARK_SHARE: ModConfigSpec.IntValue
 
     val SPEC: ModConfigSpec
 
@@ -138,6 +142,13 @@ object PostroadConfig {
         PLAN_STRUCTURE_MARGIN = BUILDER.comment("Blocks of clearance kept around a predicted village's bounding box.").defineInRange("structureMargin", 8, 0, 64)
         BUILDER.pop()
 
+        BUILDER.push("build")
+        BUILD_BLOCKS_PER_TICK = BUILDER.comment("Road blocks placed per server tick at most.").defineInRange("blocksPerTick", 200, 10, 10000)
+        BUILD_LAMP_INTERVAL = BUILDER.comment("Blocks of road between lampposts; 0 disables them.").defineInRange("lampInterval", 24, 0, 1000)
+        BUILD_WIDTH = BUILDER.comment("Width of a generated road in blocks (odd).").defineInRange("width", 3, 1, 9)
+        CHART_MARK_SHARE = BUILDER.comment("Percent of a charting walk's samples that must lie along one generated road for the walk to chart that road instead of recording a new path.").defineInRange("markShare", 60, 1, 100)
+        BUILDER.pop()
+
         BUILDER.push("signs")
         AUTO_NAME_SIGNS = BUILDER.comment("When a way sign is linked, point its arms along the path and write 'To: <next node>' on them.").define("autoName", true)
         FLIP_SIGN_FACES = BUILDER.comment("Invert which side of a way-sign arm carries the text (if arms come out facing away from the road).").define("flipFaces", false)
@@ -170,6 +181,10 @@ object PostroadConfig {
     val planNeighbours: Int get() = PLAN_NEIGHBOURS.get()
     val planRepassDistance: Int get() = PLAN_REPASS_DISTANCE.get()
     val planStructureMargin: Int get() = PLAN_STRUCTURE_MARGIN.get()
+    val buildBlocksPerTick: Int get() = BUILD_BLOCKS_PER_TICK.get()
+    val buildLampInterval: Int get() = BUILD_LAMP_INTERVAL.get()
+    val buildWidth: Int get() = BUILD_WIDTH.get()
+    val chartMarkShare: Double get() = CHART_MARK_SHARE.get() / 100.0
     val autoNameSigns: Boolean get() = AUTO_NAME_SIGNS.get()
     val flipSignFaces: Boolean get() = FLIP_SIGN_FACES.get()
 }

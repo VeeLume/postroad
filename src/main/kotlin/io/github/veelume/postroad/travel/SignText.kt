@@ -46,12 +46,13 @@ object SignWriter {
      * next node in the +index direction, the second toward the −index direction, each labelled
      * "To: <name>". Arms with nothing to point at are left as they were. Returns how many arms were set.
      */
-    fun pointWaySign(level: ServerLevel, entity: BlockEntity, network: Network, node: RoadNode, viewer: BlockPos?): Int {
+    fun pointWaySign(level: ServerLevel, entity: BlockEntity, network: Network, node: RoadNode, viewer: BlockPos?, explicit: List<RoadNode>? = null): Int {
         val path = network.paths[node.pathId] ?: return 0
         val onPath = network.nodes.values.filter { it.pathId == node.pathId && it.id != node.id }
         val forward = onPath.filter { it.pointIndex > node.pointIndex }.minByOrNull { it.pointIndex }
         val backward = onPath.filter { it.pointIndex < node.pointIndex }.maxByOrNull { it.pointIndex }
-        val targets = listOfNotNull(forward, backward)
+        // Explicit targets (generated junction signs): the road's ends, whether or not they are nodes yet.
+        val targets = explicit?.filter { it.pointIndex != node.pointIndex } ?: listOfNotNull(forward, backward)
         if (targets.isEmpty()) return 0
         // Aim along the road, not at the far node: the path point a few samples out in that direction.
         fun aimPoint(target: RoadNode): BlockPos {

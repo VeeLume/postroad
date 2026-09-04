@@ -648,6 +648,45 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun builder_lays_a_strip_once_and_charting_marks_it(helper: GameTestHelper) {
+        val level = helper.level
+        val server = level.server
+        val tag = java.util.UUID.randomUUID().toString().take(6)
+        val dim = level.dimension().location()
+        // A straight road across the arena floor, one point every 4 blocks, on the floor's surface.
+        val start = helper.absolutePos(BlockPos(1, 1, 4))
+        val floorY = helper.absolutePos(BlockPos(0, 0, 0)).y
+        val points = (0..4).map { BlockPos(start.x + it * 4, floorY + 1, start.z) }
+        val road = io.github.veelume.postroad.roads.gen.PlannedRoad("t$tag", dim, "test/$tag/a", "test/$tag/b", points, ByteArray(points.size))
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(server)
+        val network = Network.get(server)
+        storage.addRoad(road)
+        network.addPath(io.github.veelume.postroad.roads.RoadPath(road.id, dim, points.toMutableList(), MutableList(points.size) { io.github.veelume.postroad.roads.Tier.PAVED },
+            io.github.veelume.postroad.roads.gen.RoadGen.GENERATED_BY, 0, charted = false))
+        // Real ground so the styles file allows the replacement (the arena floor is stone: replaceable).
+        val chunk = net.minecraft.world.level.ChunkPos.asLong(start.x shr 4, start.z shr 4)
+        val placed = io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk)
+        helper.assertTrue(placed > 0, "the builder placed road blocks ($placed)")
+        helper.assertTrue(road.builtChunks.contains(chunk), "the chunk is marked built")
+        val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
+        val centre = level.getBlockState(BlockPos(start.x + 4, floorY, start.z))
+        helper.assertTrue(!centre.`is`(Blocks.STONE) && !centre.`is`(Blocks.POLISHED_ANDESITE), "the road centre is a palette block (${centre.block})")
+        helper.assertValueEqual(io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk), 0, "a second build places nothing")
+
+        // Walking the road charts it instead of recording a duplicate.
+        val player = helper.makeMockServerPlayerInLevel()
+        val session = io.github.veelume.postroad.roads.Charting.Session(player.uuid, level)
+        for (p in points) session.sampleAt(p)
+        val pathsBefore = network.paths.size
+        val marked = io.github.veelume.postroad.roads.Charting.markGenerated(player, session, network)
+        helper.assertTrue(marked != null && marked.id == road.id, "the walk charted the generated road")
+        helper.assertTrue(network.paths[road.id]!!.charted, "the road is now charted")
+        helper.assertValueEqual(network.paths.size, pathsBefore, "no duplicate path recorded")
+        helper.assertTrue(network.paths[road.id]!!.tiers.any { it != null }, "the road keeps a tier after charting (${network.paths[road.id]!!.tiers})")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun names_are_deterministic_per_seed_and_place(helper: GameTestHelper) {
         val culture = Culture(
             id = "test",

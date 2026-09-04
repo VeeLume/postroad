@@ -101,6 +101,7 @@ object RoadGen {
         lastPass.clear()
         pending.set(0)
         spawnPlanned = false
+        RoadBuilder.reset()
     }
 
     fun onServerTick(event: ServerTickEvent.Post) {
@@ -269,6 +270,7 @@ object RoadGen {
             storage.addRoad(road)
             network.addPath(RoadPath(road.id, road.dimension, road.points.toMutableList(), MutableList(road.points.size) { Tier.PAVED },
                 GENERATED_BY, day, charted = false))
+            RoadBuilder.enqueueLoaded(level, road)
             roads++
         }
         for (j in result.newJunctions) {
@@ -293,6 +295,7 @@ object RoadGen {
         workers.clear()
         lastPass.clear()
         spawnPlanned = false
+        RoadBuilder.reset()
         return true
     }
 
@@ -308,7 +311,7 @@ object RoadGen {
         }
         val built = storage.roads.values.sumOf { it.builtChunks.size }
         val total = storage.roads.values.sumOf { it.chunks().size }
-        lines.add("$built of $total road chunk(s) built")
+        lines.add("$built of $total road chunk(s) built; builder: ${RoadBuilder.chunksBuilt} chunk(s), ${RoadBuilder.blocksPlaced} block(s), ${RoadBuilder.signsPlaced} sign(s) this session, ${RoadBuilder.queueSize} queued")
         return lines
     }
 

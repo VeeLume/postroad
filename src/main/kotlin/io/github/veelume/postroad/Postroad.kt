@@ -11,6 +11,9 @@ import io.github.veelume.postroad.roads.RoadBuff
 import io.github.veelume.postroad.roads.RoadRules
 import io.github.veelume.postroad.roads.gen.PlannerRules
 import io.github.veelume.postroad.roads.gen.RoadGen
+import io.github.veelume.postroad.roads.gen.RoadBuilder
+import io.github.veelume.postroad.roads.gen.RoadStyles
+import net.neoforged.neoforge.event.level.ChunkEvent
 import io.github.veelume.postroad.registry.PostroadBlockEntities
 import io.github.veelume.postroad.registry.PostroadBlocks
 import io.github.veelume.postroad.registry.PostroadComponents
@@ -69,7 +72,7 @@ object Postroad {
 
         ModLoadingContext.get().activeContainer.registerConfig(ModConfig.Type.COMMON, PostroadConfig.SPEC)
 
-        FORGE_BUS.addListener(AddReloadListenerEvent::class.java, Consumer { it.addListener(CultureRegistry); it.addListener(RoadRules); it.addListener(PlannerRules) })
+        FORGE_BUS.addListener(AddReloadListenerEvent::class.java, Consumer { it.addListener(CultureRegistry); it.addListener(RoadRules); it.addListener(PlannerRules); it.addListener(RoadStyles) })
         FORGE_BUS.addListener(PlayerTickEvent.Post::class.java, Consumer(RoadBuff::onPlayerTick))
         FORGE_BUS.addListener(PlayerTickEvent.Post::class.java, Consumer(Charting::onPlayerTick))
         FORGE_BUS.addListener(LivingDeathEvent::class.java, Consumer(Charting::onDeath))
@@ -84,6 +87,8 @@ object Postroad {
         FORGE_BUS.addListener(ServerStartedEvent::class.java, Consumer(RoadGen::onServerStarted))
         FORGE_BUS.addListener(ServerStoppingEvent::class.java, Consumer(RoadGen::onServerStopping))
         FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(RoadGen::onServerTick))
+        FORGE_BUS.addListener(ChunkEvent.Load::class.java, Consumer(RoadBuilder::onChunkLoad))
+        FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(RoadBuilder::onServerTick))
 
         if (FMLEnvironment.dist == Dist.CLIENT) {
             ClientSetup.register()

@@ -41,6 +41,10 @@ live in `docs/` (one per increment). This file is about the code.
   towns, planned roads with build state, junctions, searched squares), `PlannerRules` (`roads/planner.json` costs),
   `RoadGen` (the `postroad-planner` daemon thread: pass requests are snapshots built on the server thread, results
   applied there — generated paths enter `Network` uncharted). The pass is a pure function of request + worker terrain.
+  `RoadStyles` (`roads/styles.json`: palettes per family, what may be replaced/cleared), `RoadBuilder` (chunk-load
+  candidates → tick-time filtering against the plan → per-chunk build under `build.blocksPerTick`: 3-wide strip on
+  the real heightmap, lampposts, junction signposts linked as sign nodes via `SignNodes.linkGenerated`).
+  `Charting.markGenerated` charts a generated road a walk followed instead of recording a duplicate.
 - `roads/Routing` — Dijkstra over anchors (nodes + link ends) on the path polylines.
 - `travel/` — `Fares`, `TravelService` (open list, depart: fare, fresh-loot mailing, teleport), `SignNodes`
   (map-on-sign links/unlinks, left-click opens travel; block tag `#postroad:sign_nodes`), payloads + `TravelClient`.

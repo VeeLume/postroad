@@ -108,6 +108,32 @@ object SignNodes {
         Postroad.LOGGER.info("{} linked sign '{}' at {} to path {}", player.gameProfile.name, name, pos.toShortString(), path.id)
     }
 
+    /**
+     * Registers a generated signpost as a node on [pathId] at [index] (the builder's junction signs).
+     * Named after the road's towns when known, else a plain "Junction". Returns the node, or null if the
+     * path is unknown or the position already carries a node.
+     */
+    fun linkGenerated(level: ServerLevel, pos: BlockPos, pathId: String, index: Int): RoadNode? {
+        val network = Network.get(level.server)
+        val dimension = level.dimension().location()
+        val path = network.paths[pathId] ?: return null
+        val id = nodeIdAt(dimension, pos)
+        if (network.nodes[id] != null) return null
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(level.server)
+        val road = storage.roads[pathId]
+        val from = road?.let { network.places[it.from]?.name }
+        val to = road?.let { network.places[it.to]?.name }
+        val name = when {
+            from != null && to != null -> Component.translatable("message.postroad.sign.junction_name", from, to).string
+            from != null || to != null -> Component.translatable("message.postroad.sign.road_name", from ?: to, minOf(path.lengthBetween(0, index), path.lengthBetween(index, path.points.size - 1)).toInt()).string
+            else -> Component.translatable("message.postroad.sign.junction").string
+        }
+        val node = RoadNode(id, RoadNode.KIND_SIGN, dimension, pos, pathId, index.coerceIn(0, path.points.size - 1), name, null)
+        network.nodes[id] = node
+        network.setDirty()
+        return node
+    }
+
     /** "<Town> road, N blocks": the nearest town along this path, by road distance. */
     private fun defaultNodeName(network: Network, path: io.github.veelume.postroad.roads.RoadPath, index: Int): String? {
         val towns = network.nodes.values.filter { it.pathId == path.id && it.kind == RoadNode.KIND_TOWN }

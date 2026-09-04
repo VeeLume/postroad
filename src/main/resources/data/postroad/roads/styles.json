@@ -1,0 +1,45 @@
+{
+  "_comment": "Road palettes per biome family (see Families in roads/gen/WorldTerrain.kt). 'surface' is the road's centre, 'edge' its shoulders, both weighted. 'post' and 'lamp' build the lampposts. Ported from the modpack's gen_road_styles.py.",
+  "families": {
+    "temperate": {
+      "surface": [{"block": "minecraft:dirt_path", "weight": 5}, {"block": "minecraft:gravel", "weight": 2}, {"block": "minecraft:cobblestone", "weight": 1}, {"block": "minecraft:coarse_dirt", "weight": 1}],
+      "edge": [{"block": "minecraft:coarse_dirt", "weight": 3}, {"block": "minecraft:gravel", "weight": 2}, {"block": "minecraft:dirt_path", "weight": 1}],
+      "post": "minecraft:oak_fence",
+      "lamp": "minecraft:lantern"
+    },
+    "badlands": {
+      "surface": [{"block": "minecraft:red_sandstone", "weight": 3}, {"block": "minecraft:terracotta", "weight": 2}, {"block": "minecraft:packed_mud", "weight": 2}, {"block": "minecraft:coarse_dirt", "weight": 1}],
+      "edge": [{"block": "minecraft:terracotta", "weight": 2}, {"block": "minecraft:red_sand", "weight": 2}, {"block": "minecraft:coarse_dirt", "weight": 1}],
+      "post": "minecraft:acacia_fence",
+      "lamp": "minecraft:lantern"
+    },
+    "arid": {
+      "surface": [{"block": "minecraft:sandstone", "weight": 3}, {"block": "minecraft:smooth_sandstone", "weight": 2}, {"block": "minecraft:packed_mud", "weight": 2}, {"block": "minecraft:gravel", "weight": 1}],
+      "edge": [{"block": "minecraft:sandstone", "weight": 2}, {"block": "minecraft:sand", "weight": 2}, {"block": "minecraft:gravel", "weight": 1}],
+      "post": "minecraft:acacia_fence",
+      "lamp": "minecraft:lantern"
+    },
+    "wet": {
+      "surface": [{"block": "minecraft:packed_mud", "weight": 4}, {"block": "minecraft:mud", "weight": 2}, {"block": "minecraft:mossy_cobblestone", "weight": 1}, {"block": "minecraft:gravel", "weight": 1}],
+      "edge": [{"block": "minecraft:packed_mud", "weight": 2}, {"block": "minecraft:mud", "weight": 2}, {"block": "minecraft:coarse_dirt", "weight": 1}],
+      "post": "minecraft:mangrove_fence",
+      "lamp": "minecraft:lantern"
+    },
+    "cold": {
+      "surface": [{"block": "minecraft:gravel", "weight": 3}, {"block": "minecraft:cobblestone", "weight": 2}, {"block": "minecraft:stone_bricks", "weight": 1}, {"block": "minecraft:dirt_path", "weight": 1}],
+      "edge": [{"block": "minecraft:gravel", "weight": 3}, {"block": "minecraft:cobblestone", "weight": 1}, {"block": "minecraft:coarse_dirt", "weight": 1}],
+      "post": "minecraft:spruce_fence",
+      "lamp": "minecraft:lantern"
+    },
+    "mountain": {
+      "surface": [{"block": "minecraft:cobblestone", "weight": 3}, {"block": "minecraft:gravel", "weight": 3}, {"block": "minecraft:stone", "weight": 1}, {"block": "minecraft:dirt_path", "weight": 1}],
+      "edge": [{"block": "minecraft:gravel", "weight": 3}, {"block": "minecraft:cobblestone", "weight": 2}, {"block": "minecraft:stone", "weight": 1}],
+      "post": "minecraft:spruce_fence",
+      "lamp": "minecraft:lantern"
+    }
+  },
+  "replaceable": ["minecraft:grass_block", "minecraft:dirt", "minecraft:coarse_dirt", "minecraft:podzol", "minecraft:rooted_dirt", "minecraft:mud", "minecraft:sand", "minecraft:red_sand", "minecraft:gravel", "minecraft:sandstone", "minecraft:red_sandstone", "minecraft:stone", "minecraft:deepslate", "minecraft:terracotta", "minecraft:packed_mud", "minecraft:dirt_path", "minecraft:mycelium", "minecraft:snow_block", "minecraft:clay", "minecraft:moss_block", "minecraft:andesite", "minecraft:diorite", "minecraft:granite", "minecraft:tuff", "minecraft:calcite", "minecraft:dripstone_block"],
+  "replaceableKeywords": ["terracotta", "sandstone", "dirt", "grass_block", "stone", "sand", "gravel", "mud", "soil", "loam", "silt", "peat", "clay", "moss"],
+  "clearable": ["minecraft:short_grass", "minecraft:tall_grass", "minecraft:fern", "minecraft:large_fern", "minecraft:dead_bush", "minecraft:snow", "minecraft:dandelion", "minecraft:poppy", "minecraft:sweet_berry_bush", "minecraft:moss_carpet", "minecraft:vine"],
+  "clearableKeywords": ["grass", "fern", "flower", "bush", "sapling", "mushroom", "sprout", "weed", "carpet", "leaf_pile", "pebble", "twig"]
+}
