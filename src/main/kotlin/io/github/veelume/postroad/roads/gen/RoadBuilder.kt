@@ -37,7 +37,14 @@ import kotlin.math.sqrt
  * everything that reads the plan or touches blocks happens in the tick handler.
  */
 object RoadBuilder {
-    private class Job(val dimension: ResourceLocation, val chunk: Long)
+    private class Job(val dimension: ResourceLocation, val chunk: Long) {
+        /** Resume point: which road of the chunk's list and which point of it comes next. */
+        var roadIndex = 0
+        var pointIndex = 0
+        var startedAt = 0L
+        var blocks = 0
+        var setBlockNanos = 0L
+    }
 
     private val candidates = ConcurrentLinkedQueue<Job>()
     private val queue = ArrayDeque<Job>()
@@ -71,17 +78,20 @@ object RoadBuilder {
             if (needsWork(storage, job)) offer(job)
         }
         if (queue.isEmpty()) return
-        var budget = PostroadConfig.buildBlocksPerTick
         val deadline = System.nanoTime() + PostroadConfig.buildMillisPerTick * 1_000_000L
-        while (budget > 0 && queue.isNotEmpty() && System.nanoTime() < deadline) {
-            val job = queue.removeFirst()
-            queued.remove(key(job))
-            val level = server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, job.dimension)) ?: continue
-            if (!level.hasChunk(ChunkPos.getX(job.chunk), ChunkPos.getZ(job.chunk))) continue
-            val t0 = System.nanoTime()
-            budget -= buildChunk(level, storage, job.chunk)
-            val ms = (System.nanoTime() - t0) / 1_000_000
-            if (ms > 20) Postroad.LOGGER.warn("Road chunk {} took {} ms to build", ChunkPos(job.chunk), ms)
+        while (queue.isNotEmpty() && System.nanoTime() < deadline) {
+            val job = queue.first()
+            val level = server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, job.dimension))
+            if (level == null || !level.hasChunk(ChunkPos.getX(job.chunk), ChunkPos.getZ(job.chunk))) {
+                queue.removeFirst(); queued.remove(key(job)); continue
+            }
+            if (job.startedAt == 0L) job.startedAt = System.nanoTime()
+            val finished = buildChunkStep(level, storage, job, deadline)
+            if (!finished) break // resumes next tick where it stopped
+            queue.removeFirst(); queued.remove(key(job))
+            val total = (System.nanoTime() - job.startedAt) / 1_000_000
+            if (total > 100) Postroad.LOGGER.info("Road chunk {}: {} block(s) over {} ms wall, {} ms of it in setBlock",
+                ChunkPos(job.chunk), job.blocks, total, job.setBlockNanos / 1_000_000)
         }
     }
 
@@ -120,32 +130,47 @@ object RoadBuilder {
 
     // ---- building -------------------------------------------------------------------------------
 
-    /** Builds everything planned for [chunk]; returns blocks placed. */
+    /** Builds everything planned for [chunk] in one go (tests, rebuild); returns blocks placed. */
     fun buildChunk(level: ServerLevel, storage: RoadPlanStorage, chunk: Long): Int {
+        val job = Job(level.dimension().location(), chunk)
+        while (!buildChunkStep(level, storage, job, Long.MAX_VALUE)) { /* no deadline: finishes in one call */ }
+        return job.blocks
+    }
+
+    /**
+     * Builds [job]'s chunk from its resume point until done or [deadline]; true when the chunk is
+     * finished. Progress lives on the job so a heavy chunk spreads over as many ticks as it needs.
+     */
+    private fun buildChunkStep(level: ServerLevel, storage: RoadPlanStorage, job: Job, deadline: Long): Boolean {
         val dim = level.dimension().location()
+        val chunk = job.chunk
         val styles = RoadStyles.current
         val boxes = storage.townsIn(dim).map { it.box }
-        var placed = 0
-        for (road in storage.roadsInChunk(dim, chunk)) {
-            if (road.builtChunks.contains(chunk)) continue
-            placed += buildRoadInChunk(level, road, chunk, styles, boxes)
+        val roads = storage.roadsInChunk(dim, chunk)
+        while (job.roadIndex < roads.size) {
+            val road = roads[job.roadIndex]
+            if (road.builtChunks.contains(chunk)) { job.roadIndex++; job.pointIndex = 0; continue }
+            val next = buildRoadInChunk(level, road, chunk, styles, boxes, job, deadline)
+            if (next >= 0) { job.pointIndex = next; return false }
             road.builtChunks.add(chunk)
             storage.setDirty()
+            job.roadIndex++; job.pointIndex = 0
         }
         for (junction in storage.junctions) {
             if (junction.signPlaced || junction.dimension != dim) continue
             if (ChunkPos.asLong(junction.pos.x shr 4, junction.pos.z shr 4) != chunk) continue
-            placed += placeJunctionSign(level, storage, junction, styles, boxes)
+            job.blocks += placeJunctionSign(level, storage, junction, styles, boxes)
             junction.signPlaced = true
             storage.setDirty()
         }
-        if (placed > 0) { chunksBuilt++; blocksPlaced += placed }
-        return placed
+        if (job.blocks > 0) { chunksBuilt++; blocksPlaced += job.blocks }
+        return true
     }
 
     private fun chunkOf(p: BlockPos): Long = ChunkPos.asLong(p.x shr 4, p.z shr 4)
 
-    private fun buildRoadInChunk(level: ServerLevel, road: PlannedRoad, chunk: Long, styles: RoadStyleSet, boxes: List<BoundingBox>): Int {
+    /** Builds [road]'s points in [chunk] from [job]'s point index; returns the next index to resume at, or -1 when done. */
+    private fun buildRoadInChunk(level: ServerLevel, road: PlannedRoad, chunk: Long, styles: RoadStyleSet, boxes: List<BoundingBox>, job: Job, deadline: Long): Int {
         val width = PostroadConfig.buildWidth
         val half = width / 2
         val lampInterval = PostroadConfig.buildLampInterval.toDouble()
@@ -153,10 +178,13 @@ object RoadBuilder {
         var length = 0.0
         var lastTop = Int.MIN_VALUE
         val points = road.points
+        val from = job.pointIndex
         for (i in points.indices) {
             val a = points[i]
             val prevLength = length
             if (i > 0) length += horizontal(points[i - 1], a)
+            if (i < from) continue
+            if (i > from && System.nanoTime() > deadline) { job.blocks += placed; return i }
             if (chunkOf(a) != chunk) continue
             val style = styles.style(road.families.getOrElse(i) { 0 }.toInt())
             val b = points.getOrNull(i + 1) ?: a
@@ -195,7 +223,9 @@ object RoadBuilder {
                     val x = (c[0] + nx * w).roundToInt()
                     val z = (c[1] + nz * w).roundToInt()
                     val palette = if (w == 0) style.surface else style.edge
+                    val t0 = System.nanoTime()
                     placed += placeColumn(level, x, z, target[s], palette, style, styles, boxes, shape, ascent.second, ascent.first)
+                    job.setBlockNanos += System.nanoTime() - t0
                 }
                 lastTop = target[s]
             }
@@ -207,7 +237,8 @@ object RoadBuilder {
                 placed += placeLamppost(level, lx, lz, style, styles, boxes)
             }
         }
-        return placed
+        job.blocks += placed
+        return -1
     }
 
     /**
