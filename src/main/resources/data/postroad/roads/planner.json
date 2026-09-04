@@ -13,13 +13,8 @@
     },
     {
       "name": "stairs",
-      "upTo": 6,
-      "cost": 6.0
-    },
-    {
-      "name": "serpentine",
-      "upTo": 12,
-      "cost": 40.0
+      "upTo": 4,
+      "cost": 8.0
     }
   ],
   "bandPenalty": 0.08,

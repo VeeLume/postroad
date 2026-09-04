@@ -382,6 +382,8 @@ object RoadBuilder {
         val air = Blocks.AIR.defaultBlockState()
         if (top < ground) {
             // Cut: everything from the new top up to the old ground plus headroom, if it may be removed.
+            // Never deeper than the flattening allows — a profile that lags a slope must not dig a trench.
+            if (ground - top > MAX_CUT) return 0
             for (y in top + 1..ground + HEADROOM) {
                 val p = BlockPos(x, y, z)
                 val s = level.getBlockState(p)

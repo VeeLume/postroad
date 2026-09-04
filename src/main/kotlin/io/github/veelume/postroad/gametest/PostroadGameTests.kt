@@ -525,7 +525,7 @@ class PostroadGameTests {
         helper.assertTrue(planner.route(cliff, cell(5, 10), cell(35, 10)) == null, "a 20-block wall with no way around is unreachable (even diagonally)")
         val wall = g.flat(40, 20, 64)
         for (z in 0 until 20) for (x in 20 until 40) wall.setHeight(x, z, 74)
-        helper.assertTrue(planner.route(wall, cell(5, 10), cell(35, 10)) != null, "a 10-block wall is climbed (serpentine) when there is no way around")
+        helper.assertTrue(planner.route(wall, cell(5, 10), cell(35, 10), io.github.veelume.postroad.roads.gen.PlannerCosts(steps = listOf(io.github.veelume.postroad.roads.gen.StepClass("flat", 0.0, 0.0), io.github.veelume.postroad.roads.gen.StepClass("step", 2.0, 1.0), io.github.veelume.postroad.roads.gen.StepClass("stairs", 6.0, 6.0), io.github.veelume.postroad.roads.gen.StepClass("serpentine", 12.0, 40.0)))) != null, "a 10-block wall is climbed when a serpentine class allows it and there is no way around")
         val ramp = g.flat(60, 40, 64)
         for (z in 0 until 40) for (x in 20 until 60) ramp.setHeight(x, z, 74)
         for (z in 0 until 40) for (x in 20 until 30) ramp.setHeight(x, z, 64 + (x - 19))   // a 1-block-per-cell ramp at the north edge...
