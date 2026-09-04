@@ -237,12 +237,27 @@ object PostroadCommands {
         val snapshot = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.segments
         var withStart = 0; var without = 0; var absent = 0
         val missing = ArrayList<String>()
+        // Planned height against the generated ground, per planned point in generated chunks: how far the plan's
+        // idea of the surface is from what the world got (negative = the plan lies under the real ground).
+        val buckets = IntArray(7) // <=-9, -8..-4, -3..-1, 0, 1..3, 4..8, >=9
+        val bucketNames = listOf("<=-9", "-8..-4", "-3..-1", "0", "1..3", "4..8", ">=9")
+        val deep = ArrayList<String>()
+        fun bucket(d: Int): Int = when { d <= -9 -> 0; d <= -4 -> 1; d <= -1 -> 2; d == 0 -> 3; d <= 3 -> 4; d <= 8 -> 5; else -> 6 }
         for ((key, runs) in snapshot) {
             val cx = net.minecraft.world.level.ChunkPos.getX(key); val cz = net.minecraft.world.level.ChunkPos.getZ(key)
             if (maxOf(kotlin.math.abs(cx * 16 + 8 - centre.x), kotlin.math.abs(cz * 16 + 8 - centre.z)) > radius) continue
             val chunk = level.chunkSource.getChunk(cx, cz, net.minecraft.world.level.chunk.status.ChunkStatus.EMPTY, true)
             if (chunk == null || !chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.STRUCTURE_STARTS)) { absent++; continue }
             val start = io.github.veelume.postroad.roads.gen.RoadBuilder.roadStart(chunk)
+            if (chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.SURFACE)) {
+                for (run in runs) for (p in run.points) {
+                    if ((p.x shr 4) != cx || (p.z shr 4) != cz) continue
+                    val ground = chunk.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR_WG, p.x and 15, p.z and 15)
+                    val d = p.y - ground
+                    buckets[bucket(d)]++
+                    if (kotlin.math.abs(d) >= 9 && deep.size < 15) deep.add("${p.toShortString()} planned ${p.y} ground $ground (${if (start != null) "own start" else "no start"})")
+                }
+            }
             if (start != null) { withStart++; continue }
             without++
             if (fix) {
@@ -260,6 +275,12 @@ object PostroadCommands {
         if (unmarked > 0) storage.setDirty()
         ctx.source.sendSuccess({ Component.literal("Audit within $radius: $withStart chunk(s) with their own road start, $without without, $absent not generated yet${if (fix) "; $unmarked road-chunk mark(s) cleared for the builder" else ""}") }, false)
         for (m in missing) ctx.source.sendSuccess({ Component.literal("  missing: $m") }, false)
+        val total = buckets.sum()
+        if (total > 0) {
+            ctx.source.sendSuccess({ Component.literal("Planned height minus generated ground over $total planned point(s): " +
+                bucketNames.indices.joinToString(", ") { "${bucketNames[it]}: ${buckets[it]}" }) }, false)
+            for (m in deep) ctx.source.sendSuccess({ Component.literal("  off by 9+: $m") }, false)
+        }
         return 1
     }
 
