@@ -239,7 +239,6 @@ object PostroadCommands {
         val centre = BlockPos.containing(ctx.source.position)
         val snapshot = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.segments
         var withStart = 0; var without = 0; var absent = 0
-        val missing = ArrayList<String>()
         // Planned height against the generated ground, per planned point in generated chunks: how far the plan's
         // idea of the surface is from what the world got (negative = the plan lies under the real ground).
         val buckets = IntArray(7) // <=-9, -8..-4, -3..-1, 0, 1..3, 4..8, >=9
@@ -251,7 +250,7 @@ object PostroadCommands {
             if (maxOf(kotlin.math.abs(cx * 16 + 8 - centre.x), kotlin.math.abs(cz * 16 + 8 - centre.z)) > radius) continue
             val chunk = level.chunkSource.getChunk(cx, cz, net.minecraft.world.level.chunk.status.ChunkStatus.EMPTY, true)
             if (chunk == null || !chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.STRUCTURE_STARTS)) { absent++; continue }
-            val start = io.github.veelume.postroad.roads.gen.RoadBuilder.roadStart(chunk)
+            val start = if (io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.laid.contains(key)) Unit else null
             if (chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.SURFACE)) {
                 for (run in runs) for (p in run.points) {
                     if ((p.x shr 4) != cx || (p.z shr 4) != cz) continue
@@ -262,22 +261,16 @@ object PostroadCommands {
                 }
             }
             if (start != null) { withStart++; continue }
+            if (!chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.FEATURES)) { absent++; continue } // still to come: the feature will lay it
             without++
             if (fix) {
-                // Back to the chunk-load builder: forget that these chunks were "built" by a start that was only referenced.
+                // Back to the chunk-load builder: a finished chunk the feature did not lay this session.
                 for (road in storage.roadsInChunk(level.dimension().location(), key)) if (road.builtChunks.remove(key)) unmarked++
                 if (level.hasChunk(cx, cz)) io.github.veelume.postroad.roads.gen.RoadBuilder.onChunkLoad(level, key)
             }
-            if (missing.size < 25) {
-                val first = runs.first().points.first()
-                val biome = level.chunkSource.generator.biomeSource.getNoiseBiome(first.x shr 2, first.y shr 2, first.z shr 2, level.chunkSource.randomState().sampler())
-                val name = biome.unwrapKey().map { it.location().toString() }.orElse("?")
-                missing.add("[$cx, $cz] status ${chunk.persistedStatus} first point ${first.toShortString()} biome $name overworld-tag ${biome.`is`(net.minecraft.tags.BiomeTags.IS_OVERWORLD)}")
-            }
         }
         if (unmarked > 0) storage.setDirty()
-        ctx.source.sendSuccess({ Component.literal("Audit within $radius: $withStart chunk(s) with their own road start, $without without, $absent not generated yet${if (fix) "; $unmarked road-chunk mark(s) cleared for the builder" else ""}") }, false)
-        for (m in missing) ctx.source.sendSuccess({ Component.literal("  missing: $m") }, false)
+        ctx.source.sendSuccess({ Component.literal("Audit within $radius: $withStart road chunk(s) laid by the feature this session, $without finished without it, $absent not past their features step yet${if (fix) "; $unmarked road-chunk mark(s) cleared for the builder" else ""}") }, false)
         val total = buckets.sum()
         if (total > 0) {
             ctx.source.sendSuccess({ Component.literal("Planned height minus generated ground over $total planned point(s): " +
@@ -301,20 +294,17 @@ object PostroadCommands {
         val chunkKey = net.minecraft.world.level.ChunkPos.asLong(pos.x shr 4, pos.z shr 4)
         val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(ctx.source.server)
         val roadsHere = storage.roadsInChunk(level.dimension().location(), chunkKey)
-        val start = if (loaded) io.github.veelume.postroad.roads.gen.RoadBuilder.roadStart(level.getChunk(pos.x shr 4, pos.z shr 4)) else null
-        val referenced = loaded && start == null && level.structureManager().startsForStructure(net.minecraft.world.level.ChunkPos(chunkKey)) { it is io.github.veelume.postroad.roads.gen.RoadStructure }.isNotEmpty()
-        val pieces = start?.pieces?.let { p -> "${p.count { it is io.github.veelume.postroad.roads.gen.RoadRunPiece }} run + ${p.count { it is io.github.veelume.postroad.roads.gen.RoadBeardPiece }} beard piece(s)" } ?: ""
         val runs = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.segmentsAt(pos.x shr 4, pos.z shr 4).size
+        val known = io.github.veelume.postroad.roads.gen.KnownTerrain.column(level.dimension().location(), pos.x, pos.z)?.let { "${it.top}${if (it.water) " (water)" else ""}" } ?: "none"
         val tagged = level.chunkSource.generator.biomeSource.getNoiseBiome(pos.x shr 2, base shr 2, pos.z shr 2, level.chunkSource.randomState().sampler()).`is`(net.minecraft.tags.BiomeTags.IS_OVERWORLD)
-        val structure = when { start != null -> "own ($pieces)"; referenced -> "referenced only"; else -> "none" }
-        // Every structure whose start reaches this column (not just ours): what the planner may have run into.
+        val laid = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.laid.contains(chunkKey)
+        // Every structure whose start reaches this column: what the planner may have run into.
         val others = if (loaded) {
             val registry = level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE)
             level.structureManager().getAllStructuresAt(BlockPos(pos.x, base, pos.z)).keys
-                .filter { it !is io.github.veelume.postroad.roads.gen.RoadStructure }
                 .mapNotNull { registry.getKey(it)?.toString() }.sorted().joinToString(", ").ifEmpty { "none" }
         } else "?"
-        ctx.source.sendSuccess({ Component.literal("(${pos.x}, ${pos.z}): estimate $estimate, DH $dh, generator base $base, real ${if (real < 0) "unloaded" else real.toString()}, top $top, sea ${level.chunkSource.generator.seaLevel}, biome $biome (overworld-tag $tagged); chunk: ${roadsHere.size} planned road(s), $runs snapshot run(s), structure start $structure, builder-built ${roadsHere.any { it.builtChunks.contains(chunkKey) }}; other structures here: $others") }, false)
+        ctx.source.sendSuccess({ Component.literal("(${pos.x}, ${pos.z}): estimate $estimate, own chunk $known, DH $dh, generator base $base, real ${if (real < 0) "unloaded" else real.toString()}, top $top, sea ${level.chunkSource.generator.seaLevel}, biome $biome (overworld-tag $tagged); chunk: ${roadsHere.size} planned road(s), $runs snapshot run(s), laid by the feature this session: $laid, builder-built ${roadsHere.any { it.builtChunks.contains(chunkKey) }}; structures here: $others") }, false)
         return 1
     }
 

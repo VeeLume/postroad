@@ -70,10 +70,8 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
     private val warned = HashSet<String>()
     private val dimension: ResourceLocation = level.dimension().location()
 
-    /** Every structure set the generator may place here, except our own roads. */
-    val sets: List<Holder<StructureSet>> = state.possibleStructureSets().filter { set ->
-        set.value().structures().none { it.structure().value() is RoadStructure }
-    }
+    /** Every structure set the generator may place here. */
+    val sets: List<Holder<StructureSet>> = state.possibleStructureSets().toList()
 
     /** Structure sets that can produce a village. */
     val villageSets: List<Holder<StructureSet>> = sets.filter { set ->

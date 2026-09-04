@@ -30,6 +30,9 @@ object DhTerrain {
     @Volatile
     var failure: String? = null
         private set
+    /** The last message DH gave for a column it did not return, for the status line. */
+    @Volatile
+    var lastMiss: String? = null
 
     /** DH's column at (x, z), or null when DH is absent, not ready, has no data here, or threw. */
     fun column(level: ServerLevel, x: Int, z: Int): Column? {
@@ -43,10 +46,11 @@ object DhTerrain {
         }
     }
 
-    fun status(): String = when {
+    fun status(level: ServerLevel? = null): String = when {
         !present -> "Distant Horizons not installed"
         failure != null -> "Distant Horizons failed: $failure"
-        else -> "Distant Horizons: ${hits.get()} column(s) known, ${misses.get()} not generated yet"
+        else -> "Distant Horizons: ${hits.get()} column(s) known, ${misses.get()} not generated yet${lastMiss?.let { " (last miss: $it)" } ?: ""}" +
+            (level?.let { try { "; " + DhTerrainAccess.diagnose(it) } catch (e: Throwable) { "; diagnose failed: $e" } } ?: "")
     }
 
     /** What counts as ground when reading a column top-down: not air, not a plant, not part of a tree. */
@@ -59,6 +63,11 @@ object DhTerrain {
 /** The part that references DH's API; loaded only when [DhTerrain.present]. */
 private object DhTerrainAccess {
     private val levels = java.util.WeakHashMap<ServerLevel, com.seibel.distanthorizons.api.interfaces.world.IDhApiLevelWrapper>()
+    /** DH insists on a cache per repo call (soft references to its data sources); one per thread keeps it unshared. */
+    private val caches = ThreadLocal<com.seibel.distanthorizons.api.interfaces.data.IDhApiTerrainDataCache>()
+
+    private fun cache(repo: com.seibel.distanthorizons.api.interfaces.data.IDhApiTerrainDataRepo): com.seibel.distanthorizons.api.interfaces.data.IDhApiTerrainDataCache =
+        caches.get() ?: repo.createSoftCache().also { caches.set(it) }
 
     private fun wrapper(level: ServerLevel): com.seibel.distanthorizons.api.interfaces.world.IDhApiLevelWrapper? {
         synchronized(levels) { levels[level]?.let { return it } }
@@ -73,13 +82,23 @@ private object DhTerrainAccess {
         return null
     }
 
+    /** Why a column might come back empty: what the API exposes right now. */
+    fun diagnose(level: ServerLevel): String {
+        val proxy = com.seibel.distanthorizons.api.DhApi.Delayed.worldProxy
+        val repo = com.seibel.distanthorizons.api.DhApi.Delayed.terrainRepo
+        if (proxy == null) return "world proxy missing"
+        if (!proxy.worldLoaded()) return "DH world not loaded"
+        val names = proxy.allLoadedLevelWrappers.map { "${it.dhIdentifier} (${it.wrappedMcObject?.javaClass?.simpleName}, match ${it.wrappedMcObject === level})" }
+        return "repo ${if (repo == null) "missing" else "ok"}, levels: ${names.joinToString(", ").ifEmpty { "none" }}, api ${com.seibel.distanthorizons.api.DhApi.getApiMajorVersion()}.${com.seibel.distanthorizons.api.DhApi.getApiMinorVersion()}"
+    }
+
     fun column(level: ServerLevel, x: Int, z: Int): DhTerrain.Column? {
         val repo = com.seibel.distanthorizons.api.DhApi.Delayed.terrainRepo ?: return null
         val wrapper = wrapper(level) ?: return null
-        val result = repo.getColumnDataAtBlockPos(wrapper, x, z, null)
-        if (!result.success) return null
-        val points = result.payload ?: return null
-        if (points.isEmpty()) return null
+        val result = repo.getColumnDataAtBlockPos(wrapper, x, z, cache(repo))
+        if (!result.success) { DhTerrain.lastMiss = "not success: ${result.message}"; return null }
+        val points = result.payload ?: run { DhTerrain.lastMiss = "null payload: ${result.message}"; return null }
+        if (points.isEmpty()) { DhTerrain.lastMiss = "empty column: ${result.message}"; return null }
         // Top down: the first point that is ground decides; a liquid above it makes the column water/lava.
         var liquidTop = Int.MIN_VALUE
         var lava = false
@@ -100,6 +119,7 @@ private object DhTerrainAccess {
             if (!DhTerrain.isGround(state)) continue
             return DhTerrain.Column(topOf(p, liquidTop), liquidTop != Int.MIN_VALUE, lava)
         }
+        DhTerrain.lastMiss = "no ground in ${points.size} point(s): " + points.take(4).joinToString { "${it.blockStateWrapper?.serialString}@${it.bottomYBlockPos}..${it.topYBlockPos}" }
         return null
     }
 

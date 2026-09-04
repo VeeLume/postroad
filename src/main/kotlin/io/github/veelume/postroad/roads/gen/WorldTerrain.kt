@@ -72,7 +72,9 @@ class WorldTerrainSampler(private val level: ServerLevel, private val cacheDir: 
         private set
     @Volatile var fromCache: Int = 0
         private set
-    /** Cells that came from Distant Horizons' generated terrain, and cells that are still estimates. */
+    /** Cells from our own generated chunks, from Distant Horizons, and cells that are still estimates. */
+    @Volatile var chunkCells: Long = 0
+        private set
     @Volatile var knownCells: Long = 0
         private set
     @Volatile var estimatedCells: Long = 0
@@ -115,8 +117,10 @@ class WorldTerrainSampler(private val level: ServerLevel, private val cacheDir: 
             val cz = tz * TiledTerrain.TILE + i
             val x = cx * cellSize + cellSize / 2
             val z = cz * cellSize + cellSize / 2
-            // Generated terrain when Distant Horizons has it; otherwise the estimate, marked as such.
-            val known = DhTerrain.column(level, x, z)
+            // Generated terrain: our own pre-generated chunks first, then Distant Horizons; otherwise the estimate, marked as such.
+            val own = KnownTerrain.column(dimension, x, z)
+            val known = own ?: DhTerrain.column(level, x, z)
+            if (own != null) chunkCells++
             val y: Int
             var flags = 0
             if (known != null) {

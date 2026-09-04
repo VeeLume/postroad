@@ -69,6 +69,7 @@ object PostroadConfig {
     private val PLAN_NEIGHBOURS: ModConfigSpec.IntValue
     private val PLAN_REPASS_DISTANCE: ModConfigSpec.IntValue
     private val PLAN_STRUCTURE_MARGIN: ModConfigSpec.IntValue
+    private val PLAN_PREGEN_IN_FLIGHT: ModConfigSpec.IntValue
     private val BUILD_BLOCKS_PER_TICK: ModConfigSpec.IntValue
     private val BUILD_MILLIS_PER_TICK: ModConfigSpec.IntValue
     private val BUILD_LAMP_INTERVAL: ModConfigSpec.IntValue
@@ -141,6 +142,7 @@ object PostroadConfig {
         PLAN_NEIGHBOURS = BUILDER.comment("Each village is linked to this many nearest villages.").defineInRange("neighbours", 3, 1, 8)
         PLAN_REPASS_DISTANCE = BUILDER.comment("A player who moved this many blocks since their last pass triggers a new one.").defineInRange("repassDistance", 256, 16, 10000)
         PLAN_STRUCTURE_MARGIN = BUILDER.comment("Blocks of clearance kept around a predicted village's bounding box.").defineInRange("structureMargin", 8, 0, 64)
+        PLAN_PREGEN_IN_FLIGHT = BUILDER.comment("How many chunks the planner may have generating at once (to the carvers step, on the worldgen workers) to see a corridor's real terrain before routing it. 0 turns pre-generation off.").defineInRange("pregenInFlight", 16, 0, 256)
         BUILDER.pop()
 
         BUILDER.push("build")
@@ -183,6 +185,7 @@ object PostroadConfig {
     val planNeighbours: Int get() = PLAN_NEIGHBOURS.get()
     val planRepassDistance: Int get() = PLAN_REPASS_DISTANCE.get()
     val planStructureMargin: Int get() = PLAN_STRUCTURE_MARGIN.get()
+    val planPregenInFlight: Int get() = PLAN_PREGEN_IN_FLIGHT.get()
     val buildBlocksPerTick: Int get() = BUILD_BLOCKS_PER_TICK.get()
     val buildMillisPerTick: Int get() = BUILD_MILLIS_PER_TICK.get()
     val buildLampInterval: Int get() = BUILD_LAMP_INTERVAL.get()

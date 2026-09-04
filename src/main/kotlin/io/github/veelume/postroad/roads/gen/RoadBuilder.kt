@@ -110,13 +110,8 @@ object RoadBuilder {
 
     private fun key(job: Job) = "${job.dimension}|${job.chunk}"
 
-    /** True when the chunk has a road structure start of its own: generated with its road. */
-    fun generatedWithRoad(level: ServerLevel, chunk: Long): Boolean =
-        roadStart(level.getChunk(ChunkPos.getX(chunk), ChunkPos.getZ(chunk))) != null
-
-    /** The road structure start that began in [chunk], if any (starts referenced from neighbours do not count). */
-    fun roadStart(chunk: net.minecraft.world.level.chunk.ChunkAccess): net.minecraft.world.level.levelgen.structure.StructureStart? =
-        chunk.allStarts.entries.firstOrNull { it.key is RoadStructure }?.value
+    /** True when the road feature laid this chunk's roads while it generated (this session). */
+    fun generatedWithRoad(level: ServerLevel, chunk: Long): Boolean = RoadPlanSnapshot.laid.contains(chunk)
 
     private fun offer(job: Job) {
         if (queued.add(key(job))) queue.addLast(job)

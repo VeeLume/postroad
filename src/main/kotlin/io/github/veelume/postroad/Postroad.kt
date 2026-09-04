@@ -67,9 +67,7 @@ object Postroad {
         PostroadCreativeTabs.REGISTER.register(MOD_BUS)
         PostroadLootModifiers.REGISTER.register(MOD_BUS)
         PostroadMenus.REGISTER.register(MOD_BUS)
-        io.github.veelume.postroad.registry.PostroadStructures.TYPES.register(MOD_BUS)
-        io.github.veelume.postroad.registry.PostroadStructures.PLACEMENTS.register(MOD_BUS)
-        io.github.veelume.postroad.registry.PostroadStructures.PIECES.register(MOD_BUS)
+        io.github.veelume.postroad.registry.PostroadFeatures.REGISTER.register(MOD_BUS)
         MOD_BUS.addListener(RegisterPayloadHandlersEvent::class.java, Consumer(PostroadNetworking::register))
         MOD_BUS.addListener(RegisterDataMapTypesEvent::class.java, Consumer(PostroadDataMaps::register))
 
@@ -90,6 +88,7 @@ object Postroad {
         FORGE_BUS.addListener(ServerStartedEvent::class.java, Consumer(RoadGen::onServerStarted))
         FORGE_BUS.addListener(ServerStoppingEvent::class.java, Consumer(RoadGen::onServerStopping))
         FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(RoadGen::onServerTick))
+        FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer { io.github.veelume.postroad.roads.gen.ChunkPregen.onServerTick(it.server) })
         FORGE_BUS.addListener(ChunkEvent.Load::class.java, Consumer(RoadBuilder::onChunkLoad))
         FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(RoadBuilder::onServerTick))
         FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(io.github.veelume.postroad.roads.gen.RoadDebug::onServerTick))

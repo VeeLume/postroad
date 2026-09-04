@@ -38,6 +38,9 @@ object RoadGen {
     const val CELL_SIZE = 4
     /** The corridor map's cell; must be a multiple of [CELL_SIZE]. */
     const val COARSE_CELL = 16
+    /** Chunks either side of a provisional road that are generated before it is planned again. */
+    const val CORRIDOR_CHUNKS = 1
+    const val MAX_REPLANS = 2
     /** Clearance around a village piece (a house) when pieces are known. */
     const val PIECE_MARGIN = 2
 
@@ -56,6 +59,10 @@ object RoadGen {
         val discovered: LongOpenHashSet,
         val discoverTowns: Boolean = true,
         val dropped: Set<String> = emptySet(),
+        /** Chunks generated since the last pass: provisional tiles over them are sampled again first. */
+        val refresh: LongOpenHashSet = LongOpenHashSet(),
+        /** Provisional roads this pass plans again; they are left out of the known roads and swapped on apply. */
+        val replace: Set<String> = emptySet(),
     )
 
     class JunctionResult(val pos: BlockPos, val joinedRoad: String, val joinedIndex: Int, val joiningRoad: String, val joiningIndex: Int)
@@ -66,6 +73,9 @@ object RoadGen {
         val newTowns: List<PlannedTown>,
         val newRoads: List<PlannedRoad>,
         val newObstacles: List<PlannedObstacle> = emptyList(),
+        /** Chunks along the provisional roads' corridors, to generate so they can be replanned on real terrain. */
+        val corridors: Map<String, LongOpenHashSet> = emptyMap(),
+        val replaced: Set<String> = emptySet(),
         val newJunctions: List<JunctionResult>,
         val discovered: List<Long>,
         val millis: Long,
@@ -107,6 +117,8 @@ object RoadGen {
         executor?.shutdownNow()
         executor = null
         RoadPlanSnapshot.clear()
+        KnownTerrain.clear()
+        ChunkPregen.reset()
         workers.clear()
         results.clear()
         lastPass.clear()
@@ -150,9 +162,9 @@ object RoadGen {
     // ---- scheduling -----------------------------------------------------------------------------
 
     /** Queues a pass around [center]; false if the planner is off. */
-    fun schedule(level: ServerLevel, center: BlockPos): Boolean {
+    fun schedule(level: ServerLevel, center: BlockPos, discoverTowns: Boolean = true, refresh: LongOpenHashSet = LongOpenHashSet(), replace: Set<String> = emptySet()): Boolean {
         val exec = executor ?: return false
-        val request = request(level, center)
+        val request = request(level, center, discoverTowns, refresh, replace)
         val worker = workerFor(level)
         pending.incrementAndGet()
         exec.execute {
@@ -168,7 +180,7 @@ object RoadGen {
     }
 
     /** Snapshot for a pass, from config and storage, on the server thread. */
-    fun request(level: ServerLevel, center: BlockPos, discoverTowns: Boolean = true): PassRequest {
+    fun request(level: ServerLevel, center: BlockPos, discoverTowns: Boolean = true, refresh: LongOpenHashSet = LongOpenHashSet(), replace: Set<String> = emptySet()): PassRequest {
         val storage = RoadPlanStorage.get(level.server)
         val dimension = level.dimension().location()
         return PassRequest(
@@ -179,11 +191,13 @@ object RoadGen {
             margin = PostroadConfig.planStructureMargin,
             costs = PlannerRules.current,
             knownTowns = storage.townsIn(dimension),
-            knownRoads = storage.roadsIn(dimension),
+            knownRoads = storage.roadsIn(dimension).filter { it.id !in replace },
             knownObstacles = storage.obstaclesIn(dimension),
             discovered = LongOpenHashSet(storage.discovered[dimension] ?: LongOpenHashSet()),
             discoverTowns = discoverTowns,
             dropped = HashSet(storage.droppedRoutes),
+            refresh = refresh,
+            replace = replace,
         )
     }
 
@@ -201,6 +215,7 @@ object RoadGen {
         val t0 = System.nanoTime()
         val terrain = worker.terrain
         val coarse = worker.coarse
+        if (!req.refresh.isEmpty()) { terrain.dropProvisionalTouching(req.refresh); coarse.dropProvisionalTouching(req.refresh) }
         val sampledBefore = worker.sampler.sampled
         val coarseBefore = worker.coarseSampler.sampled
 
@@ -284,13 +299,25 @@ object RoadGen {
         }
         val plan = RoadPlanner.planNetwork(terrain, towns, req.costs, req.neighbours, req.maxLink.toDouble() / CELL_SIZE, existing, coarse, COARSE_CELL / CELL_SIZE, req.dropped)
 
-        // 4. Back to blocks.
+        // 4. Back to blocks. A route over any estimated cell is provisional: its corridor is generated
+        //    and the route planned again on the real terrain.
+        val corridors = HashMap<String, LongOpenHashSet>()
         val newRoads = plan.routes.map { route ->
-            PlannedRoad(
+            val road = PlannedRoad(
                 route.id, req.dimension, route.from.id, route.to.id,
                 route.cells.map { terrain.cellToBlock(it.x, it.z) },
                 ByteArray(route.cells.size) { terrain.family(route.cells[it].x, route.cells[it].z).toByte() },
             )
+            if (route.cells.any { terrain.has(it.x, it.z, Terrain.ESTIMATED) }) {
+                road.provisional = true
+                val chunks = LongOpenHashSet()
+                for (c in route.cells) {
+                    val b = terrain.cellToBlock(c.x, c.z)
+                    for (dz in -CORRIDOR_CHUNKS..CORRIDOR_CHUNKS) for (dx in -CORRIDOR_CHUNKS..CORRIDOR_CHUNKS) chunks.add(ChunkPos.asLong((b.x shr 4) + dx, (b.z shr 4) + dz))
+                }
+                corridors[road.id] = chunks
+            }
+            road
         }
         val cellsOf = HashMap<String, List<Cell>>()
         for (r in existing) cellsOf[r.id] = r.cells
@@ -301,7 +328,7 @@ object RoadGen {
             if (joined < 0 || joining < 0) null
             else JunctionResult(terrain.cellToBlock(j.cell.x, j.cell.z), j.joinedRoute, joined, j.joiningRoute, joining)
         }
-        return PassResult(req.dimension, req.center, newTowns, newRoads, newObstacles, newJunctions, discoveredNow,
+        return PassResult(req.dimension, req.center, newTowns, newRoads, newObstacles, corridors, req.replace, newJunctions, discoveredNow,
             (System.nanoTime() - t0) / 1_000_000, worker.sampler.sampled - sampledBefore, discoverMillis, chunksChecked, worker.coarseSampler.sampled - coarseBefore, plan.dropped)
     }
 
@@ -326,6 +353,17 @@ object RoadGen {
             storage.addObstacle(o)
             obstacles++
         }
+        // Replanned roads: the old provisional version goes only when the pass produced a new one for the same pair.
+        for (id in result.replaced) {
+            val old = storage.roads[id] ?: continue
+            val fresh = result.newRoads.firstOrNull { it.id == id }
+            if (fresh == null) { old.provisional = false; storage.setDirty(); continue }
+            fresh.replans = old.replans + 1
+            storage.removeRoad(id)
+            network.removePath(id)
+            replanned++
+        }
+        var provisional = 0
         for (road in result.newRoads) {
             if (storage.roads.containsKey(road.id)) continue
             storage.addRoad(road)
@@ -333,6 +371,15 @@ object RoadGen {
                 GENERATED_BY, day, charted = false))
             RoadBuilder.enqueueLoaded(level, road)
             roads++
+            if (road.provisional) provisional++
+        }
+        // Provisional roads: generate their corridors, then plan them again on what the world really is.
+        if (PostroadConfig.planPregenInFlight > 0) {
+            for ((id, chunks) in result.corridors) {
+                if (!storage.roads.containsKey(id)) continue
+                pendingCorridors[id] = chunks
+                ChunkPregen.request(result.dimension, chunks) { replan(server, result.dimension, id) }
+            }
         }
         for (j in result.newJunctions) {
             if (network.paths[j.joinedRoad] == null || network.paths[j.joiningRoad] == null) continue
@@ -344,9 +391,38 @@ object RoadGen {
         storage.markDiscovered(result.dimension, result.discovered)
         storage.markDropped(result.dropped.map { Triple(it.id, it.from.id to it.to.id, it.reason) })
         passesRun++
-        Postroad.LOGGER.info("Road plan pass at {}: {} new town(s), {} new obstacle(s), {} new road(s), {} junction(s), {} pair(s) dropped for water; {} chunk(s) checked in {} ms, {} coarse + {} fine tile(s) sampled, {} ms total",
-            result.center.toShortString(), towns, obstacles, roads, junctions, result.dropped.size, result.chunksChecked, result.discoverMillis, result.coarseTilesSampled, result.tilesSampled, result.millis)
+        Postroad.LOGGER.info("Road plan pass at {}: {} new town(s), {} new obstacle(s), {} new road(s) ({} provisional, {} corridor chunk(s) to generate), {} junction(s), {} pair(s) dropped for water; {} chunk(s) checked in {} ms, {} coarse + {} fine tile(s) sampled, {} ms total",
+            result.center.toShortString(), towns, obstacles, roads, provisional, result.corridors.values.sumOf { it.size }, junctions, result.dropped.size, result.chunksChecked, result.discoverMillis, result.coarseTilesSampled, result.tilesSampled, result.millis)
     }
+
+    /**
+     * A provisional road's corridor is generated: drop the road if nothing of it has been built or
+     * laid yet, and plan its pair again on the real terrain. A road that comes back provisional
+     * twice keeps its last version.
+     */
+    /** Corridor chunks requested per provisional road, handed to its replan pass as the tiles to sample again. */
+    private val pendingCorridors = HashMap<String, LongOpenHashSet>()
+
+    private fun replan(server: MinecraftServer, dimension: ResourceLocation, roadId: String) {
+        val storage = RoadPlanStorage.get(server)
+        val corridor = pendingCorridors.remove(roadId) ?: LongOpenHashSet()
+        val road = storage.roads[roadId] ?: return
+        if (!road.provisional) return
+        val level = server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, dimension)) ?: return
+        val touched = road.builtChunks.isNotEmpty() || road.chunks().any { RoadPlanSnapshot.laid.contains(it) }
+        if (touched || road.replans >= MAX_REPLANS) {
+            road.provisional = false
+            storage.setDirty()
+            return
+        }
+        // The pass plans this pair again without the old road in the way; apply swaps the two.
+        val mid = road.points[road.points.size / 2]
+        schedule(level, mid, discoverTowns = false, refresh = corridor, replace = setOf(roadId))
+        Postroad.LOGGER.info("Road {} ({} -> {}): corridor generated, planning again (attempt {})", roadId, road.from, road.to, road.replans + 1)
+    }
+
+    var replanned: Int = 0
+        private set
 
     /** Drops the plan and every generated path nobody has charted. Refused while a pass runs. */
     fun clear(server: MinecraftServer): Boolean {
@@ -360,18 +436,20 @@ object RoadGen {
         spawnPlanned = false
         RoadBuilder.reset()
         RoadPlanSnapshot.clear()
+        ChunkPregen.reset()
+        pendingCorridors.clear()
         return true
     }
 
     fun status(server: MinecraftServer): List<String> {
         val storage = RoadPlanStorage.get(server)
         val lines = ArrayList<String>()
-        lines.add("Planner ${if (executor != null) "on" else "off"}; ${passesRun} pass(es) applied, ${pending.get()} pending; ${DhTerrain.status()}")
+        lines.add("Planner ${if (executor != null) "on" else "off"}; ${passesRun} pass(es) applied, ${pending.get()} pending; ${DhTerrain.status(server.overworld())}")
         lines.add("${storage.towns.size} predicted town(s), ${storage.obstacles.size} obstacle(s), ${storage.roads.size} planned road(s), ${storage.junctions.size} junction(s), " +
             "${storage.discovered.values.sumOf { it.size }} square(s) searched, ${storage.droppedRoutes.size} pair(s) dropped for water")
         for ((dim, w) in workers) {
             lines.add("$dim: ${w.terrain.tileCount} fine + ${w.coarse.tileCount} coarse tile(s) in memory, ${w.sampler.sampled}/${w.coarseSampler.sampled} sampled, ${w.sampler.fromCache}/${w.coarseSampler.fromCache} from cache, " +
-                "${w.sampler.knownCells}/${w.coarseSampler.knownCells} cell(s) from generated terrain, ${w.sampler.estimatedCells}/${w.coarseSampler.estimatedCells} estimated; " +
+                "${w.sampler.chunkCells}/${w.coarseSampler.chunkCells} cell(s) from own chunks, ${w.sampler.knownCells - w.sampler.chunkCells}/${w.coarseSampler.knownCells - w.coarseSampler.chunkCells} from Distant Horizons, ${w.sampler.estimatedCells}/${w.coarseSampler.estimatedCells} estimated; " +
                 "finder: ${w.finder.generated} layout(s) built, ${w.finder.prefiltered} skipped by biome, ${w.finder.obstaclesFound} obstacle(s)")
             val costly = w.finder.timing.entries.sortedByDescending { it.value[1] }.take(6)
             if (costly.isNotEmpty()) lines.add("  layouts by cost: " + costly.joinToString(", ") { "${it.key} ${it.value[0]}× ${it.value[1] / 1_000_000 / maxOf(1, it.value[0])} ms" } +
@@ -379,7 +457,7 @@ object RoadGen {
         }
         val built = storage.roads.values.sumOf { it.builtChunks.size }
         val total = storage.roads.values.sumOf { it.chunks().size }
-        lines.add("worldgen: ${RoadPlanSnapshot.segments.size} chunk(s) in the snapshot, ${RoadPlanSnapshot.placementChecks.get()} placement check(s), ${RoadPlanSnapshot.starts.get()} structure start(s), ${RoadPlanSnapshot.invalidStarts.get()} refused, ${RoadPlanSnapshot.piecesPlaced.get()} piece(s) generated")
+        lines.add("worldgen: ${RoadPlanSnapshot.segments.size} chunk(s) in the snapshot, ${RoadPlanSnapshot.featureRuns.get()} chunk(s) laid by the road feature (${RoadPlanSnapshot.piecesPlaced.get()} run(s)); ${ChunkPregen.status()}; ${KnownTerrain.size(server.overworld().dimension().location())} chunk(s) of known terrain; ${storage.roads.values.count { it.provisional }} provisional road(s), $replanned replanned")
         lines.add("$built of $total road chunk(s) built; builder: ${RoadBuilder.chunksBuilt} chunk(s), ${RoadBuilder.blocksPlaced} block(s), ${RoadBuilder.signsPlaced} sign(s) this session, ${RoadBuilder.queueSize} queued")
         return lines
     }

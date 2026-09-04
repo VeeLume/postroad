@@ -94,6 +94,20 @@ class TiledTerrain(override val cellSize: Int, private val sampler: TileSampler)
 
     override fun heightAt(cx: Int, cz: Int): Int = tileOf(cx, cz).heights[idx(cx, cz)].toInt()
 
+    /** Forgets provisional tiles covering any of [chunks], so the next look samples them afresh (their corridor was just generated). */
+    fun dropProvisionalTouching(chunks: it.unimi.dsi.fastutil.longs.LongOpenHashSet) {
+        val tileBlocks = TILE * cellSize
+        val it = chunks.iterator()
+        while (it.hasNext()) {
+            val c = it.nextLong()
+            val minX = net.minecraft.world.level.ChunkPos.getX(c) shl 4; val minZ = net.minecraft.world.level.ChunkPos.getZ(c) shl 4
+            for (bz in intArrayOf(minZ, minZ + 15)) for (bx in intArrayOf(minX, minX + 15)) {
+                val key = Terrain.key(Math.floorDiv(bx, tileBlocks), Math.floorDiv(bz, tileBlocks))
+                tiles[key]?.let { t -> if (t.provisional) tiles.remove(key) }
+            }
+        }
+    }
+
     /** Height if the tile is already in memory, else null — never samples (used for drawing). */
     fun loadedHeightAt(cx: Int, cz: Int): Int? = tiles[Terrain.key(Math.floorDiv(cx, TILE), Math.floorDiv(cz, TILE))]?.heights?.get(idx(cx, cz))?.toInt()
 

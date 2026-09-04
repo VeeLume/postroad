@@ -83,6 +83,9 @@ class PlannedRoad(
     val families: ByteArray,
 ) {
     val builtChunks = LongOpenHashSet()
+    /** Planned over estimated terrain somewhere along the way; replanned once the corridor is generated. */
+    var provisional: Boolean = false
+    var replans: Int = 0
 
     /** Chunks this road passes through. */
     fun chunks(): LongOpenHashSet {
@@ -100,6 +103,8 @@ class PlannedRoad(
         tag.putLongArray("Points", points.map { it.asLong() }.toLongArray())
         tag.putByteArray("Families", families)
         tag.putLongArray("Built", builtChunks.toLongArray())
+        tag.putBoolean("Provisional", provisional)
+        tag.putInt("Replans", replans)
         return tag
     }
 
@@ -111,6 +116,8 @@ class PlannedRoad(
             val families = tag.getByteArray("Families").takeIf { it.size == points.size } ?: ByteArray(points.size)
             val road = PlannedRoad(tag.getString("Id"), dimension, tag.getString("From"), tag.getString("To"), points, families)
             for (c in tag.getLongArray("Built")) road.builtChunks.add(c)
+            road.provisional = tag.getBoolean("Provisional")
+            road.replans = tag.getInt("Replans")
             return road
         }
     }
@@ -172,6 +179,14 @@ class RoadPlanStorage : SavedData() {
 
     fun addRoad(road: PlannedRoad) {
         roads[road.id] = road
+        chunkIndex = null
+        setDirty()
+    }
+
+    /** Drops a road and the junctions that mention it (the network's path is the caller's business). */
+    fun removeRoad(id: String) {
+        if (roads.remove(id) == null) return
+        junctions.removeAll { it.roadA == id || it.roadB == id }
         chunkIndex = null
         setDirty()
     }
