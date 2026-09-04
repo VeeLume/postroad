@@ -20,10 +20,19 @@ import java.util.concurrent.atomic.AtomicInteger
  * the planner can be told when a whole corridor is known.
  */
 object ChunkPregen {
-    class Job(val id: Int, val dimension: ResourceLocation, val onDone: () -> Unit) {
+    class Job(val id: Int, val dimension: ResourceLocation, val onDone: (ok: Int, failed: Int) -> Unit) {
         var remaining = 0
+        var ok = 0
         var failed = 0
     }
+
+    /**
+     * Our own ticket holds each requested chunk at the carvers step until it is there. The chunk
+     * source's own ticket for a plain future lasts one tick, which is enough when the caller waits
+     * on the main thread and not at all when it does not: the generation was cancelled underneath.
+     */
+    private val TICKET: net.minecraft.server.level.TicketType<ChunkPos> = net.minecraft.server.level.TicketType.create("postroad_pregen", Comparator.comparingLong(ChunkPos::toLong))
+    private val TICKET_DISTANCE: Int = 33 - net.minecraft.server.level.ChunkLevel.byStatus(ChunkStatus.CARVERS)
 
     private class Request(val dimension: ResourceLocation, val chunk: Long, val job: Job?)
 
@@ -46,7 +55,7 @@ object ChunkPregen {
     val inFlightCount: Int get() = inFlight.get()
 
     /** Queues [chunks] of [dimension]; [onDone] runs on the server thread once all of them are known (or failed). */
-    fun request(dimension: ResourceLocation, chunks: Collection<Long>, onDone: (() -> Unit)? = null): Job? {
+    fun request(dimension: ResourceLocation, chunks: Collection<Long>, onDone: ((ok: Int, failed: Int) -> Unit)? = null): Job? {
         val job = onDone?.let { Job(jobIds.incrementAndGet(), dimension, it) }
         var added = 0
         for (c in chunks) {
@@ -57,7 +66,7 @@ object ChunkPregen {
         }
         if (job != null) {
             job.remaining = added
-            if (added == 0) job.onDone()
+            if (added == 0) job.onDone(0, 0)
         }
         requested += added
         return job
@@ -77,10 +86,13 @@ object ChunkPregen {
     private fun start(level: ServerLevel, req: Request) {
         inFlight.incrementAndGet()
         val cx = ChunkPos.getX(req.chunk); val cz = ChunkPos.getZ(req.chunk)
+        val pos = ChunkPos(cx, cz)
+        level.chunkSource.addRegionTicket(TICKET, pos, TICKET_DISTANCE, pos)
         dispatcher.execute {
             try {
                 level.chunkSource.getChunkFuture(cx, cz, ChunkStatus.CARVERS, true).whenCompleteAsync({ result, error ->
                     inFlight.decrementAndGet()
+                    level.chunkSource.removeRegionTicket(TICKET, pos, TICKET_DISTANCE, pos)
                     val chunk = if (error == null && result != null) result.orElse(null) else null
                     if (chunk == null) {
                         if (error != null) Postroad.LOGGER.warn("Pre-generation of chunk [{}, {}] failed: {}", cx, cz, error.toString())
@@ -92,7 +104,7 @@ object ChunkPregen {
                 }, level.server)
             } catch (e: Throwable) {
                 Postroad.LOGGER.warn("Pre-generation request for chunk [{}, {}] failed: {}", cx, cz, e.toString())
-                level.server.execute { inFlight.decrementAndGet(); finish(req, false) }
+                level.server.execute { inFlight.decrementAndGet(); level.chunkSource.removeRegionTicket(TICKET, pos, TICKET_DISTANCE, pos); finish(req, false) }
             }
         }
     }
@@ -101,9 +113,9 @@ object ChunkPregen {
         queued.remove(req.chunk)
         if (ok) completed++ else failures++
         val job = req.job ?: return
-        if (!ok) job.failed++
+        if (ok) job.ok++ else job.failed++
         if (--job.remaining <= 0) {
-            try { job.onDone() } catch (e: Exception) { Postroad.LOGGER.warn("Pre-generation job {} callback failed", job.id, e) }
+            try { job.onDone(job.ok, job.failed) } catch (e: Exception) { Postroad.LOGGER.warn("Pre-generation job {} callback failed", job.id, e) }
         }
     }
 

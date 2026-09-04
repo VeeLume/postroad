@@ -125,7 +125,7 @@ object RoadGen {
             val chunks = LongOpenHashSet()
             for (p in road.points) for (dz in -CORRIDOR_CHUNKS..CORRIDOR_CHUNKS) for (dx in -CORRIDOR_CHUNKS..CORRIDOR_CHUNKS) chunks.add(ChunkPos.asLong((p.x shr 4) + dx, (p.z shr 4) + dz))
             pendingCorridors[road.id] = chunks
-            ChunkPregen.request(dim, chunks) { replan(server, dim, road.id) }
+            ChunkPregen.request(dim, chunks) { ok, failed -> corridorDone(server, dim, road.id, ok, failed) }
             n++
         }
         if (n > 0) Postroad.LOGGER.info("Resuming {} provisional road(s): corridors queued for generation", n)
@@ -396,7 +396,7 @@ object RoadGen {
             for ((id, chunks) in result.corridors) {
                 if (!storage.roads.containsKey(id)) continue
                 pendingCorridors[id] = chunks
-                ChunkPregen.request(result.dimension, chunks) { replan(server, result.dimension, id) }
+                ChunkPregen.request(result.dimension, chunks) { ok, failed -> corridorDone(server, result.dimension, id, ok, failed) }
             }
         }
         for (j in result.newJunctions) {
@@ -420,6 +420,16 @@ object RoadGen {
      */
     /** Corridor chunks requested per provisional road, handed to its replan pass as the tiles to sample again. */
     private val pendingCorridors = HashMap<String, LongOpenHashSet>()
+
+    /** A corridor job finished: replan only when the world actually produced chunks (a failed job would just repeat itself). */
+    private fun corridorDone(server: MinecraftServer, dimension: ResourceLocation, roadId: String, ok: Int, failed: Int) {
+        if (ok == 0 && failed > 0) {
+            Postroad.LOGGER.warn("Corridor of road {} could not be generated ({} chunk(s) failed); it stays as planned", roadId, failed)
+            pendingCorridors.remove(roadId)
+            return
+        }
+        replan(server, dimension, roadId)
+    }
 
     private fun replan(server: MinecraftServer, dimension: ResourceLocation, roadId: String) {
         val storage = RoadPlanStorage.get(server)
