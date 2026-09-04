@@ -53,7 +53,7 @@ object PostroadCommands {
                         .then(Commands.literal("clear").requires { it.hasPermission(2) }.executes { roadsClear(it) })
                         .then(Commands.literal("rebuild").requires { it.hasPermission(2) }.executes { roadsRebuild(it) })
                         .then(Commands.literal("export").requires { it.hasPermission(2) }.executes { roadsExport(it) })
-                        .then(Commands.literal("debug").executes { roadsDebug(it) })
+                        .then(Commands.literal("debug").requires { it.hasPermission(2) }.executes { roadsDebug(it) })
                         .then(
                             Commands.literal("probe")
                                 .executes { roadsProbe(it, BlockPos.containing(it.source.position)) }
