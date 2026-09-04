@@ -15,7 +15,11 @@ import java.util.function.BiFunction
 import java.util.function.Supplier
 
 /** A village the finder predicted; its id is the one the depot's place will get (see `PlaceResolver`). */
-class PlannedTown(val id: String, val dimension: ResourceLocation, val structure: ResourceLocation, val pos: BlockPos, val box: BoundingBox) {
+class PlannedTown(val id: String, val dimension: ResourceLocation, val structure: ResourceLocation, val pos: BlockPos, val box: BoundingBox,
+                  val pieces: List<BoundingBox> = emptyList(), val streets: List<BlockPos> = emptyList()) {
+    /** What a road must not cross: the pieces when known, else the whole box. */
+    val footprint: List<BoundingBox> get() = if (pieces.isEmpty()) listOf(box) else pieces
+
     fun toTag(): CompoundTag {
         val tag = CompoundTag()
         tag.putString("Id", id)
@@ -23,6 +27,8 @@ class PlannedTown(val id: String, val dimension: ResourceLocation, val structure
         tag.putString("Structure", structure.toString())
         tag.putLong("Pos", pos.asLong())
         tag.putIntArray("Box", intArrayOf(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), box.maxZ()))
+        tag.putIntArray("Pieces", pieces.flatMap { listOf(it.minX(), it.minY(), it.minZ(), it.maxX(), it.maxY(), it.maxZ()) }.toIntArray())
+        tag.putLongArray("Streets", streets.map { it.asLong() }.toLongArray())
         return tag
     }
 
@@ -32,7 +38,10 @@ class PlannedTown(val id: String, val dimension: ResourceLocation, val structure
             val structure = ResourceLocation.tryParse(tag.getString("Structure")) ?: return null
             val b = tag.getIntArray("Box")
             if (b.size != 6) return null
-            return PlannedTown(tag.getString("Id"), dimension, structure, BlockPos.of(tag.getLong("Pos")), BoundingBox(b[0], b[1], b[2], b[3], b[4], b[5]))
+            val p = tag.getIntArray("Pieces")
+            val pieces = (0 until p.size / 6).map { i -> BoundingBox(p[i * 6], p[i * 6 + 1], p[i * 6 + 2], p[i * 6 + 3], p[i * 6 + 4], p[i * 6 + 5]) }
+            val streets = tag.getLongArray("Streets").map { BlockPos.of(it) }
+            return PlannedTown(tag.getString("Id"), dimension, structure, BlockPos.of(tag.getLong("Pos")), BoundingBox(b[0], b[1], b[2], b[3], b[4], b[5]), pieces, streets)
         }
     }
 }

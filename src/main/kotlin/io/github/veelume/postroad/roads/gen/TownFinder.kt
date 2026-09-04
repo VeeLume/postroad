@@ -27,7 +27,12 @@ import java.util.function.Predicate
  */
 class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
 
-    data class Candidate(val id: String, val structure: ResourceLocation, val chunk: ChunkPos, val box: BoundingBox)
+    /**
+     * A predicted village: its start box, the boxes of its non-street pieces (what a road must not cross)
+     * and the centres of its street pieces (where a road may join the village's own roads).
+     */
+    data class Candidate(val id: String, val structure: ResourceLocation, val chunk: ChunkPos, val box: BoundingBox,
+                         val pieces: List<BoundingBox>, val streets: List<net.minecraft.core.BlockPos>)
 
     private val state: ChunkGeneratorStructureState = level.chunkSource.getGeneratorState()
     private val generator: ChunkGenerator = level.chunkSource.generator
@@ -112,6 +117,12 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
         if (!holder.`is`(StructureTags.VILLAGE)) return Outcome(true, null)
         val id = "$dimension/${chunkPos.x}/${chunkPos.z}"
         val structureId = holder.unwrapKey().map { it.location() }.orElse(ResourceLocation.withDefaultNamespace("village"))
-        return Outcome(true, Candidate(id, structureId, chunkPos, start.boundingBox))
+        val pieces = ArrayList<BoundingBox>()
+        val streets = ArrayList<net.minecraft.core.BlockPos>()
+        for (piece in start.pieces) {
+            val name = (piece as? net.minecraft.world.level.levelgen.structure.PoolElementStructurePiece)?.element?.toString() ?: ""
+            if (name.contains("street", ignoreCase = true)) streets.add(piece.boundingBox.center) else pieces.add(piece.boundingBox)
+        }
+        return Outcome(true, Candidate(id, structureId, chunkPos, start.boundingBox, pieces, streets))
     }
 }

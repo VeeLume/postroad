@@ -40,7 +40,14 @@ data class PlannerCosts(
 data class StepClass(val name: String, val upTo: Double, val cost: Double)
 
 /** A town the planner links: an id the network will know it by, and the cell it sits on. */
-data class Town(val id: String, val cell: Cell)
+data class Town(val id: String, val cell: Cell, val exits: List<Cell> = emptyList()) {
+    /** The exit (a street cell) facing [other], else the town cell itself. */
+    fun exitToward(other: Cell): Cell {
+        if (exits.isEmpty()) return cell
+        val dx = (other.x - cell.x).toDouble(); val dz = (other.z - cell.z).toDouble()
+        return exits.maxByOrNull { (it.x - cell.x) * dx + (it.z - cell.z) * dz } ?: cell
+    }
+}
 
 /** One planned road: the cells it runs over, in order, and the towns it links. */
 data class PlannedRoute(val id: String, val from: Town, val to: Town, val cells: List<Cell>)
@@ -263,8 +270,10 @@ object RoadPlanner {
         for ((i, j) in ordered) {
             val id = routeId(towns[i].id, towns[j].id)
             if (id in known) continue
-            val raw = (if (coarse != null) routeHierarchical(terrain, coarse, ratio, towns[i].cell, towns[j].cell, costs)
-                else route(terrain, towns[i].cell, towns[j].cell, costs))
+            val a = towns[i].exitToward(towns[j].cell)
+            val b = towns[j].exitToward(towns[i].cell)
+            val raw = (if (coarse != null) routeHierarchical(terrain, coarse, ratio, a, b, costs)
+                else route(terrain, a, b, costs))
             if (raw == null) { dropped.add(DroppedPair(id, towns[i], towns[j], "unreachable")); known.add(id); continue }
             if (longestWaterRun(terrain, raw) > costs.maxWaterRun) { dropped.add(DroppedPair(id, towns[i], towns[j], "water")); known.add(id); continue }
             val cells = snapExcursions(raw, owner, EXCURSION_MAX)

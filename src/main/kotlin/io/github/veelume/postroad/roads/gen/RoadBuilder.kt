@@ -147,7 +147,7 @@ object RoadBuilder {
         val dim = level.dimension().location()
         val chunk = job.chunk
         val styles = RoadStyles.current
-        val boxes = storage.townsIn(dim).map { it.box }
+        val boxes = storage.townsIn(dim).flatMap { it.footprint }
         val roads = storage.roadsInChunk(dim, chunk)
         while (job.roadIndex < roads.size) {
             val road = roads[job.roadIndex]
@@ -192,7 +192,7 @@ object RoadBuilder {
             val path = RoadRefiner.refine(level, waypoints, styles, boxes) ?: straight(waypoints)
             val hint = waypoints.first().y
             val terrain = path.map { c -> if (level.hasChunk(c[0] shr 4, c[1] shr 4)) groundY(level, c[0], c[1], hint, styles) else Int.MIN_VALUE }
-            val run = Run(path, smooth(terrain, null), first)
+            val run = Run(path, smooth(flatten(terrain).toList(), null), first)
             // Every block of the strip belongs to one column: a column's own centre always, the rest to
             // the first column whose round stamp reaches it. Then each column places only its own blocks.
             for ((i, c) in path.withIndex()) for (dz in -half..half) for (dx in -half..half) {
@@ -219,9 +219,11 @@ object RoadBuilder {
                 val inRun = (i > 0 && target[i - 1] != target[i]) && (i + 1 < path.size && target[i + 1] != target[i]) ||
                     (up != null && i + 2 < path.size && target[i + 2] != target[i + 1]) ||
                     (down != null && i >= 2 && target[i - 2] != target[i - 1])
+                // Stairs only face the four cardinals: a rise along a diagonal step gets a slab instead.
+                val diagonal = higher != null && higher[0] != c[0] && higher[1] != c[1]
                 val shape = when {
                     higher == null -> SHAPE_FLAT
-                    inRun -> SHAPE_STAIRS
+                    inRun && !diagonal -> SHAPE_STAIRS
                     else -> SHAPE_SLAB
                 }
                 // The column's own blocks (round stamp, no checkerboard on diagonals), the whole cross-section
@@ -308,6 +310,40 @@ object RoadBuilder {
         }
         return t
     }
+
+    /**
+     * Removes terrain features shorter than [FLAT_WINDOW] blocks from a height profile: bumps are cut
+     * (up to [MAX_CUT] deep), dips are filled (up to [MAX_FILL]) — a morphological opening of the
+     * closing, clamped to what the builder may move. Unknown columns (unloaded) are left alone.
+     */
+    fun flatten(terrain: List<Int>, window: Int = FLAT_WINDOW): IntArray {
+        val n = terrain.size
+        val src = IntArray(n) { terrain[it] }
+        if (n < 3) return src
+        val r = window / 2
+        // Pad with the edge values so the ends count as plateaus, not as dips or bumps.
+        fun padded(a: IntArray): IntArray = IntArray(n + 2 * r) { i -> a[(i - r).coerceIn(0, n - 1)] }
+        fun dilate(a: IntArray): IntArray = IntArray(a.size) { i -> var m = Int.MIN_VALUE; for (j in maxOf(0, i - r)..minOf(a.size - 1, i + r)) if (a[j] != Int.MIN_VALUE && a[j] > m) m = a[j]; if (m == Int.MIN_VALUE) a[i] else m }
+        fun erode(a: IntArray): IntArray = IntArray(a.size) { i -> var m = Int.MAX_VALUE; for (j in maxOf(0, i - r)..minOf(a.size - 1, i + r)) if (a[j] != Int.MIN_VALUE && a[j] < m) m = a[j]; if (m == Int.MAX_VALUE) a[i] else m }
+        val p = padded(src)
+        val closed = erode(dilate(p))            // dips filled
+        val opened = dilate(erode(closed))       // bumps cut
+        return IntArray(n) { i ->
+            val t = src[i]
+            if (t == Int.MIN_VALUE) t
+            else {
+                val v = opened[i + r]
+                when {
+                    v > t + MAX_FILL -> t + MAX_FILL
+                    v < t - MAX_CUT -> t - MAX_CUT
+                    else -> v
+                }
+            }
+        }
+    }
+
+    private const val FLAT_WINDOW = 12
+    private const val MAX_CUT = 4
 
     private const val SHAPE_FLAT = 0
     private const val SHAPE_SLAB = 1

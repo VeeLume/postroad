@@ -542,6 +542,17 @@ class PostroadGameTests {
         sided.fill(20, 10, 30, 30, g.BLOCKED)
         val exit = planner.resolveEndpoint(sided, cell(25, 20), toward = cell(55, 20)) ?: return helper.fail("no exit")
         helper.assertTrue(exit.x == 31 && exit.z == 20, "exit is on the side toward the other town ($exit)")
+        // A town with street exits starts its road at the street facing the neighbour.
+        val town = io.github.veelume.postroad.roads.gen.Town("t", cell(25, 20), listOf(cell(21, 20), cell(29, 20), cell(25, 11)))
+        helper.assertTrue(town.exitToward(cell(55, 20)) == cell(29, 20), "east street exit toward an eastern neighbour (${town.exitToward(cell(55, 20))})")
+        helper.assertTrue(town.exitToward(cell(25, 0)) == cell(25, 11), "north street exit toward a northern neighbour")
+        // The builder's profile flattening: a short bump is cut, a short dip filled, a long hill kept.
+        val bumpy = (0 until 40).map { x -> 64 + (if (x in 10..15) 3 else 0) - (if (x in 22..25) 2 else 0) }
+        val levelled = io.github.veelume.postroad.roads.gen.RoadBuilder.flatten(bumpy)
+        helper.assertTrue(levelled.all { it == 64 }, "a 6-block bump and a 4-block dip are levelled (${levelled.toList()})")
+        val longHill = (0 until 40).map { x -> 64 + (if (x in 10..30) 3 else 0) }
+        val kept = io.github.veelume.postroad.roads.gen.RoadBuilder.flatten(longHill)
+        helper.assertTrue(kept[20] == 67, "a 21-block hill stays (${kept.toList()})")
 
         // A structure box between two towns: the route goes around it.
         val box = g.flat(40, 40, 64)
@@ -687,11 +698,12 @@ class PostroadGameTests {
         val tag = java.util.UUID.randomUUID().toString().take(6)
         val dim = level.dimension().location()
         // The arena is 7×7 with a barrier floor around it (the harness's doing), so the road stays inside:
-        // two points four blocks apart, and a two-block step wall across the whole width between them.
+        // two points four blocks apart, and a two-block plateau across the whole width from x = 3 to the edge
+        // (a bump narrower than the flattening window would simply be cut; a plateau must be climbed).
         val start = helper.absolutePos(BlockPos(1, 1, 3))
         val floorY = io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, start.x, start.z, start.y)
         val points = listOf(BlockPos(start.x, floorY + 1, start.z), BlockPos(start.x + 4, floorY + 1, start.z))
-        for (z in 0..6) for (sx in 3..4) {
+        for (z in 0..6) for (sx in 3..6) {
             helper.setBlock(BlockPos(sx, 1, z), Blocks.STONE)
             helper.setBlock(BlockPos(sx, 2, z), Blocks.STONE)
         }
@@ -709,7 +721,9 @@ class PostroadGameTests {
         helper.assertTrue(placed > 0, "the builder placed road blocks ($placed); floor ${floorState.block} replaceable=${styles.isReplaceable(floorState)} floorY=$floorY min=${level.minBuildHeight}, refined=${refined?.joinToString { "(${it[0] - start.x},${it[1] - start.z})" }}, towns=${storage.towns.size}, chunkOf(p1)==chunk: ${net.minecraft.world.level.ChunkPos.asLong(points[1].x shr 4, points[1].z shr 4) == chunk}")
         helper.assertTrue(road.builtChunks.contains(chunk), "the chunk is marked built")
         val centre = level.getBlockState(BlockPos(start.x + 1, floorY, start.z))
-        helper.assertTrue(!centre.`is`(Blocks.STONE) && !centre.`is`(Blocks.POLISHED_ANDESITE) && !centre.`is`(Blocks.BARRIER), "the road centre is a palette block (${centre.block})")
+        val strip = (0..6).joinToString(" ") { z -> (0..6).joinToString("") { x -> val b = level.getBlockState(BlockPos(helper.absolutePos(BlockPos(x, 0, z)).x, floorY, helper.absolutePos(BlockPos(x, 0, z)).z)).block; when { b == Blocks.STONE -> "S"; b == Blocks.BARRIER -> "B"; b == Blocks.AIR -> "."; else -> "r" } } }
+        val above = (0..6).joinToString(" ") { z -> (0..6).joinToString("") { x -> val b = level.getBlockState(BlockPos(helper.absolutePos(BlockPos(x, 0, z)).x, floorY + 1, helper.absolutePos(BlockPos(x, 0, z)).z)).block; when { b == Blocks.STONE -> "S"; b == Blocks.AIR -> "."; else -> "r" } } }
+        helper.assertTrue(!centre.`is`(Blocks.STONE) && !centre.`is`(Blocks.POLISHED_ANDESITE) && !centre.`is`(Blocks.BARRIER), "the road centre is a palette block (${centre.block}); floor rows z0..6: $strip | above: $above | placed $placed | refined ${io.github.veelume.postroad.roads.gen.RoadRefiner.refine(level, points, io.github.veelume.postroad.roads.gen.RoadStyles.current, emptyList())?.joinToString { "(${it[0] - start.x},${it[1] - start.z})" }}")
         helper.assertValueEqual(io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk), 0, "a second build places nothing")
         // Walkable: along the centre line no two neighbouring columns differ by more than one block, and a rise carries stairs or a slab.
         var maxJump = 0

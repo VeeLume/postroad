@@ -77,7 +77,9 @@ object RoadRefiner {
                 if (!col.passable && nk != e) continue
                 var step = if (k >= 4) SQRT2 else 1.0
                 if (here.ground != Int.MIN_VALUE && col.ground != Int.MIN_VALUE) {
-                    step += when (abs(col.ground - here.ground)) { 0 -> 0.0; 1 -> 1.5; 2 -> 6.0; else -> 30.0 }
+                    val dh = abs(col.ground - here.ground)
+                    step += when (dh) { 0 -> 0.0; 1 -> 2.5; 2 -> 6.0; else -> 30.0 }
+                    if (dh > 0 && k >= 4) step += 2.0 // a climb on a diagonal cannot carry stairs
                 }
                 val tentative = gi + step
                 if (tentative < g.get(nk)) {

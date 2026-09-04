@@ -38,6 +38,8 @@ object RoadGen {
     const val CELL_SIZE = 4
     /** The corridor map's cell; must be a multiple of [CELL_SIZE]. */
     const val COARSE_CELL = 16
+    /** Clearance around a village piece (a house) when pieces are known. */
+    const val PIECE_MARGIN = 2
 
     /** Everything a pass needs, copied on the server thread. */
     class PassRequest(
@@ -204,7 +206,7 @@ object RoadGen {
                         known.add(c.id)
                         val centre = c.box.center
                         val cell = terrain.blockToCell(centre.x, centre.z)
-                        newTowns.add(PlannedTown(c.id, req.dimension, c.structure, BlockPos(centre.x, terrain.heightAt(cell.x, cell.z), centre.z), c.box))
+                        newTowns.add(PlannedTown(c.id, req.dimension, c.structure, BlockPos(centre.x, terrain.heightAt(cell.x, cell.z), centre.z), c.box, c.pieces, c.streets))
                     }
                     discoveredNow.add(key)
                     pace(PACE_SQUARE_MS)
@@ -225,13 +227,14 @@ object RoadGen {
             Math.floorDiv(req.center.x + reach, COARSE_CELL), Math.floorDiv(req.center.z + reach, COARSE_CELL),
         )
         val allTowns = req.knownTowns + newTowns
-        for (town in allTowns) {
-            val b = town.box
-            val min = terrain.blockToCell(b.minX() - req.margin, b.minZ() - req.margin)
-            val max = terrain.blockToCell(b.maxX() + req.margin, b.maxZ() + req.margin)
+        for (town in allTowns) for (b in town.footprint) {
+            // Pieces when known (streets stay open), the whole box otherwise; the margin shrinks with pieces.
+            val margin = if (town.pieces.isEmpty()) req.margin else PIECE_MARGIN
+            val min = terrain.blockToCell(b.minX() - margin, b.minZ() - margin)
+            val max = terrain.blockToCell(b.maxX() + margin, b.maxZ() + margin)
             terrain.block(CellBox(min.x, min.z, max.x, max.z))
-            val cmin = coarse.blockToCell(b.minX() - req.margin, b.minZ() - req.margin)
-            val cmax = coarse.blockToCell(b.maxX() + req.margin, b.maxZ() + req.margin)
+            val cmin = coarse.blockToCell(b.minX() - margin, b.minZ() - margin)
+            val cmax = coarse.blockToCell(b.maxX() + margin, b.maxZ() + margin)
             coarse.block(CellBox(cmin.x, cmin.z, cmax.x, cmax.z))
         }
 
@@ -239,7 +242,7 @@ object RoadGen {
         val townById = HashMap<String, Town>()
         val towns = allTowns
             .filter { it.pos.distSqr(req.center) <= reach.toDouble() * reach }
-            .map { Town(it.id, terrain.blockToCell(it.pos.x, it.pos.z)).also { t -> townById[t.id] = t } }
+            .map { Town(it.id, terrain.blockToCell(it.pos.x, it.pos.z), it.streets.map { s -> terrain.blockToCell(s.x, s.z) }).also { t -> townById[t.id] = t } }
         val existing = req.knownRoads.map { road ->
             val cells = road.points.map { terrain.blockToCell(it.x, it.z) }
             PlannedRoute(road.id, townById[road.from] ?: Town(road.from, cells.first()), townById[road.to] ?: Town(road.to, cells.last()), cells)

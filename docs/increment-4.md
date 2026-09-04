@@ -180,9 +180,18 @@ works. Out for now: the Rust core (see Decisions).
   post), placed one block off the road, arms pointed along each branch and
   labelled "To: <town>" via increment 3's `SignWriter`. Registered as a sign
   node on the generated path.
-- **Town ends**: the road stops at the predicted structure box; village
-  streets take it from there. When the depot registers it attaches to the
-  road as any depot does.
+- **Town ends**: the finder keeps the village's pieces. House pieces are the
+  impassable footprint (2-block margin); street pieces are **exits**, and a
+  road starts at the street piece facing its neighbour, so it joins the
+  village's own road instead of stopping at a box edge. When the depot
+  registers it attaches to the road as any depot does.
+- **Block-level pass** (`RoadRefiner`, at build time): per chunk run, A* on
+  the real terrain inside a 6-block corridor around the planned line —
+  trunks, water and footprints impassable, real steps priced, diagonal
+  climbs dearer (stairs only face cardinals) — ending exactly at the exit
+  point the next chunk starts from. The profile along the path is then
+  flattened (features shorter than 12 blocks cut ≤ 4 or filled ≤ 6) and
+  limited to one block per column; a lone step gets a slab, a run stairs.
 
 ## Network integration
 
