@@ -54,16 +54,18 @@ live in `docs/` (one per increment). This file is about the code.
   `/postroad roads probe <x> <z>` compares the sampler's surface with the generator and the real heightmap and
   says whether the chunk has its own road structure start; `/postroad roads audit <radius> [fix]` counts generated
   road chunks with and without their own start (`fix` hands the start-less ones back to the chunk-load builder).
-  **Roads generate as a structure** (`RoadStructure`, data `worldgen/structure/road.json` + `structure_set/roads.json`,
-  placement `postroad:planned` answering from `RoadPlanSnapshot`, an immutable per-chunk copy of the plan published by
-  the server thread): per chunk run one `RoadRunPiece` (lays the strip with the builder's flatten/smooth/shape code
-  at `surface_structures`, before vegetation) plus one `RoadBeardPiece` per 4-block segment (a `beard_thin` box
-  that grades the noise to the planned height, places nothing). `RoadShapes` is the one flat/slab/stairs table.
-  The chunk-load builder is the fallback for chunks whose structure starts were generated before the plan covered
-  them (`RoadBuilder.generatedWithRoad` = the chunk's *own* start; starts referenced from neighbours don't count).
-  The sampler calibrates a surface offset against `getBaseHeight` once per world (Tectonic's real surface sits
-  a few blocks above the density crossing).
-  **Terrain sources:** `DhTerrain` reads Distant Horizons' generated terrain through its API when the mod is
+  **Roads generate as a placed feature** (`worldgen/RoadFeature`, data `worldgen/configured_feature/road.json`,
+  `placed_feature/road.json`, biome modifier `neoforge/biome_modifier/road.json` on every overworld biome at
+  `surface_structures`): once per chunk it asks `RoadPlanSnapshot` (an immutable per-chunk copy of the plan
+  published by the server thread) for the runs through the chunk and `RoadLayer` lays them with the builder's
+  flatten/smooth/shape code before vegetation. The chunk-load builder is the fallback for chunks finished before
+  the plan covered them (`generatedWithRoad` = the feature laid it this session); junction signs stay with it.
+  **Pre-generation:** `ChunkPregen` requests corridor chunks at `CARVERS` through the chunk system — from its own
+  thread, because `getChunkFuture` joins when called on the server thread — holding each with its own ticket type
+  (the chunk source's one-tick ticket cancels an off-thread request); `KnownTerrain` copies heightmaps on the
+  server thread when a chunk is ready. A road planned over any `ESTIMATED` cell is provisional: its corridor is
+  generated, then the pair is planned again with the old road excluded (`PassRequest.replace`) and swapped on apply.
+  **Terrain sources:** own pre-generated chunks first (`KnownTerrain`), then `DhTerrain`, which reads Distant Horizons' generated terrain through its API when the mod is
   present (optional compile dep `distanthorizonsapi`; DH classes only referenced inside `DhTerrainAccess`); cells
   without DH data fall back to the density estimate and carry `Terrain.ESTIMATED`; such tiles are `provisional`
   (memory only, re-sampled after a minute) and never reach the `known`/`known16` disk caches.
