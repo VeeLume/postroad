@@ -25,7 +25,7 @@ import java.util.function.Predicate
  *
  * A structure counts as a town when it is tagged `#minecraft:village`.
  */
-class TownFinder(level: ServerLevel) {
+class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
 
     data class Candidate(val id: String, val structure: ResourceLocation, val chunk: ChunkPos, val box: BoundingBox)
 
@@ -36,6 +36,13 @@ class TownFinder(level: ServerLevel) {
     private val templates: StructureTemplateManager = level.server.structureManager
     private val heightAccessor = level
     private val seed: Long = state.levelSeed
+    private val biomeSource = generator.biomeSource
+
+    /** Structures rejected by the biome pre-check; layouts never built for them. */
+    @Volatile var prefiltered: Int = 0
+        private set
+    @Volatile var generated: Int = 0
+        private set
     private val dimension: ResourceLocation = level.dimension().location()
 
     /** Structure sets that can produce a village; the others never matter here. */
@@ -84,6 +91,14 @@ class TownFinder(level: ServerLevel) {
         val holder = entry.structure()
         val structure = holder.value()
         val biomes = structure.biomes()
+        // Vanilla builds the whole jigsaw layout and only then tests the biome at its start; the start
+        // sits at the chunk's min corner on the surface, so test that first and skip the layout when it fails.
+        val x = chunkPos.minBlockX
+        val z = chunkPos.minBlockZ
+        val y = surface(x, z)
+        val biome = biomeSource.getNoiseBiome(net.minecraft.core.QuartPos.fromBlock(x), net.minecraft.core.QuartPos.fromBlock(y), net.minecraft.core.QuartPos.fromBlock(z), randomState.sampler())
+        if (!biomes.contains(biome)) { prefiltered++; return Outcome(false, null) }
+        generated++
         val start = structure.generate(
             registryAccess, generator, generator.biomeSource, randomState, templates, seed, chunkPos, 0, heightAccessor,
             Predicate<Holder<Biome>> { biomes.contains(it) },

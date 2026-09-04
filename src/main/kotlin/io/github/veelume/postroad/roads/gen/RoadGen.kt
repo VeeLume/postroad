@@ -63,6 +63,8 @@ object RoadGen {
         val discovered: List<Long>,
         val millis: Long,
         val tilesSampled: Int,
+        val discoverMillis: Long = 0,
+        val chunksChecked: Int = 0,
     )
 
     /** The worker's view of one dimension; only the planner thread touches it after creation. */
@@ -162,7 +164,7 @@ object RoadGen {
     fun workerFor(level: ServerLevel): Worker = workers.getOrPut(level.dimension().location()) {
         val cache = level.server.getWorldPath(LevelResource("postroad")).resolve("terrain")
         val sampler = WorldTerrainSampler(level, cache, CELL_SIZE)
-        Worker(TiledTerrain(CELL_SIZE, sampler), sampler, TownFinder(level))
+        Worker(TiledTerrain(CELL_SIZE, sampler), sampler, TownFinder(level, sampler::surface))
     }
 
     // ---- the pass (planner thread, or the test thread) -----------------------------------------
@@ -175,6 +177,7 @@ object RoadGen {
         // 1. Towns: search every discovery square in the radius that has not been searched.
         val newTowns = ArrayList<PlannedTown>()
         val discoveredNow = ArrayList<Long>()
+        var chunksChecked = 0
         if (req.discoverTowns) {
             val known = req.knownTowns.mapTo(HashSet()) { it.id }
             val sq = RoadPlanStorage.DISCOVERY_SQUARE
@@ -185,6 +188,7 @@ object RoadGen {
                     val chunkFrom = ChunkPos(sx * sq shr 4, sz * sq shr 4)
                     val perSide = sq / 16
                     for (cz in chunkFrom.z until chunkFrom.z + perSide) for (cx in chunkFrom.x until chunkFrom.x + perSide) {
+                        chunksChecked++
                         val c = worker.finder.find(cx, cz) ?: continue
                         if (c.id in known) continue
                         known.add(c.id)
@@ -196,6 +200,8 @@ object RoadGen {
                 }
             }
         }
+
+        val discoverMillis = (System.nanoTime() - t0) / 1_000_000
 
         // 2. Terrain: bounds for this pass, structure footprints impassable.
         val reach = req.radius + req.maxLink
@@ -240,7 +246,7 @@ object RoadGen {
             else JunctionResult(terrain.cellToBlock(j.cell.x, j.cell.z), j.joinedRoute, joined, j.joiningRoute, joining)
         }
         return PassResult(req.dimension, req.center, newTowns, newRoads, newJunctions, discoveredNow,
-            (System.nanoTime() - t0) / 1_000_000, worker.sampler.sampled - sampledBefore)
+            (System.nanoTime() - t0) / 1_000_000, worker.sampler.sampled - sampledBefore, discoverMillis, chunksChecked)
     }
 
     // ---- applying results (server thread) ------------------------------------------------------
@@ -273,8 +279,8 @@ object RoadGen {
         }
         storage.markDiscovered(result.dimension, result.discovered)
         passesRun++
-        Postroad.LOGGER.info("Road plan pass at {}: {} new town(s), {} new road(s), {} junction(s); {} tile(s) sampled, {} ms",
-            result.center.toShortString(), towns, roads, junctions, result.tilesSampled, result.millis)
+        Postroad.LOGGER.info("Road plan pass at {}: {} new town(s), {} new road(s), {} junction(s); {} chunk(s) checked in {} ms, {} tile(s) sampled, {} ms total",
+            result.center.toShortString(), towns, roads, junctions, result.chunksChecked, result.discoverMillis, result.tilesSampled, result.millis)
     }
 
     /** Drops the plan and every generated path nobody has charted. Refused while a pass runs. */
@@ -297,7 +303,8 @@ object RoadGen {
         lines.add("${storage.towns.size} predicted town(s), ${storage.roads.size} planned road(s), ${storage.junctions.size} junction(s), " +
             "${storage.discovered.values.sumOf { it.size }} square(s) searched")
         for ((dim, w) in workers) {
-            lines.add("$dim: ${w.terrain.tileCount} tile(s) in memory, ${w.sampler.sampled} sampled, ${w.sampler.fromCache} from cache")
+            lines.add("$dim: ${w.terrain.tileCount} tile(s) in memory, ${w.sampler.sampled} sampled, ${w.sampler.fromCache} from cache; " +
+                "finder: ${w.finder.generated} layout(s) built, ${w.finder.prefiltered} skipped by biome")
         }
         val built = storage.roads.values.sumOf { it.builtChunks.size }
         val total = storage.roads.values.sumOf { it.chunks().size }

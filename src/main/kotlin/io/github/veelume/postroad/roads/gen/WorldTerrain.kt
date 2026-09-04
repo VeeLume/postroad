@@ -75,14 +75,20 @@ class WorldTerrainSampler(level: ServerLevel, private val cacheDir: Path?, priva
     override fun sample(tx: Int, tz: Int): Tile {
         read(tx, tz)?.let { fromCache++; return it }
         val tile = Tile.empty()
+        // Height per cell; biome once per BIOME_STEP × BIOME_STEP cells (the climate sampler is the
+        // expensive call and biomes do not change at cell resolution).
+        val biomeIds = HashMap<Int, String>()
         for (i in 0 until TiledTerrain.TILE) for (j in 0 until TiledTerrain.TILE) {
             val cx = tx * TiledTerrain.TILE + j
             val cz = tz * TiledTerrain.TILE + i
             val x = cx * cellSize + cellSize / 2
             val z = cz * cellSize + cellSize / 2
             val y = surface(x, z)
-            val biome = biomeSource.getNoiseBiome(QuartPos.fromBlock(x), QuartPos.fromBlock(y), QuartPos.fromBlock(z), randomState.sampler())
-            val id = biome.unwrapKey().map { it.location().toString() }.orElse("")
+            val bKey = (i / BIOME_STEP) * TiledTerrain.TILE + (j / BIOME_STEP)
+            val id = biomeIds.getOrPut(bKey) {
+                biomeSource.getNoiseBiome(QuartPos.fromBlock(x), QuartPos.fromBlock(y), QuartPos.fromBlock(z), randomState.sampler())
+                    .unwrapKey().map { it.location().toString() }.orElse("")
+            }
             val k = i * TiledTerrain.TILE + j
             tile.heights[k] = y.toShort()
             tile.families[k] = Families.of(id).toByte()
@@ -93,17 +99,23 @@ class WorldTerrainSampler(level: ServerLevel, private val cacheDir: Path?, priva
         return tile
     }
 
-    /** The noise surface before decoration and jaggedness; falls back to the generator's own column scan. */
+    /**
+     * The noise surface before decoration and jaggedness. `initial_density_without_jaggedness` is
+     * monotonic in y (a depth gradient shaped by 2-D splines), so the crossing is found by bisection
+     * in a handful of evaluations. Non-noise generators fall back to the generator's own column scan.
+     */
     fun surface(x: Int, z: Int): Int {
         val settings = noise ?: return generator.getBaseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG, heightAccessor, randomState)
         val ns = settings.noiseSettings()
         val density = randomState.router().initialDensityWithoutJaggedness()
-        var y = ns.minY() + ns.height()
-        while (y >= ns.minY()) {
-            if (density.compute(DensityFunction.SinglePointContext(x, y, z)) > 0.390625) return y
-            y -= ns.cellHeight
+        val step = ns.cellHeight
+        var lo = ns.minY()                 // treated as solid
+        var hi = ns.minY() + ns.height()   // treated as air
+        while (hi - lo > step) {
+            val mid = lo + ((hi - lo) / 2 / step) * step
+            if (density.compute(DensityFunction.SinglePointContext(x, mid, z)) > SOLID) lo = mid else hi = mid
         }
-        return ns.minY()
+        return lo
     }
 
     private fun file(tx: Int, tz: Int): Path? {
@@ -147,5 +159,7 @@ class WorldTerrainSampler(level: ServerLevel, private val cacheDir: Path?, priva
 
     companion object {
         private const val MAGIC = 0x50524431 // "PRD1"
+        private const val SOLID = 0.390625
+        private const val BIOME_STEP = 4
     }
 }

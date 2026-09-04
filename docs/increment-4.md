@@ -65,8 +65,10 @@ works. Out for now: the Rust core (see Decisions).
   256-block square: a square is searched once. Prediction replays the chunk
   generator's own decision: the set's placement says whether a village may
   start in a chunk, then the set's weighted draw and `Structure.generate`
-  (biome check, jigsaw layout) say whether it does. The layout is thrown
-  away; its bounding box is kept.
+  (jigsaw layout, then biome check) say whether it does. Vanilla builds the
+  whole layout before testing the biome; the finder tests the biome at the
+  start corner first and only builds the layout for the structure that
+  passes. The layout is thrown away; its bounding box is kept.
 - A predicted town is a **candidate node** at the structure's start position.
   It becomes a real `town` node when its depot registers (increment 1); the
   candidate carries the same id so the road already knows it.
@@ -74,12 +76,16 @@ works. Out for now: the Rust core (see Decisions).
 ## Terrain model
 
 - Grid cell: 4 blocks. Per cell: the noise router's preliminary surface
-  (`initial_density_without_jaggedness` scanned down the column, the same
-  estimate vanilla uses for surface depth — 2-D, so far cheaper than
-  `getBaseHeight`'s full column; non-noise generators fall back to
-  `getBaseHeight`), the biome at that point, and derived flags: water
+  (`initial_density_without_jaggedness`, the same estimate vanilla uses for
+  surface depth — 2-D, so far cheaper than `getBaseHeight`'s full column;
+  it is monotonic in y, so the crossing is bisected in ~6 evaluations;
+  non-noise generators fall back to `getBaseHeight`), derived flags: water
   (surface below sea level, or an ocean/river/beach biome) and the palette
-  family. Slope is computed from neighbours at search time.
+  family. The biome is sampled once per 16 blocks — the climate sampler is
+  the expensive call and biomes do not change at cell resolution. Slope is
+  computed from neighbours at search time. The first test-server pass
+  (Tectonic worldgen) took ~10 ms per cell with a plain 48-step column
+  scan and per-cell biomes; this is the fix.
 - The generator's noise calls are pure functions of position and the world's
   `RandomState`; they are safe off-thread and are what RoadArchitect used
   successfully. They are not cheap on modded worldgen, so the grid is filled
