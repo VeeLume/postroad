@@ -25,6 +25,8 @@ interface Terrain {
         const val LAVA = 2
         const val BLOCKED = 4
         const val ROAD = 8
+        /** The cell's height is the planner's estimate, not generated terrain; a later sample may replace it. */
+        const val ESTIMATED = 16
 
         fun key(x: Int, z: Int): Long = (x.toLong() shl 32) or (z.toLong() and 0xffffffffL)
         fun keyX(key: Long): Int = (key shr 32).toInt()
@@ -34,6 +36,10 @@ interface Terrain {
 
 /** One sampled tile: [TiledTerrain.TILE] × [TiledTerrain.TILE] cells, row-major by z. */
 class Tile(val heights: ShortArray, val flags: ByteArray, val families: ByteArray) {
+    /** True when any cell is an estimate: kept in memory only and re-sampled after [TiledTerrain.REFRESH_MS]. */
+    var provisional: Boolean = false
+    var sampledAt: Long = System.currentTimeMillis()
+
     companion object {
         fun empty(): Tile = Tile(ShortArray(TiledTerrain.CELLS), ByteArray(TiledTerrain.CELLS), ByteArray(TiledTerrain.CELLS))
     }
@@ -67,7 +73,7 @@ class TiledTerrain(override val cellSize: Int, private val sampler: TileSampler)
         val tx = Math.floorDiv(cx, TILE)
         val tz = Math.floorDiv(cz, TILE)
         val key = Terrain.key(tx, tz)
-        tiles[key]?.let { return it }
+        tiles[key]?.let { if (!it.provisional || System.currentTimeMillis() - it.sampledAt < REFRESH_MS) return it }
         val tile = sampler.sample(tx, tz)
         tiles[key] = tile
         for (box in boxes) markBox(tx, tz, box)
@@ -136,6 +142,8 @@ class TiledTerrain(override val cellSize: Int, private val sampler: TileSampler)
 
     companion object {
         const val TILE = 16
+        /** How long a provisional tile (estimates in it) is trusted before the sampler is asked again. */
+        const val REFRESH_MS = 60_000L
         const val CELLS = TILE * TILE
     }
 }

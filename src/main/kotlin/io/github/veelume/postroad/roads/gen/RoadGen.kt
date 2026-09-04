@@ -188,9 +188,10 @@ object RoadGen {
     }
 
     fun workerFor(level: ServerLevel): Worker = workers.getOrPut(level.dimension().location()) {
-        val cache = level.server.getWorldPath(LevelResource("postroad")).resolve("terrain")
+        // "known" caches hold only tiles of generated terrain (Distant Horizons); estimates are never persisted.
+        val cache = level.server.getWorldPath(LevelResource("postroad")).resolve("known")
         val sampler = WorldTerrainSampler(level, cache, CELL_SIZE)
-        val coarseSampler = WorldTerrainSampler(level, level.server.getWorldPath(LevelResource("postroad")).resolve("terrain$COARSE_CELL"), COARSE_CELL)
+        val coarseSampler = WorldTerrainSampler(level, level.server.getWorldPath(LevelResource("postroad")).resolve("known$COARSE_CELL"), COARSE_CELL)
         Worker(TiledTerrain(CELL_SIZE, sampler), sampler, TiledTerrain(COARSE_CELL, coarseSampler), coarseSampler, TownFinder(level, sampler::surface))
     }
 
@@ -365,11 +366,12 @@ object RoadGen {
     fun status(server: MinecraftServer): List<String> {
         val storage = RoadPlanStorage.get(server)
         val lines = ArrayList<String>()
-        lines.add("Planner ${if (executor != null) "on" else "off"}; ${passesRun} pass(es) applied, ${pending.get()} pending")
+        lines.add("Planner ${if (executor != null) "on" else "off"}; ${passesRun} pass(es) applied, ${pending.get()} pending; ${DhTerrain.status()}")
         lines.add("${storage.towns.size} predicted town(s), ${storage.obstacles.size} obstacle(s), ${storage.roads.size} planned road(s), ${storage.junctions.size} junction(s), " +
             "${storage.discovered.values.sumOf { it.size }} square(s) searched, ${storage.droppedRoutes.size} pair(s) dropped for water")
         for ((dim, w) in workers) {
-            lines.add("$dim: ${w.terrain.tileCount} fine + ${w.coarse.tileCount} coarse tile(s) in memory, ${w.sampler.sampled}/${w.coarseSampler.sampled} sampled, ${w.sampler.fromCache}/${w.coarseSampler.fromCache} from cache; " +
+            lines.add("$dim: ${w.terrain.tileCount} fine + ${w.coarse.tileCount} coarse tile(s) in memory, ${w.sampler.sampled}/${w.coarseSampler.sampled} sampled, ${w.sampler.fromCache}/${w.coarseSampler.fromCache} from cache, " +
+                "${w.sampler.knownCells}/${w.coarseSampler.knownCells} cell(s) from generated terrain, ${w.sampler.estimatedCells}/${w.coarseSampler.estimatedCells} estimated; " +
                 "finder: ${w.finder.generated} layout(s) built, ${w.finder.prefiltered} skipped by biome, ${w.finder.obstaclesFound} obstacle(s)")
             val costly = w.finder.timing.entries.sortedByDescending { it.value[1] }.take(6)
             if (costly.isNotEmpty()) lines.add("  layouts by cost: " + costly.joinToString(", ") { "${it.key} ${it.value[0]}× ${it.value[1] / 1_000_000 / maxOf(1, it.value[0])} ms" } +

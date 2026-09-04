@@ -59,7 +59,7 @@ object Families {
  * Everything it calls is a pure function of position and the world's random state, so it runs
  * on the planner thread. Tiles are cached on disk under [cacheDir] (null = no cache).
  */
-class WorldTerrainSampler(level: ServerLevel, private val cacheDir: Path?, private val cellSize: Int) : TileSampler {
+class WorldTerrainSampler(private val level: ServerLevel, private val cacheDir: Path?, private val cellSize: Int) : TileSampler {
     private val generator: ChunkGenerator = level.chunkSource.generator
     private val randomState: RandomState = level.chunkSource.randomState()
     private val biomeSource: BiomeSource = generator.biomeSource
@@ -71,6 +71,11 @@ class WorldTerrainSampler(level: ServerLevel, private val cacheDir: Path?, priva
     @Volatile var sampled: Int = 0
         private set
     @Volatile var fromCache: Int = 0
+        private set
+    /** Cells that came from Distant Horizons' generated terrain, and cells that are still estimates. */
+    @Volatile var knownCells: Long = 0
+        private set
+    @Volatile var estimatedCells: Long = 0
         private set
 
     /**
@@ -110,9 +115,23 @@ class WorldTerrainSampler(level: ServerLevel, private val cacheDir: Path?, priva
             val cz = tz * TiledTerrain.TILE + i
             val x = cx * cellSize + cellSize / 2
             val z = cz * cellSize + cellSize / 2
-            // The cell to the left (or, at a row start, above) is the best guess for this one.
-            if (j == 0 && i > 0) hint = tile.heights[(i - 1) * TiledTerrain.TILE].toInt()
-            val y = surface(x, z, hint)
+            // Generated terrain when Distant Horizons has it; otherwise the estimate, marked as such.
+            val known = DhTerrain.column(level, x, z)
+            val y: Int
+            var flags = 0
+            if (known != null) {
+                y = known.top
+                if (known.water) flags = flags or Terrain.WATER
+                if (known.lava) flags = flags or Terrain.LAVA
+                knownCells++
+            } else {
+                // The cell to the left (or, at a row start, above) is the best guess for this one.
+                if (j == 0 && i > 0) hint = tile.heights[(i - 1) * TiledTerrain.TILE].toInt()
+                y = surface(x, z, hint)
+                flags = flags or Terrain.ESTIMATED
+                tile.provisional = true
+                estimatedCells++
+            }
             hint = y
             val bKey = (i / biomeStep) * TiledTerrain.TILE + (j / biomeStep)
             val id = biomeIds.getOrPut(bKey) {
@@ -122,10 +141,12 @@ class WorldTerrainSampler(level: ServerLevel, private val cacheDir: Path?, priva
             val k = i * TiledTerrain.TILE + j
             tile.heights[k] = y.toShort()
             tile.families[k] = Families.of(id).toByte()
-            if (y < seaLevel || Families.isWater(id)) tile.flags[k] = Terrain.WATER.toByte()
+            if (known == null && (y < seaLevel || Families.isWater(id))) flags = flags or Terrain.WATER
+            tile.flags[k] = flags.toByte()
         }
         sampled++
-        write(tx, tz, tile)
+        // Only tiles made of generated terrain are worth keeping on disk; estimates are re-asked later.
+        if (!tile.provisional) write(tx, tz, tile)
         return tile
     }
 

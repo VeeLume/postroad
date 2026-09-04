@@ -292,6 +292,7 @@ object PostroadCommands {
         val level = ctx.source.level
         val sampler = samplerFor(level)
         val estimate = sampler.surface(pos.x, pos.z)
+        val dh = io.github.veelume.postroad.roads.gen.DhTerrain.column(level, pos.x, pos.z)?.let { "${it.top}${if (it.water) " (water)" else ""}${if (it.lava) " (lava)" else ""}" } ?: "none"
         val base = level.chunkSource.generator.getBaseHeight(pos.x, pos.z, net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG, level, level.chunkSource.randomState())
         val real = if (level.hasChunk(pos.x shr 4, pos.z shr 4)) level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, pos.x, pos.z) else -1
         val biome = level.chunkSource.generator.biomeSource.getNoiseBiome(pos.x shr 2, base shr 2, pos.z shr 2, level.chunkSource.randomState().sampler()).unwrapKey().map { it.location().toString() }.orElse("?")
@@ -313,14 +314,14 @@ object PostroadCommands {
                 .filter { it !is io.github.veelume.postroad.roads.gen.RoadStructure }
                 .mapNotNull { registry.getKey(it)?.toString() }.sorted().joinToString(", ").ifEmpty { "none" }
         } else "?"
-        ctx.source.sendSuccess({ Component.literal("(${pos.x}, ${pos.z}): estimate $estimate, generator base $base, real ${if (real < 0) "unloaded" else real.toString()}, top $top, sea ${level.chunkSource.generator.seaLevel}, biome $biome (overworld-tag $tagged); chunk: ${roadsHere.size} planned road(s), $runs snapshot run(s), structure start $structure, builder-built ${roadsHere.any { it.builtChunks.contains(chunkKey) }}; other structures here: $others") }, false)
+        ctx.source.sendSuccess({ Component.literal("(${pos.x}, ${pos.z}): estimate $estimate, DH $dh, generator base $base, real ${if (real < 0) "unloaded" else real.toString()}, top $top, sea ${level.chunkSource.generator.seaLevel}, biome $biome (overworld-tag $tagged); chunk: ${roadsHere.size} planned road(s), $runs snapshot run(s), structure start $structure, builder-built ${roadsHere.any { it.builtChunks.contains(chunkKey) }}; other structures here: $others") }, false)
         return 1
     }
 
     private fun roadsDebugTerrain(ctx: CommandContext<CommandSourceStack>): Int {
         val player = ctx.source.playerOrException
         val on = io.github.veelume.postroad.roads.gen.RoadDebug.toggleTerrain(player)
-        ctx.source.sendSuccess({ Component.literal(if (on) "Terrain debug layer on: a cross per planner cell at its estimated surface — green flat, yellow step (≤2), orange stairs (≤6), red serpentine (≤12), purple impassable; blue water, magenta blocked, white road. A red tick means the estimate floats above the real ground, a blue tick that it is buried." else "Terrain debug layer off.") }, false)
+        ctx.source.sendSuccess({ Component.literal(if (on) "Terrain debug layer on: a cross per planner cell at its estimated surface — green flat, yellow step (≤2), orange stairs (≤6), red serpentine (≤12), purple impassable; blue water, magenta blocked, white road. A red tick means the estimate floats above the real ground, a blue tick that it is buried. Faint crosses are estimates, solid ones generated terrain from Distant Horizons." else "Terrain debug layer off.") }, false)
         return 1
     }
 

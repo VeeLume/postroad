@@ -102,6 +102,9 @@ dependencies {
     implementation "thedarkcolour:kotlinforforge-neoforge:${kff_version}"
     // Optional integration: Jade block tooltips. Compile-time only; the plugin class is loaded by Jade, never by us.
     compileOnly "maven.modrinth:jade:${jade_version}"
+    // Optional integration: Distant Horizons' terrain data as the planner's terrain source. Compile-time only;
+    // the classes are only touched when the mod is present (DhTerrain).
+    compileOnly "maven.modrinth:distanthorizonsapi:${dh_api_version}"
 }
 
 // Expand ${...} properties in src/main/templates (neoforge.mods.toml lives there).

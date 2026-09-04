@@ -126,7 +126,8 @@ object RoadDebugRenderer {
     private fun drawGrid(pose: PoseStack, vc: VertexConsumer, level: net.minecraft.client.multiplayer.ClientLevel, g: io.github.veelume.postroad.roads.gen.DebugGrid) {
         val m = pose.last()
         val arm = (g.cellSize * 0.35).toFloat()
-        val alpha = if (g.cellSize <= 4) 255 else 120
+        val fullAlpha = if (g.cellSize <= 4) 255 else 120
+        var alpha = fullAlpha
         fun line(x1: Float, y1: Float, z1: Float, x2: Float, y2: Float, z2: Float, r: Int, gr: Int, b: Int, a: Int = alpha) {
             vc.addVertex(m.pose(), x1, y1, z1).setColor(r, gr, b, a).setNormal(m, 0f, 1f, 0f)
             vc.addVertex(m.pose(), x2, y2, z2).setColor(r, gr, b, a).setNormal(m, 0f, 1f, 0f)
@@ -135,6 +136,8 @@ object RoadDebugRenderer {
             val h = g.heights[dz * g.w + dx]
             if (h == Int.MIN_VALUE) continue
             val flags = g.flags[dz * g.w + dx].toInt()
+            // Estimates are drawn faint; generated terrain (Distant Horizons) at full strength.
+            alpha = if (flags and Terrain.ESTIMATED != 0) fullAlpha / 3 else fullAlpha
             var step = 0
             if (dx + 1 < g.w) g.heights[dz * g.w + dx + 1].let { if (it != Int.MIN_VALUE) step = max(step, kotlin.math.abs(it - h)) }
             if (dz + 1 < g.h) g.heights[(dz + 1) * g.w + dx].let { if (it != Int.MIN_VALUE) step = max(step, kotlin.math.abs(it - h)) }
