@@ -115,8 +115,11 @@ class RoadPlanStorage : SavedData() {
     val roads: MutableMap<String, PlannedRoad> = LinkedHashMap()
     val junctions: MutableList<PlannedJunction> = ArrayList()
 
-    /** Route ids the planner gave up on (water); not retried until the plan is cleared. */
+    /** Route ids the planner gave up on; not retried until the plan is cleared. */
     val droppedRoutes: MutableSet<String> = HashSet()
+
+    /** Why, and between which towns, for the debug view: id → (from, to, reason). */
+    val droppedDetails: MutableMap<String, Triple<String, String, String>> = HashMap()
 
     /** Dimension → [DISCOVERY_SQUARE]-block squares (packed as chunk-style longs) already searched for towns. */
     val discovered: MutableMap<ResourceLocation, LongOpenHashSet> = HashMap()
@@ -139,9 +142,9 @@ class RoadPlanStorage : SavedData() {
         setDirty()
     }
 
-    fun markDropped(ids: Collection<String>) {
-        if (ids.isEmpty()) return
-        droppedRoutes.addAll(ids)
+    fun markDropped(pairs: Collection<Triple<String, Pair<String, String>, String>>) {
+        if (pairs.isEmpty()) return
+        for ((id, ends, reason) in pairs) { droppedRoutes.add(id); droppedDetails[id] = Triple(ends.first, ends.second, reason) }
         setDirty()
     }
 
@@ -169,7 +172,7 @@ class RoadPlanStorage : SavedData() {
     }
 
     fun clear() {
-        towns.clear(); roads.clear(); junctions.clear(); discovered.clear(); droppedRoutes.clear()
+        towns.clear(); roads.clear(); junctions.clear(); discovered.clear(); droppedRoutes.clear(); droppedDetails.clear()
         chunkIndex = null
         setDirty()
     }
@@ -180,6 +183,9 @@ class RoadPlanStorage : SavedData() {
         tag.put("Junctions", ListTag().also { list -> junctions.forEach { list.add(it.toTag()) } })
         tag.put("Discovered", CompoundTag().also { d -> discovered.forEach { (dim, set) -> d.putLongArray(dim.toString(), set.toLongArray()) } })
         tag.put("Dropped", ListTag().also { list -> droppedRoutes.forEach { list.add(net.minecraft.nbt.StringTag.valueOf(it)) } })
+        tag.put("DroppedDetails", ListTag().also { list ->
+            droppedDetails.forEach { (id, d) -> list.add(CompoundTag().also { c -> c.putString("Id", id); c.putString("From", d.first); c.putString("To", d.second); c.putString("Reason", d.third) }) }
+        })
         return tag
     }
 
@@ -188,6 +194,7 @@ class RoadPlanStorage : SavedData() {
         tag.getList("Roads", Tag.TAG_COMPOUND.toInt()).forEach { t -> PlannedRoad.fromTag(t as CompoundTag)?.let { roads[it.id] = it } }
         tag.getList("Junctions", Tag.TAG_COMPOUND.toInt()).forEach { t -> PlannedJunction.fromTag(t as CompoundTag)?.let { junctions.add(it) } }
         tag.getList("Dropped", Tag.TAG_STRING.toInt()).forEach { droppedRoutes.add(it.asString) }
+        tag.getList("DroppedDetails", Tag.TAG_COMPOUND.toInt()).forEach { t -> val c = t as CompoundTag; droppedDetails[c.getString("Id")] = Triple(c.getString("From"), c.getString("To"), c.getString("Reason")) }
         val d = tag.getCompound("Discovered")
         for (key in d.allKeys) {
             val dim = ResourceLocation.tryParse(key) ?: continue

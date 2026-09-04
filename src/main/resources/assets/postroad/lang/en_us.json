@@ -176,7 +176,7 @@
   "screen.postroad.travel.name_hint": "Rename this sign (plain signs are rewritten too).",
   "sign.postroad.town": "Town",
   "message.postroad.sign.road_name": "%s road, %s blocks",
-  "message.postroad.sign.junction_name": "%s–%s road",
+  "message.postroad.sign.junction_name": "%s - %s road",
   "message.postroad.sign.junction": "Junction",
   "sign.postroad.village": "a village",
   "message.postroad.chart.marked": "You charted a %s-block generated road; %s town(s) attached."

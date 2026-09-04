@@ -72,12 +72,16 @@ object RoadBuilder {
         }
         if (queue.isEmpty()) return
         var budget = PostroadConfig.buildBlocksPerTick
-        while (budget > 0 && queue.isNotEmpty()) {
+        val deadline = System.nanoTime() + PostroadConfig.buildMillisPerTick * 1_000_000L
+        while (budget > 0 && queue.isNotEmpty() && System.nanoTime() < deadline) {
             val job = queue.removeFirst()
             queued.remove(key(job))
             val level = server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, job.dimension)) ?: continue
             if (!level.hasChunk(ChunkPos.getX(job.chunk), ChunkPos.getZ(job.chunk))) continue
+            val t0 = System.nanoTime()
             budget -= buildChunk(level, storage, job.chunk)
+            val ms = (System.nanoTime() - t0) / 1_000_000
+            if (ms > 20) Postroad.LOGGER.warn("Road chunk {} took {} ms to build", ChunkPos(job.chunk), ms)
         }
     }
 

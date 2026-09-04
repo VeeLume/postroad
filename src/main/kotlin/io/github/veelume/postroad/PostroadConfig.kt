@@ -70,6 +70,7 @@ object PostroadConfig {
     private val PLAN_REPASS_DISTANCE: ModConfigSpec.IntValue
     private val PLAN_STRUCTURE_MARGIN: ModConfigSpec.IntValue
     private val BUILD_BLOCKS_PER_TICK: ModConfigSpec.IntValue
+    private val BUILD_MILLIS_PER_TICK: ModConfigSpec.IntValue
     private val BUILD_LAMP_INTERVAL: ModConfigSpec.IntValue
     private val BUILD_WIDTH: ModConfigSpec.IntValue
     private val CHART_MARK_SHARE: ModConfigSpec.IntValue
@@ -144,6 +145,7 @@ object PostroadConfig {
 
         BUILDER.push("build")
         BUILD_BLOCKS_PER_TICK = BUILDER.comment("Road blocks placed per server tick at most.").defineInRange("blocksPerTick", 200, 10, 10000)
+        BUILD_MILLIS_PER_TICK = BUILDER.comment("Milliseconds of a tick the builder may use at most; it stops early when either budget is spent.").defineInRange("millisPerTick", 3, 1, 50)
         BUILD_LAMP_INTERVAL = BUILDER.comment("Blocks of road between lampposts; 0 disables them.").defineInRange("lampInterval", 24, 0, 1000)
         BUILD_WIDTH = BUILDER.comment("Width of a generated road in blocks (odd).").defineInRange("width", 3, 1, 9)
         CHART_MARK_SHARE = BUILDER.comment("Percent of a charting walk's samples that must lie along one generated road for the walk to chart that road instead of recording a new path.").defineInRange("markShare", 60, 1, 100)
@@ -182,6 +184,7 @@ object PostroadConfig {
     val planRepassDistance: Int get() = PLAN_REPASS_DISTANCE.get()
     val planStructureMargin: Int get() = PLAN_STRUCTURE_MARGIN.get()
     val buildBlocksPerTick: Int get() = BUILD_BLOCKS_PER_TICK.get()
+    val buildMillisPerTick: Int get() = BUILD_MILLIS_PER_TICK.get()
     val buildLampInterval: Int get() = BUILD_LAMP_INTERVAL.get()
     val buildWidth: Int get() = BUILD_WIDTH.get()
     val chartMarkShare: Double get() = CHART_MARK_SHARE.get() / 100.0

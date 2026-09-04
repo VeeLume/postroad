@@ -86,7 +86,9 @@ object SignNodes {
             return
         }
         val (path, index) = near
-        val ownText = signName(level, pos)?.takeUnless { it.startsWith(Component.translatable("sign.postroad.to", "").string.trim()) }
+        val ownText = signName(level, pos)?.takeUnless {
+            it.startsWith(Component.translatable("sign.postroad.to", "").string.trim()) || it == Component.translatable("sign.postroad.town").string
+        }
         val town = nearestTownName(network, dimension, pos)
         val name = ownText ?: defaultNodeName(network, path, index) ?: town?.let { Component.translatable("message.postroad.sign.default_name", it).string } ?: "Signpost"
         val node = RoadNode(id, RoadNode.KIND_SIGN, dimension, pos, path.id, index, name, null)

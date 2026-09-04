@@ -1,7 +1,10 @@
 {
   "base": 1.0,
   "slopePenalty": 0.6,
-  "slopeCap": 12.0,
+  "slopeCap": 60.0,
+  "maxStep": 3.0,
+  "bandPenalty": 0.08,
+  "bandMargin": 6.0,
   "water": 40.0,
   "reuseFactor": 0.15,
   "heuristicWeight": 0.5,

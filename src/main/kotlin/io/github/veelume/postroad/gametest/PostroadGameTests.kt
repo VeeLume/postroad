@@ -515,6 +515,23 @@ class PostroadGameTests {
         val around = planner.route(hill, cell(5, 30), cell(55, 30)) ?: return helper.fail("hill route not found")
         val peak = around.maxOf { hill.heightAt(it.x, it.z) }
         helper.assertTrue(peak < 64 + 30, "route stays off the summit (peak height $peak)")
+        // A gentle ridge (2 blocks per cell) is passable; a cliff (8 per cell) is not, and a road across it is refused.
+        val ridge = g.flat(40, 20, 64)
+        for (z in 0 until 20) { ridge.setHeight(20, z, 66); ridge.setHeight(21, z, 68); ridge.setHeight(22, z, 66) }
+        helper.assertTrue(planner.route(ridge, cell(5, 10), cell(35, 10)) != null, "a gentle ridge is crossed")
+        val cliff = g.flat(40, 20, 64)
+        for (z in 0 until 20) for (x in 20 until 40) cliff.setHeight(x, z, 80)
+        helper.assertTrue(planner.route(cliff, cell(5, 10), cell(35, 10)) == null, "a 16-block cliff with no way around is unreachable")
+        // The band rule: a low valley route beats a route over a plateau above both towns.
+        val plateau = g.flat(60, 40, 64)
+        for (z in 15..25) for (x in 10..50) plateau.setHeight(x, z, 64 + 2 * (minOf(x - 9, 51 - x, z - 14, 26 - z).coerceAtMost(3)))
+        val flat = planner.route(plateau, cell(5, 20), cell(55, 20)) ?: return helper.fail("plateau route not found")
+        helper.assertTrue(flat.count { plateau.heightAt(it.x, it.z) > 66 } < flat.size / 2, "route keeps to the towns' elevation rather than the plateau")
+        // A town inside a box is left on the side facing the other town.
+        val sided = g.flat(60, 40, 64)
+        sided.fill(20, 10, 30, 30, g.BLOCKED)
+        val exit = planner.resolveEndpoint(sided, cell(25, 20), toward = cell(55, 20)) ?: return helper.fail("no exit")
+        helper.assertTrue(exit.x == 31 && exit.z == 20, "exit is on the side toward the other town ($exit)")
 
         // A structure box between two towns: the route goes around it.
         val box = g.flat(40, 40, 64)
@@ -541,6 +558,7 @@ class PostroadGameTests {
         helper.assertTrue(plan.junctions.isNotEmpty(), "a junction exists")
         // The trunk A–B is planned first; C's spur joins it and does not run alongside it.
         helper.assertTrue(plan.routes[0].from == towns[0] && plan.routes[0].to == towns[1], "the longest pair is the trunk")
+        helper.assertTrue(plan.junctions.size <= 2, "no ring of junctions (${plan.junctions.size})")
         helper.assertTrue(plan.junctions.all { it.joinedRoute == plan.routes[0].id }, "every junction is on the trunk: " + plan.junctions.joinToString { "${it.cell} ${it.joiningRoute}->${it.joinedRoute}" } + " routes " + plan.routes.joinToString { "${it.id}:${it.from.id}-${it.to.id}" })
         // Planning again with the result as existing roads adds nothing.
         val again = planner.planNetwork(grid, towns, neighbours = 2, maxLinkCells = 200.0, existing = plan.routes)
@@ -671,7 +689,10 @@ class PostroadGameTests {
         // Real ground so the styles file allows the replacement (the arena floor is stone: replaceable).
         val chunk = net.minecraft.world.level.ChunkPos.asLong(start.x shr 4, start.z shr 4)
         val placed = io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk)
-        helper.assertTrue(placed > 0, "the builder placed road blocks ($placed)")
+        val floor = level.getBlockState(BlockPos(start.x + 4, floorY, start.z))
+        val above = level.getBlockState(BlockPos(start.x + 4, floorY + 1, start.z))
+        val hm = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, start.x + 4, start.z)
+        helper.assertTrue(placed > 0, "the builder placed road blocks ($placed); floor ${floor.block} replaceable=${io.github.veelume.postroad.roads.gen.RoadStyles.current.isReplaceable(floor)}, above ${above.block}, heightmap $hm vs floorY $floorY, roads in chunk ${storage.roadsInChunk(dim, chunk).size}, towns ${storage.towns.size}")
         helper.assertTrue(road.builtChunks.contains(chunk), "the chunk is marked built")
         val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
         val centre = level.getBlockState(BlockPos(start.x + 4, floorY, start.z))

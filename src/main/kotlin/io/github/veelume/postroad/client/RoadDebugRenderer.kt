@@ -24,7 +24,7 @@ import kotlin.math.max
  */
 object RoadDebugRenderer {
     private const val LIFT = 1.2
-    private const val LABEL_RANGE = 96.0
+    private const val LABEL_RANGE = 160.0
 
     fun register() {
         FORGE_BUS.addListener(RenderLevelStageEvent::class.java, Consumer(::onRenderStage))
@@ -74,6 +74,13 @@ object RoadDebugRenderer {
             val y = surfaceY(n.pos)
             post(pose, lines, n.pos, y, 3.0, if (n.kind == "town") Triple(255, 80, 255) else Triple(80, 220, 255))
         }
+        for (d in state.dropped) {
+            // A dropped pair: a straight red line between the two towns, well above the ground.
+            val m = pose.last()
+            val ya = surfaceY(d.a) + 12; val yb = surfaceY(d.b) + 12
+            lines.addVertex(m.pose(), (d.a.x + 0.5).toFloat(), ya.toFloat(), (d.a.z + 0.5).toFloat()).setColor(255, 40, 40, 255).setNormal(m, 0f, 1f, 0f)
+            lines.addVertex(m.pose(), (d.b.x + 0.5).toFloat(), yb.toFloat(), (d.b.z + 0.5).toFloat()).setColor(255, 40, 40, 255).setNormal(m, 0f, 1f, 0f)
+        }
         for (t in state.towns) {
             val b = t.box
             LevelRenderer.renderLineBox(pose, lines, b[0].toDouble(), b[1].toDouble(), b[2].toDouble(), b[3] + 1.0, b[4] + 1.0, b[5] + 1.0, 1.0f, 0.3f, 1.0f, 0.8f)
@@ -90,6 +97,11 @@ object RoadDebugRenderer {
         for (n in state.nodes) {
             val y = surfaceY(n.pos)
             label(pose, buffers, font, camera, n.pos.x + 0.5, y + 3.3, n.pos.z + 0.5, n.name, cam.distanceToSqr(n.pos.x + 0.5, y, n.pos.z + 0.5), 0xFF80E0FF.toInt())
+        }
+        for (d in state.dropped) {
+            val mx = (d.a.x + d.b.x) / 2.0; val mz = (d.a.z + d.b.z) / 2.0
+            val my = (surfaceY(d.a) + surfaceY(d.b)) / 2.0 + 12
+            label(pose, buffers, font, camera, mx, my, mz, "dropped: ${d.reason}", cam.distanceToSqr(mx, my, mz), 0xFFFF6060.toInt())
         }
         for (road in state.roads) {
             val mid = road.points[road.points.size / 2]

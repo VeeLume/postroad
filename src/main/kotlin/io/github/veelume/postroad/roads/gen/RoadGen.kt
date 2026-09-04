@@ -69,7 +69,7 @@ object RoadGen {
         val discoverMillis: Long = 0,
         val chunksChecked: Int = 0,
         val coarseTilesSampled: Int = 0,
-        val dropped: List<String> = emptyList(),
+        val dropped: List<DroppedPair> = emptyList(),
     )
 
     /** The worker's view of one dimension; only the planner thread touches it after creation. */
@@ -207,6 +207,7 @@ object RoadGen {
                         newTowns.add(PlannedTown(c.id, req.dimension, c.structure, BlockPos(centre.x, terrain.heightAt(cell.x, cell.z), centre.z), c.box))
                     }
                     discoveredNow.add(key)
+                    pace(PACE_SQUARE_MS)
                 }
             }
         }
@@ -296,7 +297,7 @@ object RoadGen {
             junctions++
         }
         storage.markDiscovered(result.dimension, result.discovered)
-        storage.markDropped(result.dropped)
+        storage.markDropped(result.dropped.map { Triple(it.id, it.from.id to it.to.id, it.reason) })
         passesRun++
         Postroad.LOGGER.info("Road plan pass at {}: {} new town(s), {} new road(s), {} junction(s), {} pair(s) dropped for water; {} chunk(s) checked in {} ms, {} coarse + {} fine tile(s) sampled, {} ms total",
             result.center.toShortString(), towns, roads, junctions, result.dropped.size, result.chunksChecked, result.discoverMillis, result.coarseTilesSampled, result.tilesSampled, result.millis)
@@ -333,6 +334,14 @@ object RoadGen {
     }
 
     fun isOverworld(level: ServerLevel): Boolean = level.dimension() == Level.OVERWORLD
+
+    /** The planner thread yields between work items so its allocation and disk reads do not pile onto the server's tick. */
+    private fun pace(ms: Long) {
+        if (ms <= 0 || Thread.currentThread().name != "postroad-planner") return
+        try { Thread.sleep(ms) } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
+    }
+
+    private const val PACE_SQUARE_MS = 20L
 
     /**
      * Draws the plan around [center] as a PNG: coarse heights as the ground (fine where sampled), water
@@ -381,6 +390,12 @@ object RoadGen {
                 val a = road.points[i - 1]; val b = road.points[i]
                 g2.drawLine(Math.floorDiv(a.x, CELL_SIZE) - x0, Math.floorDiv(a.z, CELL_SIZE) - z0, Math.floorDiv(b.x, CELL_SIZE) - x0, Math.floorDiv(b.z, CELL_SIZE) - z0)
             }
+        }
+        g2.color = java.awt.Color.RED
+        for ((_, d) in storage.droppedDetails) {
+            val a = storage.towns[d.first]?.pos ?: continue
+            val b = storage.towns[d.second]?.pos ?: continue
+            g2.drawLine(Math.floorDiv(a.x, CELL_SIZE) - x0, Math.floorDiv(a.z, CELL_SIZE) - z0, Math.floorDiv(b.x, CELL_SIZE) - x0, Math.floorDiv(b.z, CELL_SIZE) - z0)
         }
         g2.color = java.awt.Color.YELLOW
         for (j in storage.junctions) if (j.dimension == dim) g2.fillRect(Math.floorDiv(j.pos.x, CELL_SIZE) - x0 - 1, Math.floorDiv(j.pos.z, CELL_SIZE) - z0 - 1, 3, 3)

@@ -13,7 +13,12 @@ data class PlannerCosts(
     val base: Double = 1.0,
     /** Multiplied by (height difference per cell)², capped at [slopeCap]. */
     val slopePenalty: Double = 0.6,
-    val slopeCap: Double = 12.0,
+    val slopeCap: Double = 60.0,
+    /** More than this many blocks of height change per 4-block cell is impassable (3 ≈ 37°). */
+    val maxStep: Double = 3.0,
+    /** Per block a cell sits above the higher town or below the lower one (beyond [bandMargin]), per cell. */
+    val bandPenalty: Double = 0.08,
+    val bandMargin: Double = 6.0,
     val water: Double = 40.0,
     /** A cell already on a road costs base × this; well below 1 so routes merge. */
     val reuseFactor: Double = 0.15,
@@ -40,7 +45,10 @@ data class PlannedRoute(val id: String, val from: Town, val to: Town, val cells:
 data class Junction(val cell: Cell, val joinedRoute: String, val joiningRoute: String)
 
 /** Routes in planning order and the junctions between them. */
-data class RoadPlan(val routes: List<PlannedRoute>, val junctions: List<Junction>, val dropped: List<String> = emptyList())
+/** A pair the planner gave up on and why: "water" (long crossing) or "unreachable" (no passable route). */
+data class DroppedPair(val id: String, val from: Town, val to: Town, val reason: String)
+
+data class RoadPlan(val routes: List<PlannedRoute>, val junctions: List<Junction>, val dropped: List<DroppedPair> = emptyList())
 
 /**
  * Cheapest-path planner over a [Terrain]. Pure: takes terrain and towns, returns routes; marks
@@ -61,25 +69,56 @@ object RoadPlanner {
     }
 
     /** Cost of stepping into cell (x, z) from a neighbour at [fromHeight], or null if impassable. */
-    private fun stepCost(terrain: Terrain, x: Int, z: Int, fromHeight: Int, diagonal: Boolean, costs: PlannerCosts, slopeDivisor: Double): Double? {
+    private fun stepCost(terrain: Terrain, x: Int, z: Int, fromHeight: Int, diagonal: Boolean, costs: PlannerCosts, slopeDivisor: Double, band: Band?): Double? {
         if (!terrain.inBounds(x, z)) return null
         if (terrain.has(x, z, Terrain.BLOCKED)) return null
         if (terrain.has(x, z, Terrain.LAVA)) return null
+        val h = terrain.heightAt(x, z)
+        val onRoad = terrain.has(x, z, Terrain.ROAD)
+        val dh = abs(h - fromHeight).toDouble() / (slopeDivisor * (if (diagonal) SQRT2 else 1.0))
+        // Existing roads were already judged passable; new ground must not be steeper than maxStep.
+        if (!onRoad && dh > costs.maxStep) return null
         var cost = costs.base * (if (diagonal) SQRT2 else 1.0)
-        if (terrain.has(x, z, Terrain.ROAD)) cost *= costs.reuseFactor
-        val dh = abs(terrain.heightAt(x, z) - fromHeight).toDouble() / slopeDivisor
+        if (onRoad) cost *= costs.reuseFactor
         cost += min(costs.slopePenalty * dh * dh, costs.slopeCap)
         if (terrain.has(x, z, Terrain.WATER)) cost += costs.water
+        if (band != null && !onRoad) {
+            val above = h - band.high
+            val below = band.low - h
+            if (above > 0) cost += costs.bandPenalty * above
+            if (below > 0) cost += costs.bandPenalty * below
+        }
         return cost
     }
+
+    /** The elevation band a route should stay in: between its towns' heights, with a margin. */
+    class Band(val low: Double, val high: Double)
 
     private fun passable(terrain: Terrain, x: Int, z: Int): Boolean =
         terrain.inBounds(x, z) && !terrain.has(x, z, Terrain.BLOCKED) && !terrain.has(x, z, Terrain.LAVA)
 
-    /** The cell itself if passable, else the nearest passable cell within [maxRing] rings — the box edge. */
-    fun resolveEndpoint(terrain: Terrain, cell: Cell, maxRing: Int = 32): Cell? {
+    /**
+     * The cell itself if passable, else the first passable cell walking from it toward [toward] (a town
+     * inside its box leaves the box on the side facing the other town), else the nearest passable cell
+     * within [maxRing] rings.
+     */
+    fun resolveEndpoint(terrain: Terrain, cell: Cell, maxRing: Int = 32, toward: Cell? = null): Cell? {
         // The cell itself may be out of bounds (a town inside its box, outside a corridor); only candidates must be in.
         if (passable(terrain, cell.x, cell.z)) return cell
+        if (toward != null) {
+            val dx = (toward.x - cell.x).toDouble()
+            val dz = (toward.z - cell.z).toDouble()
+            val len = sqrt(dx * dx + dz * dz)
+            if (len > 0) {
+                var t = 1.0
+                while (t <= maxRing) {
+                    val x = Math.round(cell.x + dx / len * t).toInt()
+                    val z = Math.round(cell.z + dz / len * t).toInt()
+                    if (passable(terrain, x, z)) return Cell(x, z)
+                    t += 1.0
+                }
+            }
+        }
         for (r in 1..maxRing) {
             var best: Cell? = null
             var bestDist = Double.MAX_VALUE
@@ -101,9 +140,12 @@ object RoadPlanner {
      * [slopeDivisor] scales height differences to the cell size the costs were tuned for (4 blocks).
      */
     fun route(terrain: Terrain, fromTown: Cell, toTown: Cell, costs: PlannerCosts = PlannerCosts(), slopeDivisor: Double = 1.0): List<Cell>? {
-        // Towns sit inside their structure boxes; the road ends at the box edge and the streets take over.
-        val from = resolveEndpoint(terrain, fromTown) ?: return null
-        val to = resolveEndpoint(terrain, toTown) ?: return null
+        // Towns sit inside their structure boxes; the road ends where the line to the other town leaves the box.
+        val from = resolveEndpoint(terrain, fromTown, toward = toTown) ?: return null
+        val to = resolveEndpoint(terrain, toTown, toward = fromTown) ?: return null
+        val hFrom = terrain.heightAt(from.x, from.z).toDouble()
+        val hTo = terrain.heightAt(to.x, to.z).toDouble()
+        val band = Band(min(hFrom, hTo) - costs.bandMargin, maxOf(hFrom, hTo) + costs.bandMargin)
         val g = Long2DoubleOpenHashMap().apply { defaultReturnValue(Double.POSITIVE_INFINITY) }
         val parent = Long2LongOpenHashMap().apply { defaultReturnValue(Long.MIN_VALUE) }
         val closed = LongOpenHashSet()
@@ -126,7 +168,7 @@ object RoadPlanner {
             for ((k, d) in NEIGHBOURS.withIndex()) {
                 val nx = cx + d[0]
                 val nz = cz + d[1]
-                val step = stepCost(terrain, nx, nz, h, k >= 4, costs, slopeDivisor) ?: continue
+                val step = stepCost(terrain, nx, nz, h, k >= 4, costs, slopeDivisor, band) ?: continue
                 val j = Terrain.key(nx, nz)
                 if (closed.contains(j)) continue
                 val tentative = gi + step
@@ -209,13 +251,15 @@ object RoadPlanner {
 
         val routes = ArrayList<PlannedRoute>()
         val junctions = ArrayList<Junction>()
-        val dropped = ArrayList<String>()
+        val dropped = ArrayList<DroppedPair>()
         for ((i, j) in ordered) {
             val id = routeId(towns[i].id, towns[j].id)
             if (id in known) continue
-            val cells = (if (coarse != null) routeHierarchical(terrain, coarse, ratio, towns[i].cell, towns[j].cell, costs)
-                else route(terrain, towns[i].cell, towns[j].cell, costs)) ?: continue
-            if (longestWaterRun(terrain, cells) > costs.maxWaterRun) { dropped.add(id); continue }
+            val raw = (if (coarse != null) routeHierarchical(terrain, coarse, ratio, towns[i].cell, towns[j].cell, costs)
+                else route(terrain, towns[i].cell, towns[j].cell, costs))
+            if (raw == null) { dropped.add(DroppedPair(id, towns[i], towns[j], "unreachable")); known.add(id); continue }
+            if (longestWaterRun(terrain, raw) > costs.maxWaterRun) { dropped.add(DroppedPair(id, towns[i], towns[j], "water")); known.add(id); continue }
+            val cells = snapExcursions(raw, owner, EXCURSION_MAX)
             // A junction is where the route's own new cells meet an existing road: stepping onto one, or
             // off one. Road-to-road steps pass through junctions recorded when those roads met, and the
             // route's two ends are towns, not junctions.
@@ -236,6 +280,66 @@ object RoadPlanner {
         }
         return RoadPlan(routes, junctions, dropped)
     }
+
+    /**
+     * A route that leaves an existing road and rejoins the same road within [maxLen] cells is snapped
+     * onto it: the excursion is replaced by the road's own cells between the two points (found by a
+     * short search over that road's cells). Otherwise every bend would become a little ring.
+     */
+    fun snapExcursions(cells: List<Cell>, owner: Map<Cell, String>, maxLen: Int): List<Cell> {
+        val out = ArrayList<Cell>(cells.size)
+        var i = 0
+        while (i < cells.size) {
+            val here = owner[cells[i]]
+            if (here == null) { out.add(cells[i]); i++; continue }
+            // On a road at i: look ahead for the next cell on the same road after leaving it.
+            var j = i + 1
+            while (j < cells.size && owner[cells[j]] == here) j++          // still on it
+            if (j >= cells.size) { out.addAll(cells.subList(i, cells.size)); break }
+            val leave = j                                                    // first cell off the road
+            var back = leave
+            while (back < cells.size && owner[cells[back]] != here && back - leave < maxLen) back++
+            if (back < cells.size && owner[cells[back]] == here) {
+                // Excursion of (back - leave) cells: bridge along the road instead.
+                val bridge = roadPath(cells[leave - 1], cells[back], here, owner) ?: run { out.addAll(cells.subList(i, back)); i = back; return@run null }
+                if (bridge != null) {
+                    out.addAll(cells.subList(i, leave))
+                    out.addAll(bridge.subList(1, bridge.size - 1))
+                    i = back
+                }
+            } else {
+                out.addAll(cells.subList(i, leave))
+                i = leave
+            }
+        }
+        return out
+    }
+
+    /** BFS over the cells of one road from [a] to [b]; null if they are not connected within a short distance. */
+    private fun roadPath(a: Cell, b: Cell, road: String, owner: Map<Cell, String>): List<Cell>? {
+        val parent = HashMap<Cell, Cell>()
+        val queue = ArrayDeque<Cell>()
+        queue.add(a); parent[a] = a
+        var steps = 0
+        while (queue.isNotEmpty() && steps++ < 4000) {
+            val c = queue.removeFirst()
+            if (c == b) {
+                val path = ArrayList<Cell>()
+                var cur = b
+                while (true) { path.add(cur); if (cur == a) break; cur = parent[cur]!! }
+                return path.reversed()
+            }
+            for (d in NEIGHBOURS) {
+                val n = Cell(c.x + d[0], c.z + d[1])
+                if (owner[n] != road || parent.containsKey(n)) continue
+                parent[n] = c
+                queue.add(n)
+            }
+        }
+        return null
+    }
+
+    private const val EXCURSION_MAX = 16
 
     /** Longest stretch of consecutive water cells on a route. */
     fun longestWaterRun(terrain: Terrain, cells: List<Cell>): Int {

@@ -25,7 +25,10 @@ data class DebugTown(val id: String, val name: String, val box: IntArray)
 
 data class DebugNode(val pos: BlockPos, val name: String, val kind: String)
 
-data class RoadDebugState(val roads: List<DebugRoad>, val junctions: List<DebugJunction>, val towns: List<DebugTown>, val nodes: List<DebugNode>) {
+/** A pair the planner dropped: the two town positions and the reason. */
+data class DebugDropped(val a: BlockPos, val b: BlockPos, val reason: String)
+
+data class RoadDebugState(val roads: List<DebugRoad>, val junctions: List<DebugJunction>, val towns: List<DebugTown>, val nodes: List<DebugNode>, val dropped: List<DebugDropped> = emptyList()) {
     companion object {
         val EMPTY = RoadDebugState(emptyList(), emptyList(), emptyList(), emptyList())
         val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, RoadDebugState> = StreamCodec.of(
@@ -37,6 +40,7 @@ data class RoadDebugState(val roads: List<DebugRoad>, val junctions: List<DebugJ
                 buf.writeCollection(s.junctions) { b, j -> b.writeLong(j.pos.asLong()); b.writeBoolean(j.signPlaced) }
                 buf.writeCollection(s.towns) { b, t -> b.writeUtf(t.id); b.writeUtf(t.name); b.writeVarIntArray(t.box) }
                 buf.writeCollection(s.nodes) { b, n -> b.writeLong(n.pos.asLong()); b.writeUtf(n.name); b.writeUtf(n.kind) }
+                buf.writeCollection(s.dropped) { b, d -> b.writeLong(d.a.asLong()); b.writeLong(d.b.asLong()); b.writeUtf(d.reason) }
             },
             { buf ->
                 RoadDebugState(
@@ -44,6 +48,7 @@ data class RoadDebugState(val roads: List<DebugRoad>, val junctions: List<DebugJ
                     buf.readList { b -> DebugJunction(BlockPos.of(b.readLong()), b.readBoolean()) },
                     buf.readList { b -> DebugTown(b.readUtf(), b.readUtf(), b.readVarIntArray()) },
                     buf.readList { b -> DebugNode(BlockPos.of(b.readLong()), b.readUtf(), b.readUtf()) },
+                    buf.readList { b -> DebugDropped(BlockPos.of(b.readLong()), BlockPos.of(b.readLong()), b.readUtf()) },
                 )
             },
         )
@@ -126,7 +131,12 @@ object RoadDebug {
             DebugTown(t.id, network.places[t.id]?.name ?: t.structure.path, intArrayOf(b.minX(), b.minY(), b.minZ(), b.maxX(), b.maxY(), b.maxZ()))
         }
         val nodes = network.nodes.values.filter { it.dimension == dim && near(it.pos) }.map { DebugNode(it.pos, it.name, it.kind) }
-        return RoadDebugState(roads, junctions, towns, nodes)
+        val dropped = storage.droppedDetails.values.mapNotNull { d ->
+            val a = storage.towns[d.first] ?: return@mapNotNull null
+            val b = storage.towns[d.second] ?: return@mapNotNull null
+            if (a.dimension != dim || (!near(a.pos) && !near(b.pos))) null else DebugDropped(a.pos, b.pos, d.third)
+        }
+        return RoadDebugState(roads, junctions, towns, nodes, dropped)
     }
 
     /** Chunk key of a road point, for the client's built/unbuilt colouring. */
