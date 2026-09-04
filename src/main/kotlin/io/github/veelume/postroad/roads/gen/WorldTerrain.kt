@@ -72,6 +72,30 @@ class WorldTerrainSampler(level: ServerLevel, private val cacheDir: Path?, priva
     @Volatile var fromCache: Int = 0
         private set
 
+    /**
+     * Blocks the real surface sits above the density crossing, measured once against the generator's
+     * own column scan at land points around the origin (Tectonic: about 4; vanilla: 0). Applied to every
+     * estimate. Computed on first use, so on the planner thread.
+     */
+    val surfaceOffset: Int by lazy { calibrate() }
+
+    private fun calibrate(): Int {
+        if (noise == null) return 0
+        val diffs = ArrayList<Int>()
+        for (i in -3..3) for (j in -3..3) {
+            val x = i * 700 + 37
+            val z = j * 700 + 91
+            val base = generator.getBaseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG, heightAccessor, randomState)
+            if (base <= seaLevel) continue // water surfaces report sea level; only land calibrates
+            diffs.add(base - rawSurface(x, z, null))
+        }
+        if (diffs.isEmpty()) return 0
+        diffs.sort()
+        val median = diffs[diffs.size / 2]
+        Postroad.LOGGER.info("Terrain sampler ({} blocks/cell): surface offset {} from {} land points (spread {}..{})", cellSize, median, diffs.size, diffs.first(), diffs.last())
+        return median
+    }
+
     override fun sample(tx: Int, tz: Int): Tile {
         read(tx, tz)?.let { fromCache++; return it }
         val tile = Tile.empty()
@@ -109,7 +133,9 @@ class WorldTerrainSampler(level: ServerLevel, private val cacheDir: Path?, priva
      * monotonic in y (a depth gradient shaped by 2-D splines), so the crossing is found by bisection
      * in a handful of evaluations. Non-noise generators fall back to the generator's own column scan.
      */
-    fun surface(x: Int, z: Int, hint: Int? = null): Int {
+    fun surface(x: Int, z: Int, hint: Int? = null): Int = rawSurface(x, z, hint?.let { it - surfaceOffset }) + surfaceOffset
+
+    private fun rawSurface(x: Int, z: Int, hint: Int?): Int {
         val settings = noise ?: return generator.getBaseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG, heightAccessor, randomState)
         val ns = settings.noiseSettings()
         val density = randomState.router().initialDensityWithoutJaggedness()

@@ -53,6 +53,7 @@ object PostroadCommands {
                         .then(Commands.literal("clear").requires { it.hasPermission(2) }.executes { roadsClear(it) })
                         .then(Commands.literal("rebuild").requires { it.hasPermission(2) }.executes { roadsRebuild(it) })
                         .then(Commands.literal("export").requires { it.hasPermission(2) }.executes { roadsExport(it) })
+                        .then(Commands.literal("debug").executes { roadsDebug(it) })
                         .then(
                             Commands.literal("probe")
                                 .executes { roadsProbe(it, BlockPos.containing(it.source.position)) }
@@ -215,6 +216,13 @@ object PostroadCommands {
         val real = if (level.hasChunk(pos.x shr 4, pos.z shr 4)) level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, pos.x, pos.z) else -1
         val biome = level.chunkSource.generator.biomeSource.getNoiseBiome(pos.x shr 2, base shr 2, pos.z shr 2, level.chunkSource.randomState().sampler()).unwrapKey().map { it.location().toString() }.orElse("?")
         ctx.source.sendSuccess({ Component.literal("(${pos.x}, ${pos.z}): estimate $estimate, generator base $base, real ${if (real < 0) "unloaded" else real.toString()}, sea ${level.chunkSource.generator.seaLevel}, biome $biome") }, false)
+        return 1
+    }
+
+    private fun roadsDebug(ctx: CommandContext<CommandSourceStack>): Int {
+        val player = ctx.source.playerOrException
+        val on = io.github.veelume.postroad.roads.gen.RoadDebug.toggle(player)
+        ctx.source.sendSuccess({ Component.literal(if (on) "Road debug view on: orange planned, white built, green charted; yellow junctions, magenta towns, cyan nodes." else "Road debug view off.") }, false)
         return 1
     }
 

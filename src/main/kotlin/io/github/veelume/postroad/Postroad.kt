@@ -89,6 +89,7 @@ object Postroad {
         FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(RoadGen::onServerTick))
         FORGE_BUS.addListener(ChunkEvent.Load::class.java, Consumer(RoadBuilder::onChunkLoad))
         FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(RoadBuilder::onServerTick))
+        FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(io.github.veelume.postroad.roads.gen.RoadDebug::onServerTick))
 
         if (FMLEnvironment.dist == Dist.CLIENT) {
             ClientSetup.register()
