@@ -51,7 +51,8 @@ object PostroadCommands {
                         .then(Commands.literal("status").executes { roadsStatus(it) })
                         .then(Commands.literal("plan").requires { it.hasPermission(2) }.executes { roadsPlan(it) })
                         .then(Commands.literal("clear").requires { it.hasPermission(2) }.executes { roadsClear(it) })
-                        .then(Commands.literal("rebuild").requires { it.hasPermission(2) }.executes { roadsRebuild(it) }),
+                        .then(Commands.literal("rebuild").requires { it.hasPermission(2) }.executes { roadsRebuild(it) })
+                        .then(Commands.literal("export").requires { it.hasPermission(2) }.executes { roadsExport(it) }),
                 )
                 .then(Commands.literal("nodes").executes { nodes(it) })
                 .then(
@@ -193,6 +194,14 @@ object PostroadCommands {
         val queued = io.github.veelume.postroad.roads.gen.RoadGen.schedule(level, pos)
         ctx.source.sendSuccess({ Component.literal(if (queued) "Road plan pass queued around ${pos.toShortString()}." else "The road planner is off (config plan.enabled).") }, true)
         return if (queued) 1 else 0
+    }
+
+    private fun roadsExport(ctx: CommandContext<CommandSourceStack>): Int {
+        val level = ctx.source.level
+        val pos = BlockPos.containing(ctx.source.position)
+        val file = io.github.veelume.postroad.roads.gen.RoadGen.exportImage(level, pos, io.github.veelume.postroad.PostroadConfig.planRadius + io.github.veelume.postroad.PostroadConfig.planMaxLink)
+        ctx.source.sendSuccess({ Component.literal(if (file != null) "Plan drawn to $file" else "Nothing to draw: no planner data for this dimension, or a pass is running.") }, true)
+        return if (file != null) 1 else 0
     }
 
     private fun roadsRebuild(ctx: CommandContext<CommandSourceStack>): Int {

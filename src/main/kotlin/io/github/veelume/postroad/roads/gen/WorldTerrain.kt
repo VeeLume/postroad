@@ -78,13 +78,18 @@ class WorldTerrainSampler(level: ServerLevel, private val cacheDir: Path?, priva
         // Height per cell; biome once per BIOME_STEP × BIOME_STEP cells (the climate sampler is the
         // expensive call and biomes do not change at cell resolution).
         val biomeIds = HashMap<Int, String>()
+        val biomeStep = maxOf(1, BIOME_BLOCKS / cellSize)
+        var hint: Int? = null
         for (i in 0 until TiledTerrain.TILE) for (j in 0 until TiledTerrain.TILE) {
             val cx = tx * TiledTerrain.TILE + j
             val cz = tz * TiledTerrain.TILE + i
             val x = cx * cellSize + cellSize / 2
             val z = cz * cellSize + cellSize / 2
-            val y = surface(x, z)
-            val bKey = (i / BIOME_STEP) * TiledTerrain.TILE + (j / BIOME_STEP)
+            // The cell to the left (or, at a row start, above) is the best guess for this one.
+            if (j == 0 && i > 0) hint = tile.heights[(i - 1) * TiledTerrain.TILE].toInt()
+            val y = surface(x, z, hint)
+            hint = y
+            val bKey = (i / biomeStep) * TiledTerrain.TILE + (j / biomeStep)
             val id = biomeIds.getOrPut(bKey) {
                 biomeSource.getNoiseBiome(QuartPos.fromBlock(x), QuartPos.fromBlock(y), QuartPos.fromBlock(z), randomState.sampler())
                     .unwrapKey().map { it.location().toString() }.orElse("")
@@ -104,13 +109,27 @@ class WorldTerrainSampler(level: ServerLevel, private val cacheDir: Path?, priva
      * monotonic in y (a depth gradient shaped by 2-D splines), so the crossing is found by bisection
      * in a handful of evaluations. Non-noise generators fall back to the generator's own column scan.
      */
-    fun surface(x: Int, z: Int): Int {
+    fun surface(x: Int, z: Int, hint: Int? = null): Int {
         val settings = noise ?: return generator.getBaseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG, heightAccessor, randomState)
         val ns = settings.noiseSettings()
         val density = randomState.router().initialDensityWithoutJaggedness()
         val step = ns.cellHeight
-        var lo = ns.minY()                 // treated as solid
-        var hi = ns.minY() + ns.height()   // treated as air
+        val minY = ns.minY()
+        val top = minY + ns.height()
+        var lo = minY   // treated as solid
+        var hi = top    // treated as air
+        if (hint != null) {
+            // Terrain is continuous: bracket around the neighbour's height, widening until it holds.
+            val h = (minY + Math.floorDiv(hint - minY, step) * step).coerceIn(minY, top - step)
+            var w = step
+            var l = h
+            while (l > minY && density.compute(DensityFunction.SinglePointContext(x, l, z)) <= SOLID) { l -= w; w *= 2 }
+            w = step
+            var u = maxOf(h + step, l + step)
+            while (u < top && density.compute(DensityFunction.SinglePointContext(x, u, z)) > SOLID) { u += w; w *= 2 }
+            lo = l.coerceAtLeast(minY)
+            hi = u.coerceAtMost(top)
+        }
         while (hi - lo > step) {
             val mid = lo + ((hi - lo) / 2 / step) * step
             if (density.compute(DensityFunction.SinglePointContext(x, mid, z)) > SOLID) lo = mid else hi = mid
@@ -160,6 +179,6 @@ class WorldTerrainSampler(level: ServerLevel, private val cacheDir: Path?, priva
     companion object {
         private const val MAGIC = 0x50524431 // "PRD1"
         private const val SOLID = 0.390625
-        private const val BIOME_STEP = 4
+        private const val BIOME_BLOCKS = 16
     }
 }

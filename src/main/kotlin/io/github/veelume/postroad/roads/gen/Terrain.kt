@@ -87,6 +87,17 @@ class TiledTerrain(override val cellSize: Int, private val sampler: TileSampler)
 
     override fun heightAt(cx: Int, cz: Int): Int = tileOf(cx, cz).heights[idx(cx, cz)].toInt()
 
+    /** Height if the tile is already in memory, else null — never samples (used for drawing). */
+    fun loadedHeightAt(cx: Int, cz: Int): Int? = tiles[Terrain.key(Math.floorDiv(cx, TILE), Math.floorDiv(cz, TILE))]?.heights?.get(idx(cx, cz))?.toInt()
+
+    /** Flags if the tile is already in memory (sampled and overlay), else null. */
+    fun loadedFlagsAt(cx: Int, cz: Int): Int? {
+        val key = Terrain.key(Math.floorDiv(cx, TILE), Math.floorDiv(cz, TILE))
+        val tile = tiles[key] ?: return null
+        val i = idx(cx, cz)
+        return tile.flags[i].toInt() or (overlays[key]?.get(i)?.toInt() ?: 0)
+    }
+
     override fun has(cx: Int, cz: Int, flag: Int): Boolean {
         val i = idx(cx, cz)
         val sampled = tileOf(cx, cz).flags[i].toInt()
@@ -126,4 +137,13 @@ class TiledTerrain(override val cellSize: Int, private val sampler: TileSampler)
         const val TILE = 16
         const val CELLS = TILE * TILE
     }
+}
+
+/**
+ * A fine terrain restricted to a corridor: only cells whose coarse cell (fine ÷ [ratio]) is in
+ * [allowed] are in bounds. The hierarchical planner searches the fine map through this.
+ */
+class CorridorTerrain(private val fine: Terrain, private val ratio: Int, private val allowed: it.unimi.dsi.fastutil.longs.LongOpenHashSet) : Terrain by fine {
+    override fun inBounds(cx: Int, cz: Int): Boolean =
+        fine.inBounds(cx, cz) && allowed.contains(Terrain.key(Math.floorDiv(cx, ratio), Math.floorDiv(cz, ratio)))
 }

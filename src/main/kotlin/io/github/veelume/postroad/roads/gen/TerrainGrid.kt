@@ -36,6 +36,27 @@ class TerrainGrid(
 
     override fun blockToCell(x: Int, z: Int): Cell = Cell(Math.floorDiv(x - originX, cellSize), Math.floorDiv(z - originZ, cellSize))
 
+    /** A coarse copy: mean height per [ratio]×[ratio] block, water where at least half the cells are, blocked where any is. */
+    fun downsample(ratio: Int): TerrainGrid {
+        val g = TerrainGrid(originX, originZ, cellSize * ratio, Math.ceilDiv(width, ratio), Math.ceilDiv(height, ratio))
+        for (cz in 0 until g.height) for (cx in 0 until g.width) {
+            var sum = 0; var n = 0; var water = 0; var flags = 0
+            for (dz in 0 until ratio) for (dx in 0 until ratio) {
+                val x = cx * ratio + dx; val z = cz * ratio + dz
+                if (!inBounds(x, z)) continue
+                sum += heightAt(x, z); n++
+                if (has(x, z, WATER)) water++
+                if (has(x, z, BLOCKED)) flags = flags or BLOCKED
+                if (has(x, z, LAVA)) flags = flags or LAVA
+            }
+            if (n == 0) continue
+            g.setHeight(cx, cz, sum / n)
+            if (water * 2 >= n) flags = flags or WATER
+            g.flags[g.index(cx, cz)] = flags.toByte()
+        }
+        return g
+    }
+
     /** Fills a rectangle of cells (inclusive) with a flag; used for structure boxes and tests. */
     fun fill(fromX: Int, fromZ: Int, toX: Int, toZ: Int, flag: Int) {
         for (cz in maxOf(0, fromZ)..minOf(height - 1, toZ)) for (cx in maxOf(0, fromX)..minOf(width - 1, toX)) set(cx, cz, flag)

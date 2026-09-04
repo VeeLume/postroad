@@ -36,6 +36,8 @@ import java.util.concurrent.atomic.AtomicInteger
 object RoadGen {
     const val GENERATED_BY = "postroad"
     const val CELL_SIZE = 4
+    /** The corridor map's cell; must be a multiple of [CELL_SIZE]. */
+    const val COARSE_CELL = 16
 
     /** Everything a pass needs, copied on the server thread. */
     class PassRequest(
@@ -65,10 +67,11 @@ object RoadGen {
         val tilesSampled: Int,
         val discoverMillis: Long = 0,
         val chunksChecked: Int = 0,
+        val coarseTilesSampled: Int = 0,
     )
 
     /** The worker's view of one dimension; only the planner thread touches it after creation. */
-    class Worker(val terrain: TiledTerrain, val sampler: WorldTerrainSampler, val finder: TownFinder)
+    class Worker(val terrain: TiledTerrain, val sampler: WorldTerrainSampler, val coarse: TiledTerrain, val coarseSampler: WorldTerrainSampler, val finder: TownFinder)
 
     private var executor: ExecutorService? = null
     private val workers = ConcurrentHashMap<ResourceLocation, Worker>()
@@ -165,7 +168,8 @@ object RoadGen {
     fun workerFor(level: ServerLevel): Worker = workers.getOrPut(level.dimension().location()) {
         val cache = level.server.getWorldPath(LevelResource("postroad")).resolve("terrain")
         val sampler = WorldTerrainSampler(level, cache, CELL_SIZE)
-        Worker(TiledTerrain(CELL_SIZE, sampler), sampler, TownFinder(level, sampler::surface))
+        val coarseSampler = WorldTerrainSampler(level, level.server.getWorldPath(LevelResource("postroad")).resolve("terrain$COARSE_CELL"), COARSE_CELL)
+        Worker(TiledTerrain(CELL_SIZE, sampler), sampler, TiledTerrain(COARSE_CELL, coarseSampler), coarseSampler, TownFinder(level, sampler::surface))
     }
 
     // ---- the pass (planner thread, or the test thread) -----------------------------------------
@@ -173,7 +177,9 @@ object RoadGen {
     fun runPass(worker: Worker, req: PassRequest): PassResult {
         val t0 = System.nanoTime()
         val terrain = worker.terrain
+        val coarse = worker.coarse
         val sampledBefore = worker.sampler.sampled
+        val coarseBefore = worker.coarseSampler.sampled
 
         // 1. Towns: search every discovery square in the radius that has not been searched.
         val newTowns = ArrayList<PlannedTown>()
@@ -210,12 +216,19 @@ object RoadGen {
             Math.floorDiv(req.center.x - reach, CELL_SIZE), Math.floorDiv(req.center.z - reach, CELL_SIZE),
             Math.floorDiv(req.center.x + reach, CELL_SIZE), Math.floorDiv(req.center.z + reach, CELL_SIZE),
         )
+        coarse.bounds = CellBox(
+            Math.floorDiv(req.center.x - reach, COARSE_CELL), Math.floorDiv(req.center.z - reach, COARSE_CELL),
+            Math.floorDiv(req.center.x + reach, COARSE_CELL), Math.floorDiv(req.center.z + reach, COARSE_CELL),
+        )
         val allTowns = req.knownTowns + newTowns
         for (town in allTowns) {
             val b = town.box
             val min = terrain.blockToCell(b.minX() - req.margin, b.minZ() - req.margin)
             val max = terrain.blockToCell(b.maxX() + req.margin, b.maxZ() + req.margin)
             terrain.block(CellBox(min.x, min.z, max.x, max.z))
+            val cmin = coarse.blockToCell(b.minX() - req.margin, b.minZ() - req.margin)
+            val cmax = coarse.blockToCell(b.maxX() + req.margin, b.maxZ() + req.margin)
+            coarse.block(CellBox(cmin.x, cmin.z, cmax.x, cmax.z))
         }
 
         // 3. Plan: towns in reach, existing roads as reusable cells.
@@ -227,7 +240,7 @@ object RoadGen {
             val cells = road.points.map { terrain.blockToCell(it.x, it.z) }
             PlannedRoute(road.id, townById[road.from] ?: Town(road.from, cells.first()), townById[road.to] ?: Town(road.to, cells.last()), cells)
         }
-        val plan = RoadPlanner.planNetwork(terrain, towns, req.costs, req.neighbours, req.maxLink.toDouble() / CELL_SIZE, existing)
+        val plan = RoadPlanner.planNetwork(terrain, towns, req.costs, req.neighbours, req.maxLink.toDouble() / CELL_SIZE, existing, coarse, COARSE_CELL / CELL_SIZE)
 
         // 4. Back to blocks.
         val newRoads = plan.routes.map { route ->
@@ -247,7 +260,7 @@ object RoadGen {
             else JunctionResult(terrain.cellToBlock(j.cell.x, j.cell.z), j.joinedRoute, joined, j.joiningRoute, joining)
         }
         return PassResult(req.dimension, req.center, newTowns, newRoads, newJunctions, discoveredNow,
-            (System.nanoTime() - t0) / 1_000_000, worker.sampler.sampled - sampledBefore, discoverMillis, chunksChecked)
+            (System.nanoTime() - t0) / 1_000_000, worker.sampler.sampled - sampledBefore, discoverMillis, chunksChecked, worker.coarseSampler.sampled - coarseBefore)
     }
 
     // ---- applying results (server thread) ------------------------------------------------------
@@ -281,8 +294,8 @@ object RoadGen {
         }
         storage.markDiscovered(result.dimension, result.discovered)
         passesRun++
-        Postroad.LOGGER.info("Road plan pass at {}: {} new town(s), {} new road(s), {} junction(s); {} chunk(s) checked in {} ms, {} tile(s) sampled, {} ms total",
-            result.center.toShortString(), towns, roads, junctions, result.chunksChecked, result.discoverMillis, result.tilesSampled, result.millis)
+        Postroad.LOGGER.info("Road plan pass at {}: {} new town(s), {} new road(s), {} junction(s); {} chunk(s) checked in {} ms, {} coarse + {} fine tile(s) sampled, {} ms total",
+            result.center.toShortString(), towns, roads, junctions, result.chunksChecked, result.discoverMillis, result.coarseTilesSampled, result.tilesSampled, result.millis)
     }
 
     /** Drops the plan and every generated path nobody has charted. Refused while a pass runs. */
@@ -306,7 +319,7 @@ object RoadGen {
         lines.add("${storage.towns.size} predicted town(s), ${storage.roads.size} planned road(s), ${storage.junctions.size} junction(s), " +
             "${storage.discovered.values.sumOf { it.size }} square(s) searched")
         for ((dim, w) in workers) {
-            lines.add("$dim: ${w.terrain.tileCount} tile(s) in memory, ${w.sampler.sampled} sampled, ${w.sampler.fromCache} from cache; " +
+            lines.add("$dim: ${w.terrain.tileCount} fine + ${w.coarse.tileCount} coarse tile(s) in memory, ${w.sampler.sampled}/${w.coarseSampler.sampled} sampled, ${w.sampler.fromCache}/${w.coarseSampler.fromCache} from cache; " +
                 "finder: ${w.finder.generated} layout(s) built, ${w.finder.prefiltered} skipped by biome")
         }
         val built = storage.roads.values.sumOf { it.builtChunks.size }
@@ -316,4 +329,63 @@ object RoadGen {
     }
 
     fun isOverworld(level: ServerLevel): Boolean = level.dimension() == Level.OVERWORLD
+
+    /**
+     * Draws the plan around [center] as a PNG: coarse heights as the ground (fine where sampled), water
+     * blue, town boxes red, roads white, junctions yellow, towns magenta. One pixel per fine cell.
+     * Server thread, and only while no pass runs (it reads the worker's tiles). Returns the file, or null.
+     */
+    fun exportImage(level: ServerLevel, center: BlockPos, radius: Int): java.nio.file.Path? {
+        if (pending.get() > 0) return null
+        val worker = workers[level.dimension().location()] ?: return null
+        val storage = RoadPlanStorage.get(level.server)
+        val dim = level.dimension().location()
+        val size = radius * 2 / CELL_SIZE
+        val x0 = Math.floorDiv(center.x - radius, CELL_SIZE)
+        val z0 = Math.floorDiv(center.z - radius, CELL_SIZE)
+        val ratio = COARSE_CELL / CELL_SIZE
+        val image = java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        // Height range for the shade, from whatever is loaded.
+        var minH = Int.MAX_VALUE; var maxH = Int.MIN_VALUE
+        for (pz in 0 until size) for (px in 0 until size) {
+            val h = worker.terrain.loadedHeightAt(x0 + px, z0 + pz) ?: worker.coarse.loadedHeightAt(Math.floorDiv(x0 + px, ratio), Math.floorDiv(z0 + pz, ratio)) ?: continue
+            if (h < minH) minH = h
+            if (h > maxH) maxH = h
+        }
+        if (minH > maxH) { minH = 60; maxH = 120 }
+        for (pz in 0 until size) for (px in 0 until size) {
+            val cx = x0 + px; val cz = z0 + pz
+            val fine = worker.terrain.loadedHeightAt(cx, cz)
+            val h = fine ?: worker.coarse.loadedHeightAt(Math.floorDiv(cx, ratio), Math.floorDiv(cz, ratio))
+            val flags = (if (fine != null) worker.terrain.loadedFlagsAt(cx, cz) else worker.coarse.loadedFlagsAt(Math.floorDiv(cx, ratio), Math.floorDiv(cz, ratio))) ?: 0
+            val rgb = when {
+                h == null -> 0x202020
+                flags and Terrain.BLOCKED != 0 -> 0x803030
+                flags and Terrain.WATER != 0 -> 0x2050a0
+                else -> {
+                    val t = ((h - minH).toDouble() / (maxH - minH).coerceAtLeast(1)).coerceIn(0.0, 1.0)
+                    val g = (90 + 130 * t).toInt(); val r = (50 + 150 * t).toInt(); val b = (40 + 60 * t).toInt()
+                    (r shl 16) or (g shl 8) or b
+                }
+            }
+            image.setRGB(px, pz, if (fine == null && h != null) (rgb shr 1) and 0x7f7f7f else rgb)
+        }
+        val g2 = image.createGraphics()
+        g2.color = java.awt.Color.WHITE
+        for (road in storage.roadsIn(dim)) {
+            for (i in 1 until road.points.size) {
+                val a = road.points[i - 1]; val b = road.points[i]
+                g2.drawLine(Math.floorDiv(a.x, CELL_SIZE) - x0, Math.floorDiv(a.z, CELL_SIZE) - z0, Math.floorDiv(b.x, CELL_SIZE) - x0, Math.floorDiv(b.z, CELL_SIZE) - z0)
+            }
+        }
+        g2.color = java.awt.Color.YELLOW
+        for (j in storage.junctions) if (j.dimension == dim) g2.fillRect(Math.floorDiv(j.pos.x, CELL_SIZE) - x0 - 1, Math.floorDiv(j.pos.z, CELL_SIZE) - z0 - 1, 3, 3)
+        g2.color = java.awt.Color.MAGENTA
+        for (t in storage.townsIn(dim)) g2.fillRect(Math.floorDiv(t.pos.x, CELL_SIZE) - x0 - 2, Math.floorDiv(t.pos.z, CELL_SIZE) - z0 - 2, 5, 5)
+        g2.dispose()
+        val file = level.server.getWorldPath(LevelResource("postroad")).resolve("plan_${center.x}_${center.z}.png")
+        java.nio.file.Files.createDirectories(file.parent)
+        javax.imageio.ImageIO.write(image, "png", file.toFile())
+        return file
+    }
 }

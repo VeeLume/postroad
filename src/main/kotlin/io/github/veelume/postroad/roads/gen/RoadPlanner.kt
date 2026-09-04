@@ -59,13 +59,13 @@ object RoadPlanner {
     }
 
     /** Cost of stepping into cell (x, z) from a neighbour at [fromHeight], or null if impassable. */
-    private fun stepCost(terrain: Terrain, x: Int, z: Int, fromHeight: Int, diagonal: Boolean, costs: PlannerCosts): Double? {
+    private fun stepCost(terrain: Terrain, x: Int, z: Int, fromHeight: Int, diagonal: Boolean, costs: PlannerCosts, slopeDivisor: Double): Double? {
         if (!terrain.inBounds(x, z)) return null
         if (terrain.has(x, z, Terrain.BLOCKED)) return null
         if (terrain.has(x, z, Terrain.LAVA)) return null
         var cost = costs.base * (if (diagonal) SQRT2 else 1.0)
         if (terrain.has(x, z, Terrain.ROAD)) cost *= costs.reuseFactor
-        val dh = abs(terrain.heightAt(x, z) - fromHeight).toDouble()
+        val dh = abs(terrain.heightAt(x, z) - fromHeight).toDouble() / slopeDivisor
         cost += min(costs.slopePenalty * dh * dh, costs.slopeCap)
         if (terrain.has(x, z, Terrain.WATER)) cost += costs.water
         return cost
@@ -76,7 +76,7 @@ object RoadPlanner {
 
     /** The cell itself if passable, else the nearest passable cell within [maxRing] rings — the box edge. */
     fun resolveEndpoint(terrain: Terrain, cell: Cell, maxRing: Int = 32): Cell? {
-        if (!terrain.inBounds(cell.x, cell.z)) return null
+        // The cell itself may be out of bounds (a town inside its box, outside a corridor); only candidates must be in.
         if (passable(terrain, cell.x, cell.z)) return cell
         for (r in 1..maxRing) {
             var best: Cell? = null
@@ -94,8 +94,11 @@ object RoadPlanner {
         return null
     }
 
-    /** A* from [fromTown] to [toTown]. Null if unreachable or the search blew its budget. */
-    fun route(terrain: Terrain, fromTown: Cell, toTown: Cell, costs: PlannerCosts = PlannerCosts()): List<Cell>? {
+    /**
+     * A* from [fromTown] to [toTown]. Null if unreachable or the search blew its budget.
+     * [slopeDivisor] scales height differences to the cell size the costs were tuned for (4 blocks).
+     */
+    fun route(terrain: Terrain, fromTown: Cell, toTown: Cell, costs: PlannerCosts = PlannerCosts(), slopeDivisor: Double = 1.0): List<Cell>? {
         // Towns sit inside their structure boxes; the road ends at the box edge and the streets take over.
         val from = resolveEndpoint(terrain, fromTown) ?: return null
         val to = resolveEndpoint(terrain, toTown) ?: return null
@@ -121,7 +124,7 @@ object RoadPlanner {
             for ((k, d) in NEIGHBOURS.withIndex()) {
                 val nx = cx + d[0]
                 val nz = cz + d[1]
-                val step = stepCost(terrain, nx, nz, h, k >= 4, costs) ?: continue
+                val step = stepCost(terrain, nx, nz, h, k >= 4, costs, slopeDivisor) ?: continue
                 val j = Terrain.key(nx, nz)
                 if (closed.contains(j)) continue
                 val tentative = gi + step
@@ -147,6 +150,20 @@ object RoadPlanner {
     }
 
     /**
+     * Two-level route: a corridor on the [coarse] map (cells [ratio] times the fine cell, weak heuristic so it
+     * finds existing roads and rides them), then the fine route inside that corridor with the usual costs.
+     * The fine map is only sampled inside the corridor, which is what makes this cheap.
+     */
+    fun routeHierarchical(fine: Terrain, coarse: Terrain, ratio: Int, from: Cell, to: Cell, costs: PlannerCosts = PlannerCosts()): List<Cell>? {
+        val cf = Cell(Math.floorDiv(from.x, ratio), Math.floorDiv(from.z, ratio))
+        val ct = Cell(Math.floorDiv(to.x, ratio), Math.floorDiv(to.z, ratio))
+        val coarsePath = route(coarse, cf, ct, costs.copy(heuristicWeight = costs.reuseFactor), slopeDivisor = ratio.toDouble()) ?: return null
+        val allowed = LongOpenHashSet()
+        for (c in coarsePath + cf + ct) for (dz in -1..1) for (dx in -1..1) allowed.add(Terrain.key(c.x + dx, c.z + dz))
+        return route(CorridorTerrain(fine, ratio, allowed), from, to, costs)
+    }
+
+    /**
      * Plans roads for [towns]: each town to its [neighbours] nearest within [maxLinkCells],
      * longest pairs first so trunks exist before spurs. Pairs that already have a road in
      * [existing] are skipped. Road cells are marked on the terrain, so a later route joins an
@@ -160,7 +177,13 @@ object RoadPlanner {
         neighbours: Int = 3,
         maxLinkCells: Double = 225.0,
         existing: List<PlannedRoute> = emptyList(),
+        coarse: Terrain? = null,
+        ratio: Int = 4,
     ): RoadPlan {
+        fun markRoad(cell: Cell) {
+            terrain.set(cell.x, cell.z, Terrain.ROAD)
+            coarse?.set(Math.floorDiv(cell.x, ratio), Math.floorDiv(cell.z, ratio), Terrain.ROAD)
+        }
         val pairs = LinkedHashSet<Pair<Int, Int>>()
         for ((i, a) in towns.withIndex()) {
             towns.withIndex()
@@ -175,7 +198,7 @@ object RoadPlanner {
         val owner = HashMap<Cell, String>() // road cell → id of the route that owns it
         for (route in existing) {
             for (cell in route.cells) {
-                if (owner.putIfAbsent(cell, route.id) == null) terrain.set(cell.x, cell.z, Terrain.ROAD)
+                if (owner.putIfAbsent(cell, route.id) == null) markRoad(cell)
             }
         }
         val known = existing.mapTo(HashSet()) { it.id }
@@ -185,7 +208,8 @@ object RoadPlanner {
         for ((i, j) in ordered) {
             val id = routeId(towns[i].id, towns[j].id)
             if (id in known) continue
-            val cells = route(terrain, towns[i].cell, towns[j].cell, costs) ?: continue
+            val cells = (if (coarse != null) routeHierarchical(terrain, coarse, ratio, towns[i].cell, towns[j].cell, costs)
+                else route(terrain, towns[i].cell, towns[j].cell, costs)) ?: continue
             // A junction is where the route's own new cells meet an existing road: stepping onto one, or
             // off one. Road-to-road steps pass through junctions recorded when those roads met, and the
             // route's two ends are towns, not junctions.
@@ -199,7 +223,7 @@ object RoadPlanner {
                 previousOwner = current
             }
             for (cell in cells) {
-                if (owner.putIfAbsent(cell, id) == null) terrain.set(cell.x, cell.z, Terrain.ROAD)
+                if (owner.putIfAbsent(cell, id) == null) markRoad(cell)
             }
             routes.add(PlannedRoute(id, towns[i], towns[j], cells))
             known.add(id)

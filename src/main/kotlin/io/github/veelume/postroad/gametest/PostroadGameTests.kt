@@ -492,14 +492,19 @@ class PostroadGameTests {
         val planner = io.github.veelume.postroad.roads.gen.RoadPlanner
         val cell = { x: Int, z: Int -> io.github.veelume.postroad.roads.gen.Cell(x, z) }
 
-        // A river across the middle with a ford at x = 30: the route should cross at the ford.
+        // A river across the middle with a ford at x = 28..31: the route should cross at the ford.
         val river = g.flat(60, 40, 64)
         river.fill(0, 19, 59, 21, g.WATER)
-        river.clear(30, 19, g.WATER); river.clear(30, 20, g.WATER); river.clear(30, 21, g.WATER)
+        for (fx in 28..31) for (fz in 19..21) river.clear(fx, fz, g.WATER)
         val crossing = planner.route(river, cell(5, 5), cell(5, 35)) ?: return helper.fail("river route not found")
         val wet = crossing.count { river.has(it.x, it.z, g.WATER) }
         helper.assertValueEqual(wet, 0, "route uses the ford, no wet cells")
-        helper.assertTrue(crossing.any { it.x == 30 && it.z == 20 }, "route passes the ford")
+        helper.assertTrue(crossing.any { it.x in 28..31 && it.z == 20 }, "route passes the ford")
+        // The same through the two-level planner: coarse corridor, fine route inside it.
+        val coarse = river.downsample(4)
+        val twoLevel = planner.routeHierarchical(river, coarse, 4, cell(5, 5), cell(5, 35)) ?: return helper.fail("hierarchical river route not found")
+        helper.assertValueEqual(twoLevel.count { river.has(it.x, it.z, g.WATER) }, 0, "two-level route is dry too")
+        helper.assertTrue(twoLevel.any { it.x in 28..31 && it.z == 20 }, "two-level route passes the ford")
 
         // A steep hill in the middle: the route goes around rather than over.
         val hill = g.flat(60, 60, 64)
@@ -528,7 +533,7 @@ class PostroadGameTests {
         // Towns A and B far apart on a line, C off to the side near the middle.
         val grid = g.flat(120, 60, 64)
         val towns = listOf(cell(5, 30), cell(115, 30), cell(60, 50)).mapIndexed { i, c -> io.github.veelume.postroad.roads.gen.Town("t$i", c) }
-        val plan = planner.planNetwork(grid, towns, neighbours = 2, maxLinkCells = 200.0)
+        val plan = planner.planNetwork(grid, towns, neighbours = 2, maxLinkCells = 200.0, coarse = grid.downsample(4), ratio = 4)
         helper.assertTrue(plan.routes.size >= 2, "at least two routes planned (${plan.routes.size})")
         val roadCells = plan.routes.flatMap { it.cells }.toSet().size
         val summed = plan.routes.sumOf { it.cells.size }
