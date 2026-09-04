@@ -35,7 +35,7 @@ object RoadLayer {
         val beforeH = if (run.before.isNotEmpty()) RoadBuilder.straight(run.before + points.first()).dropLast(1).map(::ground) else emptyList()
         val afterH = if (run.after.isNotEmpty()) RoadBuilder.straight(listOf(points.last()) + run.after).drop(1).map(::ground) else emptyList()
         val flat = RoadBuilder.flatten(beforeH + terrain + afterH).toList().subList(beforeH.size, beforeH.size + terrain.size)
-        val target = RoadBuilder.smooth(flat, null)
+        val target = RoadBuilder.pace(RoadBuilder.smooth(flat, null), path)
         // Every strip block belongs to one column: its own centre, else the first stamp that reaches it.
         val owner = it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap().apply { defaultReturnValue(-1) }
         fun key(x: Int, z: Int): Long = (x.toLong() shl 32) or (z.toLong() and 0xffffffffL)
@@ -57,6 +57,7 @@ object RoadLayer {
                 val centre = dx == 0 && dz == 0
                 placed += RoadBuilder.placeColumnAt(level, x, z, target[i], g, if (centre) style.surface else style.edge, style, styles, shape.kind, c, shape.higher ?: c)
             }
+            placed += RoadBuilder.embank(level, c, half, target[i], style, styles) { x, z -> if (inChunk(x, z)) ground(x, z) else Int.MIN_VALUE }
             if (lampInterval > 0 && i > 0 && i % lampInterval == 0) {
                 val prev = path[i - 1]
                 val dxp = (c[0] - prev[0]).toDouble(); val dzp = (c[1] - prev[1]).toDouble()

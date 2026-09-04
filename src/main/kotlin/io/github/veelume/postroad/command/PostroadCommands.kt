@@ -322,7 +322,7 @@ object PostroadCommands {
     private fun roadsDebugTerrain(ctx: CommandContext<CommandSourceStack>): Int {
         val player = ctx.source.playerOrException
         val on = io.github.veelume.postroad.roads.gen.RoadDebug.toggleTerrain(player)
-        ctx.source.sendSuccess({ Component.literal(if (on) "Terrain debug layer on: a cross per planner cell at its estimated surface — green flat, yellow step (≤2), orange stairs (≤4), purple impassable; blue water, magenta blocked, white road. A red tick means the estimate floats above the real ground, a blue tick that it is buried. Faint crosses are estimates, solid ones generated terrain from Distant Horizons." else "Terrain debug layer off.") }, false)
+        ctx.source.sendSuccess({ Component.literal(if (on) "Terrain debug layer on: a cross per planner cell at its estimated surface — green flat, yellow slabs (≤1), orange stairs (≤2), purple impassable; blue water, magenta blocked, white road. A red tick means the estimate floats above the real ground, a blue tick that it is buried. Faint crosses are estimates, solid ones generated terrain from Distant Horizons." else "Terrain debug layer off.") }, false)
         return 1
     }
 

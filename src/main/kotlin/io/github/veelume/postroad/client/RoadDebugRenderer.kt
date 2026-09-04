@@ -147,8 +147,8 @@ object RoadDebugRenderer {
                 flags and Terrain.LAVA != 0 -> Triple(255, 90, 0)
                 flags and Terrain.WATER != 0 -> Triple(60, 120, 255)
                 step == 0 -> Triple(80, 220, 80)
-                step <= 2 -> Triple(230, 230, 60)
-                step <= 4 -> Triple(255, 150, 30)
+                step <= 1 -> Triple(230, 230, 60)
+                step <= 2 -> Triple(255, 150, 30)
                 else -> Triple(150, 0, 170)
             }
             val cx = ((g.originCx + dx) * g.cellSize + g.cellSize / 2 + 0.5).toFloat()

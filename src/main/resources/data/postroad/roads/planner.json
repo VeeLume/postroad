@@ -7,13 +7,13 @@
       "cost": 0.0
     },
     {
-      "name": "step",
-      "upTo": 2,
+      "name": "slabs",
+      "upTo": 1,
       "cost": 1.0
     },
     {
       "name": "stairs",
-      "upTo": 4,
+      "upTo": 2,
       "cost": 8.0
     }
   ],

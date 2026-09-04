@@ -213,7 +213,7 @@ object RoadBuilder {
             val before = if (first > 0) straight(points.subList(maxOf(0, first - CONTEXT_POINTS), first + 1)).dropLast(1).map(::ground) else emptyList()
             val after = if (exit + 1 < points.size) straight(points.subList(exit, minOf(points.size, exit + 1 + CONTEXT_POINTS))).drop(1).map(::ground) else emptyList()
             val flat = flatten(before + terrain + after).toList().subList(before.size, before.size + terrain.size)
-            val run = Run(path, smooth(flat, null), first)
+            val run = Run(path, pace(smooth(flat, null), path), first)
             // Every block of the strip belongs to one column: a column's own centre always, the rest to
             // the first column whose round stamp reaches it. Then each column places only its own blocks.
             for ((i, c) in path.withIndex()) for (dz in -half..half) for (dx in -half..half) {
@@ -248,6 +248,8 @@ object RoadBuilder {
                     placed += placeColumn(level, x, z, target[i], palette, style, styles, boxes, shape.kind, c, shape.higher ?: c)
                     job.setBlockNanos += System.nanoTime() - t0
                 }
+                // The embankment: outside the strip, fill steps down one block per block until it meets the ground.
+                placed += embank(level, c, half, target[i], style, styles, { x, z -> if (level.hasChunk(x shr 4, z shr 4) && !inBox(x, z, boxes)) groundY(level, x, z, target[i], styles) else Int.MIN_VALUE })
                 // A lamppost every lampInterval columns, sides alternating, two blocks off the centre.
                 if (lampInterval > 0 && i > 0 && i % lampInterval == 0) {
                     val prev = path[i - 1]
@@ -286,6 +288,54 @@ object RoadBuilder {
         /** Strip block → the column that places it. */
         val owner = it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap().apply { defaultReturnValue(-1) }
         fun terrainKnown(i: Int): Boolean = target[i] != Int.MIN_VALUE
+    }
+
+    /**
+     * What stairs and slabs can carry: at most one rise per two columns (stair, landing, stair), and a
+     * landing wherever the road turns by a right angle while rising. A forward pass over the smoothed
+     * profile; where the terrain climbs faster the road lags it and the cut/fill limits decide.
+     */
+    fun pace(target: IntArray, path: List<IntArray>): IntArray {
+        val t = target.copyOf()
+        if (t.size < 2) return t
+        var prev = 0
+        for (i in 1 until t.size) {
+            if (t[i] == Int.MIN_VALUE || t[i - 1] == Int.MIN_VALUE) { prev = 0; continue }
+            var dh = (t[i] - t[i - 1]).coerceIn(-1, 1)
+            val turn = i + 1 < path.size && i < path.size &&
+                (path[i][0] - path[i - 1][0]) * (path[i + 1][0] - path[i][0]) + (path[i][1] - path[i - 1][1]) * (path[i + 1][1] - path[i][1]) <= 0
+            if (dh != 0 && (dh == prev || turn)) dh = 0
+            t[i] = t[i - 1] + dh
+            prev = dh
+        }
+        return t
+    }
+
+    /**
+     * Fill outside the strip around column [c]: from each edge column outward, one block lower per
+     * block, down to the ground — a slope, not a wall. [ground] gives a column's ground or
+     * `Int.MIN_VALUE` where nothing may be placed. Returns blocks placed.
+     */
+    fun embank(level: LevelAccessor, c: IntArray, half: Int, top: Int, style: RoadStyle, styles: RoadStyleSet, ground: (Int, Int) -> Int): Int {
+        var placed = 0
+        for (dz in -1..1) for (dx in -1..1) {
+            if (dx == 0 && dz == 0) continue
+            for (k in 1..MAX_EMBANK) {
+                val x = c[0] + dx * (half + k); val z = c[1] + dz * (half + k)
+                val g = ground(x, z)
+                if (g == Int.MIN_VALUE) break
+                val upTo = top - k
+                if (g >= upTo) break
+                val gs = level.getBlockState(BlockPos(x, g, z))
+                if (!gs.fluidState.isEmpty) break
+                for (y in g + 1..upTo) {
+                    val p = BlockPos(x, y, z)
+                    if (!styles.isClearable(level.getBlockState(p))) break
+                    level.setBlock(p, style.fill, 2 or 16); placed++
+                }
+            }
+        }
+        return placed
     }
 
     /**
@@ -356,8 +406,10 @@ object RoadBuilder {
     internal const val CONTEXT_POINTS = 4
     private const val MAX_CUT = 4
 
-    private const val MAX_FILL = 6
+    private const val MAX_FILL = 8
     private const val HEADROOM = 3
+    /** How far out from the strip an embankment reaches, one block down per block. */
+    private const val MAX_EMBANK = 6
 
     /**
      * One column of road at height [top] (the walking surface's supporting block): fill up to it or cut

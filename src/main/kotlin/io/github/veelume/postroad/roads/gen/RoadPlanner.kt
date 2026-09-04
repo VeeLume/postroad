@@ -12,12 +12,12 @@ import kotlin.math.sqrt
 data class PlannerCosts(
     val base: Double = 1.0,
     /**
-     * Height change per 4-block cell, classed: flat, a step (a slab), stairs (one block per block, the most a
-     * straight road can be built as) — each class up to
+     * Height change per 4-block cell, classed: flat, slabs (one rise per four blocks), stairs (one rise per two
+     * blocks — stair, landing, stair — the most a straight road is built as) — each class up to
      * [StepClass.upTo] blocks costs [StepClass.cost] extra per cell; more than the last class is impassable.
      * Existing road cells carry no step cost, so a second route rides an existing stair section.
      */
-    val steps: List<StepClass> = listOf(StepClass("flat", 0.0, 0.0), StepClass("step", 2.0, 1.0), StepClass("stairs", 4.0, 8.0)),
+    val steps: List<StepClass> = listOf(StepClass("flat", 0.0, 0.0), StepClass("slabs", 1.0, 1.0), StepClass("stairs", 2.0, 8.0)),
     /** Per block a cell sits above the higher town or below the lower one (beyond [bandMargin]), per cell. */
     val bandPenalty: Double = 0.08,
     val bandMargin: Double = 6.0,
