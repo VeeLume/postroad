@@ -135,6 +135,18 @@ object RoadGen {
         }
     }
 
+    /**
+     * Samples the tiles holding [cells] on the planner thread if they are not in memory yet (the
+     * debug view's way to see terrain the passes never touched). Cheap when the disk cache has them.
+     */
+    fun prefetch(level: ServerLevel, terrain: TiledTerrain, cells: Collection<Cell>) {
+        val exec = executor ?: return
+        if (cells.isEmpty()) return
+        exec.execute {
+            try { for (c in cells) terrain.heightAt(c.x, c.z) } catch (e: Throwable) { Postroad.LOGGER.warn("Terrain prefetch failed: {}", e.toString()) }
+        }
+    }
+
     // ---- scheduling -----------------------------------------------------------------------------
 
     /** Queues a pass around [center]; false if the planner is off. */

@@ -157,11 +157,16 @@ object RoadDebug {
             val max = terrain.blockToCell(centre.x + radius, centre.z + radius)
             val w = max.x - min.x + 1; val h = max.z - min.z + 1
             val heights = IntArray(w * h); val flags = ByteArray(w * h)
+            val missing = LinkedHashMap<Long, Cell>()
             for (dz in 0 until h) for (dx in 0 until w) {
                 val cx = min.x + dx; val cz = min.z + dz
-                heights[dz * w + dx] = terrain.loadedHeightAt(cx, cz) ?: Int.MIN_VALUE
+                val height = terrain.loadedHeightAt(cx, cz)
+                if (height == null) missing.putIfAbsent(Terrain.key(Math.floorDiv(cx, TiledTerrain.TILE), Math.floorDiv(cz, TiledTerrain.TILE)), Cell(cx, cz))
+                heights[dz * w + dx] = height ?: Int.MIN_VALUE
                 flags[dz * w + dx] = (terrain.loadedFlagsAt(cx, cz) ?: 0).toByte()
             }
+            // Tiles the passes never loaded: sample them on the planner thread; the next refresh shows them.
+            RoadGen.prefetch(level, terrain, missing.values)
             return DebugGrid(terrain.cellSize, min.x, min.z, w, h, heights, flags)
         }
         return TerrainDebugState(listOf(grid(worker.terrain, TERRAIN_RADIUS), grid(worker.coarse, TERRAIN_RADIUS * 4)))
