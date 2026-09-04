@@ -44,6 +44,10 @@ live in `docs/` (one per increment). This file is about the code.
   `RoadStyles` (`roads/styles.json`: palettes per family, what may be replaced/cleared), `RoadBuilder` (chunk-load
   candidates → tick-time filtering against the plan → per-chunk build under `build.blocksPerTick`: 3-wide strip on
   the real heightmap, lampposts, junction signposts linked as sign nodes via `SignNodes.linkGenerated`).
+  `RoadRefiner` is the third, block-level pass at build time: per chunk run, A* on the real terrain inside a
+  6-block corridor around the planned line (trunks, water, boxes impassable; real height steps priced), so roads bend
+  around trees and bumps and meet neighbours exactly at the shared point. `RoadBuilder.groundY` scans down from the
+  planned height (ignores barriers/leaves/plants) — the game-test harness encases tests in barriers, so heightmaps lie there.
   `Charting.markGenerated` charts a generated road a walk followed instead of recording a duplicate.
   `RoadDebug` (+ `client/RoadDebugRenderer`): `/postroad roads debug` toggles a per-player in-world overlay of
   roads/junctions/towns/nodes within 512 blocks, sent every 2 s; `/postroad roads export` draws the plan as a PNG;

@@ -686,48 +686,46 @@ class PostroadGameTests {
         val server = level.server
         val tag = java.util.UUID.randomUUID().toString().take(6)
         val dim = level.dimension().location()
-        // A straight road across the arena floor, one point every 4 blocks, on the floor's surface.
-        val start = helper.absolutePos(BlockPos(1, 1, 4))
-        // The ground the builder will see: the heightmap at the road's start, whatever the batch put there.
-        val floorY = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, start.x + 4, start.z) - 1
-        val points = (0..4).map { BlockPos(start.x + it * 4, floorY + 1, start.z) }
+        // The arena is 7×7 with a barrier floor around it (the harness's doing), so the road stays inside:
+        // two points four blocks apart, and a two-block step wall across the whole width between them.
+        val start = helper.absolutePos(BlockPos(1, 1, 3))
+        val floorY = io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, start.x, start.z, start.y)
+        val points = listOf(BlockPos(start.x, floorY + 1, start.z), BlockPos(start.x + 4, floorY + 1, start.z))
+        for (z in 0..6) for (sx in 3..4) {
+            helper.setBlock(BlockPos(sx, 1, z), Blocks.STONE)
+            helper.setBlock(BlockPos(sx, 2, z), Blocks.STONE)
+        }
         val road = io.github.veelume.postroad.roads.gen.PlannedRoad("t$tag", dim, "test/$tag/a", "test/$tag/b", points, ByteArray(points.size))
         val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(server)
         val network = Network.get(server)
         storage.addRoad(road)
         network.addPath(io.github.veelume.postroad.roads.RoadPath(road.id, dim, points.toMutableList(), MutableList(points.size) { io.github.veelume.postroad.roads.Tier.PAVED },
             io.github.veelume.postroad.roads.gen.RoadGen.GENERATED_BY, 0, charted = false))
-        // Real ground so the styles file allows the replacement (the arena floor is stone: replaceable).
         val chunk = net.minecraft.world.level.ChunkPos.asLong(start.x shr 4, start.z shr 4)
-        // A two-block step across the road's path: the builder must turn it into one-block steps with stairs or a slab.
-        for (dz in -1..1) for (sx in 0..1) {
-            helper.setBlock(BlockPos(9 + sx, 1, 4 + dz), Blocks.STONE)
-            helper.setBlock(BlockPos(9 + sx, 2, 4 + dz), Blocks.STONE)
-        }
-        for (dz in -1..1) for (sx in 2..8) { helper.setBlock(BlockPos(9 + sx, 1, 4 + dz), Blocks.STONE); helper.setBlock(BlockPos(9 + sx, 2, 4 + dz), Blocks.STONE) }
         val placed = io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk)
-        val floor = level.getBlockState(BlockPos(start.x + 4, floorY, start.z))
-        val above = level.getBlockState(BlockPos(start.x + 4, floorY + 1, start.z))
-        val hm = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, start.x + 4, start.z)
-        helper.assertTrue(placed > 0, "the builder placed road blocks ($placed); floor ${floor.block} replaceable=${io.github.veelume.postroad.roads.gen.RoadStyles.current.isReplaceable(floor)}, above ${above.block}, heightmap $hm vs floorY $floorY, roads in chunk ${storage.roadsInChunk(dim, chunk).size}, towns ${storage.towns.size}")
-        helper.assertTrue(road.builtChunks.contains(chunk), "the chunk is marked built")
+        val floorState = level.getBlockState(BlockPos(start.x, floorY, start.z))
         val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
-        val centre = level.getBlockState(BlockPos(start.x + 4, floorY, start.z))
-        helper.assertTrue(!centre.`is`(Blocks.STONE) && !centre.`is`(Blocks.POLISHED_ANDESITE), "the road centre is a palette block (${centre.block})")
+        val refined = io.github.veelume.postroad.roads.gen.RoadRefiner.refine(level, points, styles, storage.townsIn(dim).map { it.box })
+        helper.assertTrue(placed > 0, "the builder placed road blocks ($placed); floor ${floorState.block} replaceable=${styles.isReplaceable(floorState)} floorY=$floorY min=${level.minBuildHeight}, refined=${refined?.joinToString { "(${it[0] - start.x},${it[1] - start.z})" }}, towns=${storage.towns.size}, chunkOf(p1)==chunk: ${net.minecraft.world.level.ChunkPos.asLong(points[1].x shr 4, points[1].z shr 4) == chunk}")
+        helper.assertTrue(road.builtChunks.contains(chunk), "the chunk is marked built")
+        val centre = level.getBlockState(BlockPos(start.x + 1, floorY, start.z))
+        helper.assertTrue(!centre.`is`(Blocks.STONE) && !centre.`is`(Blocks.POLISHED_ANDESITE) && !centre.`is`(Blocks.BARRIER), "the road centre is a palette block (${centre.block})")
         helper.assertValueEqual(io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk), 0, "a second build places nothing")
         // Walkable: along the centre line no two neighbouring columns differ by more than one block, and a rise carries stairs or a slab.
         var maxJump = 0
         var shaped = 0
         var prevTop = Int.MIN_VALUE
-        for (x in start.x..(start.x + 16)) {
-            val top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, start.z) - 1
+        val profile = StringBuilder()
+        for (x in start.x..(start.x + 4)) {
+            val top = io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, start.z, floorY + 1)
             val s = level.getBlockState(BlockPos(x, top, start.z))
+            profile.append("${top - floorY}:${s.block.descriptionId.substringAfterLast('.')} ")
             if (s.block is net.minecraft.world.level.block.StairBlock || s.block is net.minecraft.world.level.block.SlabBlock) shaped++
             if (prevTop != Int.MIN_VALUE) maxJump = maxOf(maxJump, kotlin.math.abs(top - prevTop))
             prevTop = top
         }
-        helper.assertTrue(maxJump <= 1, "the road climbs the step one block at a time (max jump $maxJump)")
-        helper.assertTrue(shaped >= 1, "the rise carries stairs or a slab ($shaped shaped columns)")
+        helper.assertTrue(maxJump <= 1, "the road climbs the step one block at a time (max jump $maxJump): $profile")
+        helper.assertTrue(shaped >= 1, "the rise carries stairs or a slab ($shaped shaped columns): $profile")
 
         // Walking the road charts it instead of recording a duplicate.
         val player = helper.makeMockServerPlayerInLevel()

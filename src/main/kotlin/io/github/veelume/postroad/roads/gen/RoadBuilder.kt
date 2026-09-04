@@ -20,6 +20,7 @@ import net.minecraft.world.level.levelgen.Heightmap
 import net.minecraft.world.level.levelgen.structure.BoundingBox
 import net.neoforged.neoforge.event.level.ChunkEvent
 import net.neoforged.neoforge.event.tick.ServerTickEvent
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import java.util.Random
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.math.ceil
@@ -44,6 +45,7 @@ object RoadBuilder {
         var startedAt = 0L
         var blocks = 0
         var setBlockNanos = 0L
+        var run: Run? = null
     }
 
     private val candidates = ConcurrentLinkedQueue<Job>()
@@ -149,12 +151,12 @@ object RoadBuilder {
         val roads = storage.roadsInChunk(dim, chunk)
         while (job.roadIndex < roads.size) {
             val road = roads[job.roadIndex]
-            if (road.builtChunks.contains(chunk)) { job.roadIndex++; job.pointIndex = 0; continue }
+            if (road.builtChunks.contains(chunk)) { job.roadIndex++; job.pointIndex = 0; job.run = null; continue }
             val next = buildRoadInChunk(level, road, chunk, styles, boxes, job, deadline)
             if (next >= 0) { job.pointIndex = next; return false }
             road.builtChunks.add(chunk)
             storage.setDirty()
-            job.roadIndex++; job.pointIndex = 0
+            job.roadIndex++; job.pointIndex = 0; job.run = null
         }
         for (junction in storage.junctions) {
             if (junction.signPlaced || junction.dimension != dim) continue
@@ -169,76 +171,110 @@ object RoadBuilder {
 
     private fun chunkOf(p: BlockPos): Long = ChunkPos.asLong(p.x shr 4, p.z shr 4)
 
-    /** Builds [road]'s points in [chunk] from [job]'s point index; returns the next index to resume at, or -1 when done. */
+    /**
+     * Builds [road]'s share of [chunk]: the run from its first point in the chunk to the first point
+     * after it (the exit, shared with the next chunk), refined block by block on the real terrain,
+     * from [job]'s column index. Returns the next column to resume at, or -1 when the run is done.
+     */
     private fun buildRoadInChunk(level: ServerLevel, road: PlannedRoad, chunk: Long, styles: RoadStyleSet, boxes: List<BoundingBox>, job: Job, deadline: Long): Int {
         val width = PostroadConfig.buildWidth
         val half = width / 2
-        val lampInterval = PostroadConfig.buildLampInterval.toDouble()
-        var placed = 0
-        var length = 0.0
-        var lastTop = Int.MIN_VALUE
+        val lampInterval = PostroadConfig.buildLampInterval
         val points = road.points
-        val from = job.pointIndex
-        for (i in points.indices) {
-            val a = points[i]
-            val prevLength = length
-            if (i > 0) length += horizontal(points[i - 1], a)
-            if (i < from) continue
-            if (i > from && System.nanoTime() > deadline) { job.blocks += placed; return i }
-            if (chunkOf(a) != chunk) continue
-            val style = styles.style(road.families.getOrElse(i) { 0 }.toInt())
-            val b = points.getOrNull(i + 1) ?: a
-            val dx = (b.x - a.x).toDouble()
-            val dz = (b.z - a.z).toDouble()
-            val len = sqrt(dx * dx + dz * dz)
-            val nx = if (len > 0) -dz / len else 0.0
-            val nz = if (len > 0) dx / len else 1.0
-            val steps = if (len > 0) ceil(len).toInt() else 0
-            // Columns along the centre line, then a profile limited to one block per column: the road
-            // climbs by steps, never by jumps. Fill under it, cut above it, slab a lone step, stairs a run.
-            val columns = ArrayList<IntArray>()
-            for (s in 0..steps) {
-                if (s == steps && i + 1 < points.size) break // the next point's segment starts there
-                val t = if (steps == 0) 0.0 else s.toDouble() / steps
-                columns.add(intArrayOf((a.x + dx * t).roundToInt(), (a.z + dz * t).roundToInt()))
+        val first = points.indexOfFirst { chunkOf(it) == chunk }
+        if (first < 0) return -1
+        var last = first
+        while (last + 1 < points.size && chunkOf(points[last + 1]) == chunk) last++
+        val exit = minOf(last + 1, points.size - 1)
+        if (job.run == null) {
+            // The block path for this run, once per job: refined around obstacles, else the straight line.
+            val waypoints = points.subList(first, exit + 1)
+            val path = RoadRefiner.refine(level, waypoints, styles, boxes) ?: straight(waypoints)
+            val hint = waypoints.first().y
+            val terrain = path.map { c -> if (level.hasChunk(c[0] shr 4, c[1] shr 4)) groundY(level, c[0], c[1], hint, styles) else Int.MIN_VALUE }
+            val run = Run(path, smooth(terrain, null), first)
+            // Every block of the strip belongs to one column: a column's own centre always, the rest to
+            // the first column whose round stamp reaches it. Then each column places only its own blocks.
+            for ((i, c) in path.withIndex()) for (dz in -half..half) for (dx in -half..half) {
+                if (dx * dx + dz * dz > (half + 0.5) * (half + 0.5)) continue
+                val k = ((c[0] + dx).toLong() shl 32) or ((c[1] + dz).toLong() and 0xffffffffL)
+                if (dx == 0 && dz == 0) run.owner[k] = i else run.owner.putIfAbsent(k, i)
             }
-            val terrain = columns.map { c -> if (level.hasChunk(c[0] shr 4, c[1] shr 4)) groundY(level, c[0], c[1]) else Int.MIN_VALUE }
-            val target = smooth(terrain, if (i > 0) lastTop else null)
-            for ((s, c) in columns.withIndex()) {
-                if (terrain[s] == Int.MIN_VALUE) continue
+            job.run = run
+        }
+        val run = job.run!!
+        val path = run.path
+        val target = run.target
+        val style = styles.style(road.families.getOrElse(first) { 0 }.toInt())
+        var placed = 0
+        var i = job.pointIndex
+        while (i < path.size) {
+            if (i > job.pointIndex && System.nanoTime() > deadline) { job.blocks += placed; return i }
+            val c = path[i]
+            if (run.terrainKnown(i)) {
                 // The rise block goes on the lower of two neighbouring columns, facing the higher one.
-                val up = if (s + 1 < columns.size && target[s + 1] == target[s] + 1) columns[s + 1] else null
-                val down = if (s > 0 && target[s - 1] == target[s] + 1) columns[s - 1] else null
+                val up = if (i + 1 < path.size && target[i + 1] == target[i] + 1) path[i + 1] else null
+                val down = if (i > 0 && target[i - 1] == target[i] + 1) path[i - 1] else null
                 val higher = up ?: down
-                val inRun = (s > 0 && target[s - 1] != target[s]) && (s + 1 < columns.size && target[s + 1] != target[s]) ||
-                    (up != null && s + 2 < columns.size && target[s + 2] != target[s + 1]) ||
-                    (down != null && s >= 2 && target[s - 2] != target[s - 1])
+                val inRun = (i > 0 && target[i - 1] != target[i]) && (i + 1 < path.size && target[i + 1] != target[i]) ||
+                    (up != null && i + 2 < path.size && target[i + 2] != target[i + 1]) ||
+                    (down != null && i >= 2 && target[i - 2] != target[i - 1])
                 val shape = when {
                     higher == null -> SHAPE_FLAT
                     inRun -> SHAPE_STAIRS
                     else -> SHAPE_SLAB
                 }
-                val ascent = c to (higher ?: c)
-                for (w in -half..half) {
-                    val x = (c[0] + nx * w).roundToInt()
-                    val z = (c[1] + nz * w).roundToInt()
-                    val palette = if (w == 0) style.surface else style.edge
+                // The column's own blocks (round stamp, no checkerboard on diagonals), the whole cross-section
+                // at its height and, on a rise, all of it carrying the slab or stairs.
+                for (dz in -half..half) for (dx in -half..half) {
+                    if (dx * dx + dz * dz > (half + 0.5) * (half + 0.5)) continue
+                    val x = c[0] + dx; val z = c[1] + dz
+                    val k = (x.toLong() shl 32) or (z.toLong() and 0xffffffffL)
+                    if (run.owner[k] != i) continue
+                    val centre = dx == 0 && dz == 0
+                    val palette = if (centre) style.surface else style.edge
                     val t0 = System.nanoTime()
-                    placed += placeColumn(level, x, z, target[s], palette, style, styles, boxes, shape, ascent.second, ascent.first)
+                    placed += placeColumn(level, x, z, target[i], palette, style, styles, boxes, shape, c, higher ?: c)
                     job.setBlockNanos += System.nanoTime() - t0
                 }
-                lastTop = target[s]
+                // A lamppost every lampInterval columns, sides alternating, two blocks off the centre.
+                if (lampInterval > 0 && i > 0 && i % lampInterval == 0) {
+                    val prev = path[i - 1]
+                    val dxp = (c[0] - prev[0]).toDouble(); val dzp = (c[1] - prev[1]).toDouble()
+                    val len = sqrt(dxp * dxp + dzp * dzp).takeIf { it > 0 } ?: 1.0
+                    val side = if ((i / lampInterval) % 2 == 0) 1 else -1
+                    val lx = (c[0] - dzp / len * (half + 1) * side).roundToInt()
+                    val lz = (c[1] + dxp / len * (half + 1) * side).roundToInt()
+                    placed += placeLamppost(level, lx, lz, style, styles, boxes, target[i])
+                }
             }
-            // A lamppost where the running length crosses a multiple of the interval, sides alternating.
-            if (i > 0 && lampInterval > 0 && (prevLength / lampInterval).toInt() != (length / lampInterval).toInt()) {
-                val side = if ((length / lampInterval).toInt() % 2 == 0) 1 else -1
-                val lx = (a.x + nx * (half + 1) * side).roundToInt()
-                val lz = (a.z + nz * (half + 1) * side).roundToInt()
-                placed += placeLamppost(level, lx, lz, style, styles, boxes)
-            }
+            i++
         }
         job.blocks += placed
         return -1
+    }
+
+    /** The straight block line through [waypoints], one block per step (the fallback when refining fails). */
+    private fun straight(waypoints: List<BlockPos>): List<IntArray> {
+        val out = ArrayList<IntArray>()
+        for (w in 1 until waypoints.size) {
+            val a = waypoints[w - 1]; val b = waypoints[w]
+            val dx = (b.x - a.x).toDouble(); val dz = (b.z - a.z).toDouble()
+            val steps = ceil(maxOf(kotlin.math.abs(dx), kotlin.math.abs(dz))).toInt().coerceAtLeast(1)
+            for (st in 0 until steps) {
+                val t = st.toDouble() / steps
+                out.add(intArrayOf((a.x + dx * t).roundToInt(), (a.z + dz * t).roundToInt()))
+            }
+        }
+        out.add(intArrayOf(waypoints.last().x, waypoints.last().z))
+        return out
+    }
+
+    /** One chunk's block path for a road, its smoothed heights, and which blocks the strip has covered. */
+    class Run(val path: List<IntArray>, val target: IntArray, val firstPoint: Int) {
+        /** Strip block → the column that places it. */
+        val owner = it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap().apply { defaultReturnValue(-1) }
+        fun terrainKnown(i: Int): Boolean = target[i] != Int.MIN_VALUE
     }
 
     /**
@@ -287,7 +323,7 @@ object RoadBuilder {
     private fun placeColumn(level: ServerLevel, x: Int, z: Int, top: Int, palette: Palette, style: RoadStyle, styles: RoadStyleSet, boxes: List<BoundingBox>,
                             shape: Int, from: IntArray, to: IntArray): Int {
         if (!level.hasChunk(x shr 4, z shr 4) || inBox(x, z, boxes)) return 0
-        val ground = groundY(level, x, z)
+        val ground = groundY(level, x, z, top, styles)
         if (ground <= level.minBuildHeight || top <= level.minBuildHeight) return 0
         val groundState = level.getBlockState(BlockPos(x, ground, z))
         if (!groundState.fluidState.isEmpty || !level.getFluidState(BlockPos(x, ground + 1, z)).isEmpty) return 0
@@ -356,34 +392,31 @@ object RoadBuilder {
     private fun inBox(x: Int, z: Int, boxes: List<BoundingBox>): Boolean =
         boxes.any { x >= it.minX() - 1 && x <= it.maxX() + 1 && z >= it.minZ() - 1 && z <= it.maxZ() + 1 }
 
-    /** Ground level at (x, z): the block below the first motion-blocking, non-leaf block. */
-    private fun groundY(level: ServerLevel, x: Int, z: Int): Int = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1
+    /**
+     * Ground at (x, z): scanning down from [hint] + [SCAN] blocks, the first block that is not air,
+     * a plant, leaves or a barrier. The heightmap would do, but it counts leaves' logs, barriers
+     * (the game-test harness encases tests in them) and anything odd above the road.
+     */
+    fun groundY(level: ServerLevel, x: Int, z: Int, hint: Int, styles: RoadStyleSet = RoadStyles.current): Int {
+        val cursor = BlockPos.MutableBlockPos(x, 0, z)
+        var y = minOf(hint + SCAN, level.maxBuildHeight - 1)
+        val floor = maxOf(hint - SCAN, level.minBuildHeight)
+        while (y >= floor) {
+            cursor.setY(y)
+            val s = level.getBlockState(cursor)
+            if (!s.isAir && !s.`is`(Blocks.BARRIER) && s.block !is net.minecraft.world.level.block.LeavesBlock && !styles.isClearable(s)) return y
+            y--
+        }
+        return level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1
+    }
+
+    private const val SCAN = 16
 
     private fun randomAt(level: ServerLevel, x: Int, z: Int): Random = Random(Mth.getSeed(x, 0, z) xor level.seed)
 
-    /** Replaces the ground block at (x, z) with a palette block and clears what grows on it. */
-    private fun placeSurface(level: ServerLevel, x: Int, z: Int, palette: Palette, styles: RoadStyleSet, boxes: List<BoundingBox>): Boolean {
-        if (!level.hasChunk(x shr 4, z shr 4) || inBox(x, z, boxes)) return false
-        val y = groundY(level, x, z)
-        if (y <= level.minBuildHeight) return false
-        val ground = BlockPos(x, y, z)
-        val state = level.getBlockState(ground)
-        if (!state.fluidState.isEmpty || !level.getFluidState(ground.above()).isEmpty) return false
-        if (!styles.isReplaceable(state)) return false
-        val above = level.getBlockState(ground.above())
-        if (!styles.isClearable(above)) return false
-        val chosen = palette.pick(randomAt(level, x, z))
-        var changed = false
-        if (!above.isAir) { level.setBlock(ground.above(), Blocks.AIR.defaultBlockState(), 2 or 16); changed = true }
-        val above2 = level.getBlockState(ground.above(2))
-        if (!above2.isAir && styles.isClearable(above2)) level.setBlock(ground.above(2), Blocks.AIR.defaultBlockState(), 2 or 16)
-        if (state != chosen) { level.setBlock(ground, chosen, 2 or 16); changed = true }
-        return changed
-    }
-
-    private fun placeLamppost(level: ServerLevel, x: Int, z: Int, style: RoadStyle, styles: RoadStyleSet, boxes: List<BoundingBox>): Int {
+    private fun placeLamppost(level: ServerLevel, x: Int, z: Int, style: RoadStyle, styles: RoadStyleSet, boxes: List<BoundingBox>, hint: Int): Int {
         if (!level.hasChunk(x shr 4, z shr 4) || inBox(x, z, boxes)) return 0
-        val y = groundY(level, x, z)
+        val y = groundY(level, x, z, hint, styles)
         if (y <= level.minBuildHeight) return 0
         val ground = BlockPos(x, y, z)
         val state = level.getBlockState(ground)
@@ -414,7 +447,7 @@ object RoadBuilder {
             val x = (junction.pos.x - dz / len * offset * side).roundToInt()
             val z = (junction.pos.z + dx / len * offset * side).roundToInt()
             if (!level.hasChunk(x shr 4, z shr 4) || inBox(x, z, boxes)) continue
-            val y = groundY(level, x, z)
+            val y = groundY(level, x, z, junction.pos.y, styles)
             if (y <= level.minBuildHeight) continue
             val ground = BlockPos(x, y, z)
             val state = level.getBlockState(ground)
