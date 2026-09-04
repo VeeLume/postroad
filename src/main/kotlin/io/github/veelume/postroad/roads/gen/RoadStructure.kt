@@ -44,6 +44,9 @@ object RoadPlanSnapshot {
 
     val starts = AtomicInteger()
     val piecesPlaced = AtomicInteger()
+    /** Chunks with a run where the placement was asked, and where generation produced no valid start. */
+    val placementChecks = AtomicInteger()
+    val invalidStarts = AtomicInteger()
 
     fun segmentsAt(chunkX: Int, chunkZ: Int): List<Segment> = segments[ChunkPos.asLong(chunkX, chunkZ)] ?: emptyList()
 
@@ -77,8 +80,11 @@ object RoadPlanSnapshot {
 class RoadPlacement(locateOffset: Vec3i, method: StructurePlacement.FrequencyReductionMethod, frequency: Float, salt: Int, exclusion: Optional<StructurePlacement.ExclusionZone>) :
     StructurePlacement(locateOffset, method, frequency, salt, exclusion) {
 
-    override fun isPlacementChunk(structureState: ChunkGeneratorStructureState, x: Int, z: Int): Boolean =
-        RoadPlanSnapshot.segmentsAt(x, z).isNotEmpty()
+    override fun isPlacementChunk(structureState: ChunkGeneratorStructureState, x: Int, z: Int): Boolean {
+        val here = RoadPlanSnapshot.segmentsAt(x, z).isNotEmpty()
+        if (here) RoadPlanSnapshot.placementChecks.incrementAndGet()
+        return here
+    }
 
     override fun type(): StructurePlacementType<*> = PostroadStructures.PLANNED_PLACEMENT.get()
 
@@ -105,6 +111,26 @@ class RoadStructure(settings: StructureSettings) : Structure(settings) {
                 builder.addPiece(RoadRunPiece(run.roadId, run.points, run.before, run.after, run.family, context.chunkPos()))
             }
         })
+    }
+
+    /** Vanilla's generate, plus a record of runs that produced no start and which gate refused them. */
+    override fun generate(registryAccess: net.minecraft.core.RegistryAccess, generator: ChunkGenerator, biomeSource: net.minecraft.world.level.biome.BiomeSource, randomState: net.minecraft.world.level.levelgen.RandomState,
+                          templates: net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager, seed: Long, chunkPos: ChunkPos, references: Int,
+                          heightAccessor: net.minecraft.world.level.LevelHeightAccessor, validBiome: java.util.function.Predicate<net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome>>): net.minecraft.world.level.levelgen.structure.StructureStart {
+        val start = super.generate(registryAccess, generator, biomeSource, randomState, templates, seed, chunkPos, references, heightAccessor, validBiome)
+        if (!start.isValid) {
+            val runs = RoadPlanSnapshot.segmentsAt(chunkPos.x, chunkPos.z)
+            if (runs.isNotEmpty()) {
+                val n = RoadPlanSnapshot.invalidStarts.incrementAndGet()
+                if (n <= 40) {
+                    val p = runs[0].points.first()
+                    val biome = biomeSource.getNoiseBiome(p.x shr 2, p.y shr 2, p.z shr 2, randomState.sampler())
+                    Postroad.LOGGER.warn("Road structure not started at {} ({} run(s), first point {}): biome {} accepted by the structure's biome set: {}",
+                        chunkPos, runs.size, p.toShortString(), biome.unwrapKey().map { it.location().toString() }.orElse("?"), validBiome.test(biome))
+                }
+            }
+        }
+        return start
     }
 
     override fun type(): StructureType<*> = PostroadStructures.ROAD_TYPE.get()

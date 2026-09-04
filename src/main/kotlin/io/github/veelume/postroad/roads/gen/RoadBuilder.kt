@@ -70,6 +70,11 @@ object RoadBuilder {
         candidates.add(Job(level.dimension().location(), event.chunk.pos.toLong()))
     }
 
+    /** Offers a loaded chunk as if it had just loaded (the audit's fix). */
+    fun onChunkLoad(level: ServerLevel, chunk: Long) {
+        candidates.add(Job(level.dimension().location(), chunk))
+    }
+
     fun onServerTick(event: ServerTickEvent.Post) {
         val server = event.server
         if (!PostroadConfig.planEnabled) { candidates.clear(); return }

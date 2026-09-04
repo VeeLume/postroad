@@ -336,7 +336,7 @@ object RoadGen {
         }
         val built = storage.roads.values.sumOf { it.builtChunks.size }
         val total = storage.roads.values.sumOf { it.chunks().size }
-        lines.add("worldgen: ${RoadPlanSnapshot.segments.size} chunk(s) in the snapshot, ${RoadPlanSnapshot.starts.get()} structure start(s), ${RoadPlanSnapshot.piecesPlaced.get()} piece(s) generated")
+        lines.add("worldgen: ${RoadPlanSnapshot.segments.size} chunk(s) in the snapshot, ${RoadPlanSnapshot.placementChecks.get()} placement check(s), ${RoadPlanSnapshot.starts.get()} structure start(s), ${RoadPlanSnapshot.invalidStarts.get()} refused, ${RoadPlanSnapshot.piecesPlaced.get()} piece(s) generated")
         lines.add("$built of $total road chunk(s) built; builder: ${RoadBuilder.chunksBuilt} chunk(s), ${RoadBuilder.blocksPlaced} block(s), ${RoadBuilder.signsPlaced} sign(s) this session, ${RoadBuilder.queueSize} queued")
         return lines
     }

@@ -57,7 +57,11 @@ object PostroadCommands {
                         .then(Commands.literal("debug").requires { it.hasPermission(2) }.executes { roadsDebug(it) })
                         .then(
                             Commands.literal("audit").requires { it.hasPermission(2) }
-                                .then(Commands.argument("radius", IntegerArgumentType.integer(16, 4000)).executes { roadsAudit(it, IntegerArgumentType.getInteger(it, "radius")) }),
+                                .then(
+                                    Commands.argument("radius", IntegerArgumentType.integer(16, 4000))
+                                        .executes { roadsAudit(it, IntegerArgumentType.getInteger(it, "radius"), false) }
+                                        .then(Commands.literal("fix").executes { roadsAudit(it, IntegerArgumentType.getInteger(it, "radius"), true) }),
+                                ),
                         )
                         .then(
                             Commands.literal("probe")
@@ -225,8 +229,10 @@ object PostroadCommands {
      * caller that already exists on disk — does it have its own road structure start? Chunks are
      * read at structure-start status (not generated), so the audit is cheap and touches nothing.
      */
-    private fun roadsAudit(ctx: CommandContext<CommandSourceStack>, radius: Int): Int {
+    private fun roadsAudit(ctx: CommandContext<CommandSourceStack>, radius: Int, fix: Boolean): Int {
         val level = ctx.source.level
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(ctx.source.server)
+        var unmarked = 0
         val centre = BlockPos.containing(ctx.source.position)
         val snapshot = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.segments
         var withStart = 0; var without = 0; var absent = 0
@@ -239,6 +245,11 @@ object PostroadCommands {
             val start = io.github.veelume.postroad.roads.gen.RoadBuilder.roadStart(chunk)
             if (start != null) { withStart++; continue }
             without++
+            if (fix) {
+                // Back to the chunk-load builder: forget that these chunks were "built" by a start that was only referenced.
+                for (road in storage.roadsInChunk(level.dimension().location(), key)) if (road.builtChunks.remove(key)) unmarked++
+                if (level.hasChunk(cx, cz)) io.github.veelume.postroad.roads.gen.RoadBuilder.onChunkLoad(level, key)
+            }
             if (missing.size < 25) {
                 val first = runs.first().points.first()
                 val biome = level.chunkSource.generator.biomeSource.getNoiseBiome(first.x shr 2, first.y shr 2, first.z shr 2, level.chunkSource.randomState().sampler())
@@ -246,7 +257,8 @@ object PostroadCommands {
                 missing.add("[$cx, $cz] status ${chunk.persistedStatus} first point ${first.toShortString()} biome $name overworld-tag ${biome.`is`(net.minecraft.tags.BiomeTags.IS_OVERWORLD)}")
             }
         }
-        ctx.source.sendSuccess({ Component.literal("Audit within $radius: $withStart chunk(s) with their own road start, $without without, $absent not generated yet") }, false)
+        if (unmarked > 0) storage.setDirty()
+        ctx.source.sendSuccess({ Component.literal("Audit within $radius: $withStart chunk(s) with their own road start, $without without, $absent not generated yet${if (fix) "; $unmarked road-chunk mark(s) cleared for the builder" else ""}") }, false)
         for (m in missing) ctx.source.sendSuccess({ Component.literal("  missing: $m") }, false)
         return 1
     }
