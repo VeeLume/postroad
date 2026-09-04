@@ -83,7 +83,9 @@ object RoadDebugRenderer {
         }
         for (t in state.towns) {
             val b = t.box
-            LevelRenderer.renderLineBox(pose, lines, b[0].toDouble(), b[1].toDouble(), b[2].toDouble(), b[3] + 1.0, b[4] + 1.0, b[5] + 1.0, 1.0f, 0.3f, 1.0f, 0.8f)
+            // Towns magenta, predicted obstacles (other surface structures) red.
+            val obstacle = t.id.startsWith("obstacle:")
+            LevelRenderer.renderLineBox(pose, lines, b[0].toDouble(), b[1].toDouble(), b[2].toDouble(), b[3] + 1.0, b[4] + 1.0, b[5] + 1.0, 1.0f, if (obstacle) 0.25f else 0.3f, if (obstacle) 0.25f else 1.0f, 0.8f)
         }
         buffers.endBatch(RenderType.lines())
 
@@ -92,7 +94,7 @@ object RoadDebugRenderer {
         for (t in state.towns) {
             val b = t.box
             val cx = (b[0] + b[3]) / 2.0; val cz = (b[2] + b[5]) / 2.0
-            label(pose, buffers, font, camera, cx, b[4] + 2.0, cz, t.name, cam.distanceToSqr(cx, b[4].toDouble(), cz), 0xFFFF80FF.toInt())
+            label(pose, buffers, font, camera, cx, b[4] + 2.0, cz, t.name, cam.distanceToSqr(cx, b[4].toDouble(), cz), if (t.id.startsWith("obstacle:")) 0xFFFF6060.toInt() else 0xFFFF80FF.toInt())
         }
         for (n in state.nodes) {
             val y = surfaceY(n.pos)

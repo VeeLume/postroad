@@ -52,6 +52,7 @@ object RoadGen {
         val costs: PlannerCosts,
         val knownTowns: List<PlannedTown>,
         val knownRoads: List<PlannedRoad>,
+        val knownObstacles: List<PlannedObstacle> = emptyList(),
         val discovered: LongOpenHashSet,
         val discoverTowns: Boolean = true,
         val dropped: Set<String> = emptySet(),
@@ -64,6 +65,7 @@ object RoadGen {
         val center: BlockPos,
         val newTowns: List<PlannedTown>,
         val newRoads: List<PlannedRoad>,
+        val newObstacles: List<PlannedObstacle> = emptyList(),
         val newJunctions: List<JunctionResult>,
         val discovered: List<Long>,
         val millis: Long,
@@ -166,6 +168,7 @@ object RoadGen {
             costs = PlannerRules.current,
             knownTowns = storage.townsIn(dimension),
             knownRoads = storage.roadsIn(dimension),
+            knownObstacles = storage.obstaclesIn(dimension),
             discovered = LongOpenHashSet(storage.discovered[dimension] ?: LongOpenHashSet()),
             discoverTowns = discoverTowns,
             dropped = HashSet(storage.droppedRoutes),
@@ -190,10 +193,12 @@ object RoadGen {
 
         // 1. Towns: search every discovery square in the radius that has not been searched.
         val newTowns = ArrayList<PlannedTown>()
+        val newObstacles = ArrayList<PlannedObstacle>()
         val discoveredNow = ArrayList<Long>()
         var chunksChecked = 0
         if (req.discoverTowns) {
             val known = req.knownTowns.mapTo(HashSet()) { it.id }
+            val knownObstacles = req.knownObstacles.mapTo(HashSet()) { it.key }
             val sq = RoadPlanStorage.DISCOVERY_SQUARE
             for (sz in Math.floorDiv(req.center.z - req.radius, sq)..Math.floorDiv(req.center.z + req.radius, sq)) {
                 for (sx in Math.floorDiv(req.center.x - req.radius, sq)..Math.floorDiv(req.center.x + req.radius, sq)) {
@@ -203,7 +208,12 @@ object RoadGen {
                     val perSide = sq / 16
                     for (cz in chunkFrom.z until chunkFrom.z + perSide) for (cx in chunkFrom.x until chunkFrom.x + perSide) {
                         chunksChecked++
-                        val c = worker.finder.find(cx, cz) ?: continue
+                        val found = worker.finder.find(cx, cz)
+                        for (o in found.obstacles) {
+                            val obstacle = PlannedObstacle(req.dimension, o.structure, o.chunk.toLong(), o.box)
+                            if (knownObstacles.add(obstacle.key)) newObstacles.add(obstacle)
+                        }
+                        val c = found.town ?: continue
                         if (c.id in known) continue
                         known.add(c.id)
                         val centre = c.box.center
@@ -228,6 +238,16 @@ object RoadGen {
             Math.floorDiv(req.center.x - reach, COARSE_CELL), Math.floorDiv(req.center.z - reach, COARSE_CELL),
             Math.floorDiv(req.center.x + reach, COARSE_CELL), Math.floorDiv(req.center.z + reach, COARSE_CELL),
         )
+        // Obstacles: every predicted surface structure that is not a town, with the configured margin.
+        for (o in req.knownObstacles + newObstacles) {
+            val b = o.box
+            val min = terrain.blockToCell(b.minX() - req.margin, b.minZ() - req.margin)
+            val max = terrain.blockToCell(b.maxX() + req.margin, b.maxZ() + req.margin)
+            terrain.block(CellBox(min.x, min.z, max.x, max.z))
+            val cmin = coarse.blockToCell(b.minX() - req.margin, b.minZ() - req.margin)
+            val cmax = coarse.blockToCell(b.maxX() + req.margin, b.maxZ() + req.margin)
+            coarse.block(CellBox(cmin.x, cmin.z, cmax.x, cmax.z))
+        }
         val allTowns = req.knownTowns + newTowns
         for (town in allTowns) for (b in town.footprint) {
             // Pieces when known (streets stay open), the whole box otherwise; the margin shrinks with pieces.
@@ -268,7 +288,7 @@ object RoadGen {
             if (joined < 0 || joining < 0) null
             else JunctionResult(terrain.cellToBlock(j.cell.x, j.cell.z), j.joinedRoute, joined, j.joiningRoute, joining)
         }
-        return PassResult(req.dimension, req.center, newTowns, newRoads, newJunctions, discoveredNow,
+        return PassResult(req.dimension, req.center, newTowns, newRoads, newObstacles, newJunctions, discoveredNow,
             (System.nanoTime() - t0) / 1_000_000, worker.sampler.sampled - sampledBefore, discoverMillis, chunksChecked, worker.coarseSampler.sampled - coarseBefore, plan.dropped)
     }
 
@@ -286,6 +306,12 @@ object RoadGen {
             if (storage.towns.containsKey(town.id)) continue
             storage.addTown(town)
             towns++
+        }
+        var obstacles = 0
+        for (o in result.newObstacles) {
+            if (storage.obstacles.containsKey(o.key)) continue
+            storage.addObstacle(o)
+            obstacles++
         }
         for (road in result.newRoads) {
             if (storage.roads.containsKey(road.id)) continue
@@ -305,8 +331,8 @@ object RoadGen {
         storage.markDiscovered(result.dimension, result.discovered)
         storage.markDropped(result.dropped.map { Triple(it.id, it.from.id to it.to.id, it.reason) })
         passesRun++
-        Postroad.LOGGER.info("Road plan pass at {}: {} new town(s), {} new road(s), {} junction(s), {} pair(s) dropped for water; {} chunk(s) checked in {} ms, {} coarse + {} fine tile(s) sampled, {} ms total",
-            result.center.toShortString(), towns, roads, junctions, result.dropped.size, result.chunksChecked, result.discoverMillis, result.coarseTilesSampled, result.tilesSampled, result.millis)
+        Postroad.LOGGER.info("Road plan pass at {}: {} new town(s), {} new obstacle(s), {} new road(s), {} junction(s), {} pair(s) dropped for water; {} chunk(s) checked in {} ms, {} coarse + {} fine tile(s) sampled, {} ms total",
+            result.center.toShortString(), towns, obstacles, roads, junctions, result.dropped.size, result.chunksChecked, result.discoverMillis, result.coarseTilesSampled, result.tilesSampled, result.millis)
     }
 
     /** Drops the plan and every generated path nobody has charted. Refused while a pass runs. */
@@ -328,11 +354,13 @@ object RoadGen {
         val storage = RoadPlanStorage.get(server)
         val lines = ArrayList<String>()
         lines.add("Planner ${if (executor != null) "on" else "off"}; ${passesRun} pass(es) applied, ${pending.get()} pending")
-        lines.add("${storage.towns.size} predicted town(s), ${storage.roads.size} planned road(s), ${storage.junctions.size} junction(s), " +
+        lines.add("${storage.towns.size} predicted town(s), ${storage.obstacles.size} obstacle(s), ${storage.roads.size} planned road(s), ${storage.junctions.size} junction(s), " +
             "${storage.discovered.values.sumOf { it.size }} square(s) searched, ${storage.droppedRoutes.size} pair(s) dropped for water")
         for ((dim, w) in workers) {
             lines.add("$dim: ${w.terrain.tileCount} fine + ${w.coarse.tileCount} coarse tile(s) in memory, ${w.sampler.sampled}/${w.coarseSampler.sampled} sampled, ${w.sampler.fromCache}/${w.coarseSampler.fromCache} from cache; " +
-                "finder: ${w.finder.generated} layout(s) built, ${w.finder.prefiltered} skipped by biome")
+                "finder: ${w.finder.generated} layout(s) built, ${w.finder.prefiltered} skipped by biome, ${w.finder.obstaclesFound} obstacle(s)")
+            val costly = w.finder.timing.entries.sortedByDescending { it.value[1] }.take(6)
+            if (costly.isNotEmpty()) lines.add("  layouts by cost: " + costly.joinToString(", ") { "${it.key} ${it.value[0]}× ${it.value[1] / 1_000_000 / maxOf(1, it.value[0])} ms" })
         }
         val built = storage.roads.values.sumOf { it.builtChunks.size }
         val total = storage.roads.values.sumOf { it.chunks().size }
@@ -407,6 +435,11 @@ object RoadGen {
         }
         g2.color = java.awt.Color.YELLOW
         for (j in storage.junctions) if (j.dimension == dim) g2.fillRect(Math.floorDiv(j.pos.x, CELL_SIZE) - x0 - 1, Math.floorDiv(j.pos.z, CELL_SIZE) - z0 - 1, 3, 3)
+        g2.color = java.awt.Color(160, 40, 40)
+        for (o in storage.obstaclesIn(dim)) {
+            val b = o.box
+            g2.drawRect(Math.floorDiv(b.minX(), CELL_SIZE) - x0, Math.floorDiv(b.minZ(), CELL_SIZE) - z0, Math.floorDiv(b.xSpan, CELL_SIZE), Math.floorDiv(b.zSpan, CELL_SIZE))
+        }
         g2.color = java.awt.Color.MAGENTA
         for (t in storage.townsIn(dim)) g2.fillRect(Math.floorDiv(t.pos.x, CELL_SIZE) - x0 - 2, Math.floorDiv(t.pos.z, CELL_SIZE) - z0 - 2, 5, 5)
         g2.dispose()

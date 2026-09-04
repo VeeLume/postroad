@@ -46,6 +46,30 @@ class PlannedTown(val id: String, val dimension: ResourceLocation, val structure
     }
 }
 
+/** A predicted surface structure that is not a town: its start box, which roads keep out of. */
+class PlannedObstacle(val dimension: ResourceLocation, val structure: ResourceLocation, val chunk: Long, val box: BoundingBox) {
+    val key: String get() = "$dimension/$structure/$chunk"
+
+    fun toTag(): CompoundTag {
+        val tag = CompoundTag()
+        tag.putString("Dimension", dimension.toString())
+        tag.putString("Structure", structure.toString())
+        tag.putLong("Chunk", chunk)
+        tag.putIntArray("Box", intArrayOf(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), box.maxZ()))
+        return tag
+    }
+
+    companion object {
+        fun fromTag(tag: CompoundTag): PlannedObstacle? {
+            val dimension = ResourceLocation.tryParse(tag.getString("Dimension")) ?: return null
+            val structure = ResourceLocation.tryParse(tag.getString("Structure")) ?: return null
+            val b = tag.getIntArray("Box")
+            if (b.size != 6) return null
+            return PlannedObstacle(dimension, structure, tag.getLong("Chunk"), BoundingBox(b[0], b[1], b[2], b[3], b[4], b[5]))
+        }
+    }
+}
+
 /**
  * A planned road: its points (one per cell, at the planner's surface estimate) and the family
  * per point for the builder's palette. Chunks are marked built as the builder places them.
@@ -121,6 +145,7 @@ class PlannedJunction(val dimension: ResourceLocation, val pos: BlockPos, val ro
  */
 class RoadPlanStorage : SavedData() {
     val towns: MutableMap<String, PlannedTown> = LinkedHashMap()
+    val obstacles: MutableMap<String, PlannedObstacle> = LinkedHashMap()
     val roads: MutableMap<String, PlannedRoad> = LinkedHashMap()
     val junctions: MutableList<PlannedJunction> = ArrayList()
 
@@ -137,6 +162,11 @@ class RoadPlanStorage : SavedData() {
 
     fun addTown(town: PlannedTown) {
         towns[town.id] = town
+        setDirty()
+    }
+
+    fun addObstacle(obstacle: PlannedObstacle) {
+        obstacles[obstacle.key] = obstacle
         setDirty()
     }
 
@@ -166,6 +196,7 @@ class RoadPlanStorage : SavedData() {
     fun isDiscovered(dimension: ResourceLocation, square: Long): Boolean = discovered[dimension]?.contains(square) == true
 
     fun townsIn(dimension: ResourceLocation): List<PlannedTown> = towns.values.filter { it.dimension == dimension }
+    fun obstaclesIn(dimension: ResourceLocation): List<PlannedObstacle> = obstacles.values.filter { it.dimension == dimension }
     fun roadsIn(dimension: ResourceLocation): List<PlannedRoad> = roads.values.filter { it.dimension == dimension }
 
     /** Roads with points in [chunk] of [dimension]; the index is rebuilt after a change. */
@@ -181,13 +212,14 @@ class RoadPlanStorage : SavedData() {
     }
 
     fun clear() {
-        towns.clear(); roads.clear(); junctions.clear(); discovered.clear(); droppedRoutes.clear(); droppedDetails.clear()
+        towns.clear(); obstacles.clear(); roads.clear(); junctions.clear(); discovered.clear(); droppedRoutes.clear(); droppedDetails.clear()
         chunkIndex = null
         setDirty()
     }
 
     override fun save(tag: CompoundTag, registries: HolderLookup.Provider): CompoundTag {
         tag.put("Towns", ListTag().also { list -> towns.values.forEach { list.add(it.toTag()) } })
+        tag.put("Obstacles", ListTag().also { list -> obstacles.values.forEach { list.add(it.toTag()) } })
         tag.put("Roads", ListTag().also { list -> roads.values.forEach { list.add(it.toTag()) } })
         tag.put("Junctions", ListTag().also { list -> junctions.forEach { list.add(it.toTag()) } })
         tag.put("Discovered", CompoundTag().also { d -> discovered.forEach { (dim, set) -> d.putLongArray(dim.toString(), set.toLongArray()) } })
@@ -200,6 +232,7 @@ class RoadPlanStorage : SavedData() {
 
     private fun load(tag: CompoundTag) {
         tag.getList("Towns", Tag.TAG_COMPOUND.toInt()).forEach { t -> PlannedTown.fromTag(t as CompoundTag)?.let { towns[it.id] = it } }
+        tag.getList("Obstacles", Tag.TAG_COMPOUND.toInt()).forEach { t -> PlannedObstacle.fromTag(t as CompoundTag)?.let { obstacles[it.key] = it } }
         tag.getList("Roads", Tag.TAG_COMPOUND.toInt()).forEach { t -> PlannedRoad.fromTag(t as CompoundTag)?.let { roads[it.id] = it } }
         tag.getList("Junctions", Tag.TAG_COMPOUND.toInt()).forEach { t -> PlannedJunction.fromTag(t as CompoundTag)?.let { junctions.add(it) } }
         tag.getList("Dropped", Tag.TAG_STRING.toInt()).forEach { droppedRoutes.add(it.asString) }

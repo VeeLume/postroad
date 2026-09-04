@@ -1,5 +1,6 @@
 package io.github.veelume.postroad.roads.gen
 
+import io.github.veelume.postroad.Postroad
 import net.minecraft.core.Holder
 import net.minecraft.core.RegistryAccess
 import net.minecraft.resources.ResourceLocation
@@ -15,15 +16,19 @@ import net.minecraft.world.level.levelgen.WorldgenRandom
 import net.minecraft.world.level.levelgen.structure.BoundingBox
 import net.minecraft.world.level.levelgen.structure.StructureSet
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager
+import java.util.concurrent.ConcurrentHashMap
 import java.util.function.Predicate
 
 /**
- * Predicts where villages will generate, before their chunks exist, by running the same
- * decision the chunk generator runs: structure-set placement says whether a village may start
- * in a chunk, and the structure's own generation (biome check, jigsaw layout) says whether it
- * does. Everything here is a pure function of the seed, so it runs on the planner thread.
+ * Predicts where structures will generate, before their chunks exist, by running the same
+ * decision the chunk generator runs: structure-set placement says whether a structure may start
+ * in a chunk, and the structure's own generation (biome check, layout) says whether it does.
+ * Everything here is a pure function of the seed, so it runs on the planner thread.
  *
- * A structure counts as a town when it is tagged `#minecraft:village`.
+ * A structure tagged `#minecraft:village` is a **town** (a road endpoint, with its pieces and
+ * street exits). Any other structure that stands on the surface — arches, plateaus, towers,
+ * temples, mansions — is an **obstacle**: its start box is kept so the planner routes around it.
+ * Buried ones (mineshafts, strongholds, dungeons) are ignored; a road above them is fine.
  */
 class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
 
@@ -33,6 +38,14 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
      */
     data class Candidate(val id: String, val structure: ResourceLocation, val chunk: ChunkPos, val box: BoundingBox,
                          val pieces: List<BoundingBox>, val streets: List<net.minecraft.core.BlockPos>)
+
+    /** A predicted surface structure that is not a town: something to route around. */
+    data class Obstacle(val structure: ResourceLocation, val chunk: ChunkPos, val box: BoundingBox)
+
+    /** What starts in one chunk: at most one town (sets are exclusive per chunk in vanilla's draw), any number of obstacles. */
+    class Found(val town: Candidate?, val obstacles: List<Obstacle>) {
+        val isEmpty: Boolean get() = town == null && obstacles.isEmpty()
+    }
 
     private val state: ChunkGeneratorStructureState = level.chunkSource.getGeneratorState()
     private val generator: ChunkGenerator = level.chunkSource.generator
@@ -48,17 +61,33 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
         private set
     @Volatile var generated: Int = 0
         private set
+    @Volatile var obstaclesFound: Int = 0
+        private set
+    /** Per structure: layouts built and nanoseconds spent, for the cost picture in `status`. */
+    val timing = ConcurrentHashMap<String, LongArray>()
+    private val warned = HashSet<String>()
     private val dimension: ResourceLocation = level.dimension().location()
 
-    /** Structure sets that can produce a village; the others never matter here. */
-    val villageSets: List<Holder<StructureSet>> = state.possibleStructureSets().filter { set ->
+    /** Every structure set the generator may place here, except our own roads. */
+    val sets: List<Holder<StructureSet>> = state.possibleStructureSets().filter { set ->
+        set.value().structures().none { it.structure().value() is RoadStructure }
+    }
+
+    /** Structure sets that can produce a village. */
+    val villageSets: List<Holder<StructureSet>> = sets.filter { set ->
         set.value().structures().any { it.structure().`is`(StructureTags.VILLAGE) }
     }
 
-    /** The village that starts in this chunk, if one does. */
-    fun find(chunkX: Int, chunkZ: Int): Candidate? {
+    /** Everything that starts in this chunk. */
+    fun find(chunkX: Int, chunkZ: Int): Found {
         val chunkPos = ChunkPos(chunkX, chunkZ)
-        for (set in villageSets) {
+        var town: Candidate? = null
+        var obstacles: MutableList<Obstacle>? = null
+        fun take(outcome: Outcome) {
+            outcome.candidate?.let { if (town == null) town = it }
+            outcome.obstacle?.let { (obstacles ?: ArrayList<Obstacle>().also { l -> obstacles = l }).add(it) }
+        }
+        for (set in sets) {
             val placement = set.value().placement()
             // The cheap spread test first; the full test also walks exclusion zones and costs ~2 ms.
             if (placement is net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStructurePlacement) {
@@ -68,8 +97,7 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
             if (!placement.isStructureChunk(state, chunkX, chunkZ)) continue
             val list = set.value().structures()
             if (list.size == 1) {
-                val outcome = tryOne(list[0], chunkPos)
-                if (outcome.generated) return outcome.candidate
+                take(tryOne(list[0], chunkPos))
                 continue
             }
             // The generator's weighted draw, reproduced: same random, same order, same removals.
@@ -87,42 +115,65 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
                 }
                 val entry = remaining[k]
                 val outcome = tryOne(entry, chunkPos)
-                if (outcome.generated) return outcome.candidate
+                if (outcome.generated) { take(outcome); break }
                 remaining.removeAt(k)
                 total -= entry.weight()
             }
         }
-        return null
+        return Found(town, obstacles ?: emptyList())
     }
 
-    private class Outcome(val generated: Boolean, val candidate: Candidate?)
+    private class Outcome(val generated: Boolean, val candidate: Candidate? = null, val obstacle: Obstacle? = null)
 
     private fun tryOne(entry: StructureSet.StructureSelectionEntry, chunkPos: ChunkPos): Outcome {
         val holder = entry.structure()
         val structure = holder.value()
         val biomes = structure.biomes()
-        // Vanilla builds the whole jigsaw layout and only then tests the biome at its start; the start
+        val structureId = holder.unwrapKey().map { it.location() }.orElse(ResourceLocation.withDefaultNamespace("structure"))
+        // Vanilla builds the whole layout and only then tests the biome at its start; the start
         // sits at the chunk's min corner on the surface, so test that first and skip the layout when it fails.
         val x = chunkPos.minBlockX
         val z = chunkPos.minBlockZ
         val y = surface(x, z)
         val biome = biomeSource.getNoiseBiome(net.minecraft.core.QuartPos.fromBlock(x), net.minecraft.core.QuartPos.fromBlock(y), net.minecraft.core.QuartPos.fromBlock(z), randomState.sampler())
-        if (!biomes.contains(biome)) { prefiltered++; return Outcome(false, null) }
+        if (!biomes.contains(biome)) { prefiltered++; return Outcome(false) }
         generated++
-        val start = structure.generate(
-            registryAccess, generator, generator.biomeSource, randomState, templates, seed, chunkPos, 0, heightAccessor,
-            Predicate<Holder<Biome>> { biomes.contains(it) },
-        )
-        if (!start.isValid) return Outcome(false, null)
-        if (!holder.`is`(StructureTags.VILLAGE)) return Outcome(true, null)
+        val t0 = System.nanoTime()
+        val start = try {
+            structure.generate(
+                registryAccess, generator, generator.biomeSource, randomState, templates, seed, chunkPos, 0, heightAccessor,
+                Predicate<Holder<Biome>> { biomes.contains(it) },
+            )
+        } catch (e: Exception) {
+            // A modded structure that will not generate off its usual thread: treat as absent, say so once.
+            if (warned.add(structureId.toString())) Postroad.LOGGER.warn("Structure {} could not be predicted at {}: {}", structureId, chunkPos, e.toString())
+            return Outcome(false)
+        } finally {
+            val t = timing.getOrPut(structureId.toString()) { LongArray(2) }
+            t[0]++; t[1] += System.nanoTime() - t0
+        }
+        if (!start.isValid) return Outcome(false)
+        val box = start.boundingBox
+        if (!holder.`is`(StructureTags.VILLAGE)) {
+            // On the surface, or buried? The box's mid-height against the estimated surface at its centre.
+            val centre = box.center
+            val ground = surface(centre.x, centre.z)
+            if ((box.minY() + box.maxY()) / 2 < ground - BURIED_BELOW) return Outcome(true)
+            obstaclesFound++
+            return Outcome(true, obstacle = Obstacle(structureId, chunkPos, box))
+        }
         val id = "$dimension/${chunkPos.x}/${chunkPos.z}"
-        val structureId = holder.unwrapKey().map { it.location() }.orElse(ResourceLocation.withDefaultNamespace("village"))
         val pieces = ArrayList<BoundingBox>()
         val streets = ArrayList<net.minecraft.core.BlockPos>()
         for (piece in start.pieces) {
             val name = (piece as? net.minecraft.world.level.levelgen.structure.PoolElementStructurePiece)?.element?.toString() ?: ""
             if (name.contains("street", ignoreCase = true)) streets.add(piece.boundingBox.center) else pieces.add(piece.boundingBox)
         }
-        return Outcome(true, Candidate(id, structureId, chunkPos, start.boundingBox, pieces, streets))
+        return Outcome(true, candidate = Candidate(id, structureId, chunkPos, box, pieces, streets))
+    }
+
+    companion object {
+        /** A structure whose box mid-height is this far under the surface is buried and ignored. */
+        const val BURIED_BELOW = 4
     }
 }

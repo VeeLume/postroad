@@ -130,13 +130,17 @@ object RoadDebug {
             val b = t.box
             DebugTown(t.id, network.places[t.id]?.name ?: t.structure.path, intArrayOf(b.minX(), b.minY(), b.minZ(), b.maxX(), b.maxY(), b.maxZ()))
         }
+        val obstacles = storage.obstaclesIn(dim).filter { near(it.box.center) }.map { o ->
+            val b = o.box
+            DebugTown("obstacle:${o.key}", o.structure.path, intArrayOf(b.minX(), b.minY(), b.minZ(), b.maxX(), b.maxY(), b.maxZ()))
+        }
         val nodes = network.nodes.values.filter { it.dimension == dim && near(it.pos) }.map { DebugNode(it.pos, it.name, it.kind) }
         val dropped = storage.droppedDetails.values.mapNotNull { d ->
             val a = storage.towns[d.first] ?: return@mapNotNull null
             val b = storage.towns[d.second] ?: return@mapNotNull null
             if (a.dimension != dim || (!near(a.pos) && !near(b.pos))) null else DebugDropped(a.pos, b.pos, d.third)
         }
-        return RoadDebugState(roads, junctions, towns, nodes, dropped)
+        return RoadDebugState(roads, junctions, towns + obstacles, nodes, dropped)
     }
 
     /** Chunk key of a road point, for the client's built/unbuilt colouring. */

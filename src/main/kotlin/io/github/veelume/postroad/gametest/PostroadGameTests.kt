@@ -652,8 +652,8 @@ class PostroadGameTests {
         helper.assertTrue(tile.families.all { it in 0..5 }, "families are in range")
         val finder = io.github.veelume.postroad.roads.gen.TownFinder(level, sampler::surface)
         var found = 0
-        for (cz in 100..103) for (cx in 100..103) if (finder.find(cx, cz) != null) found++
-        helper.assertTrue(found >= 0, "town finder runs off-chunk without error (${finder.villageSets.size} village set(s))")
+        for (cz in 100..103) for (cx in 100..103) if (!finder.find(cx, cz).isEmpty) found++
+        helper.assertTrue(found >= 0, "structure finder runs off-chunk without error (${finder.sets.size} set(s), ${finder.villageSets.size} village set(s))")
         helper.succeed()
     }
 
