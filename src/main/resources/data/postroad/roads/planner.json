@@ -14,7 +14,12 @@
     {
       "name": "stairs",
       "upTo": 2,
-      "cost": 8.0
+      "cost": 6.0
+    },
+    {
+      "name": "steep",
+      "upTo": 4,
+      "cost": 20.0
     }
   ],
   "bandPenalty": 0.08,
