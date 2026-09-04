@@ -191,8 +191,15 @@ object RoadBuilder {
             val waypoints = points.subList(first, exit + 1)
             val path = RoadRefiner.refine(level, waypoints, styles, boxes) ?: straight(waypoints)
             val hint = waypoints.first().y
-            val terrain = path.map { c -> if (level.hasChunk(c[0] shr 4, c[1] shr 4)) groundY(level, c[0], c[1], hint, styles) else Int.MIN_VALUE }
-            val run = Run(path, smooth(flatten(terrain).toList(), null), first)
+            fun ground(c: IntArray): Int = if (level.hasChunk(c[0] shr 4, c[1] shr 4)) groundY(level, c[0], c[1], hint, styles) else Int.MIN_VALUE
+            val terrain = path.map(::ground)
+            // Context beyond the run for the flattening: the planned line a few points before and after,
+            // where loaded. A plain longer than the window is then never a "bump", whatever the run's edge
+            // happens to be, and neighbouring chunks decide alike.
+            val before = if (first > 0) straight(points.subList(maxOf(0, first - CONTEXT_POINTS), first + 1)).dropLast(1).map(::ground) else emptyList()
+            val after = if (exit + 1 < points.size) straight(points.subList(exit, minOf(points.size, exit + 1 + CONTEXT_POINTS))).drop(1).map(::ground) else emptyList()
+            val flat = flatten(before + terrain + after).toList().subList(before.size, before.size + terrain.size)
+            val run = Run(path, smooth(flat, null), first)
             // Every block of the strip belongs to one column: a column's own centre always, the rest to
             // the first column whose round stamp reaches it. Then each column places only its own blocks.
             for ((i, c) in path.withIndex()) for (dz in -half..half) for (dx in -half..half) {
@@ -343,6 +350,8 @@ object RoadBuilder {
     }
 
     private const val FLAT_WINDOW = 12
+    /** Planned points sampled either side of a run as context for the flattening. */
+    private const val CONTEXT_POINTS = 4
     private const val MAX_CUT = 4
 
     private const val SHAPE_FLAT = 0
