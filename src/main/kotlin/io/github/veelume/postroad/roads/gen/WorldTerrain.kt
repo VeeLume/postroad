@@ -39,7 +39,8 @@ object Families {
         MOUNTAIN to Regex("peak|mountain|highland|cliff|ridge|crag|shield|plateau|summit|slope"),
     )
 
-    private val WATER = Regex("ocean|river|beach|shore")
+    /** Biomes that are water wherever the estimate says: oceans and rivers. Beaches and shores are land. */
+    private val WATER = Regex("ocean|river")
 
     fun of(biomeId: String): Int {
         val path = biomeId.substringAfter(':')
