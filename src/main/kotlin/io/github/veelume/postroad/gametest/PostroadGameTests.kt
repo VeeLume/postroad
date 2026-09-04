@@ -678,7 +678,8 @@ class PostroadGameTests {
         val dim = level.dimension().location()
         // A straight road across the arena floor, one point every 4 blocks, on the floor's surface.
         val start = helper.absolutePos(BlockPos(1, 1, 4))
-        val floorY = helper.absolutePos(BlockPos(0, 0, 0)).y
+        // The ground the builder will see: the heightmap at the road's start, whatever the batch put there.
+        val floorY = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, start.x + 4, start.z) - 1
         val points = (0..4).map { BlockPos(start.x + it * 4, floorY + 1, start.z) }
         val road = io.github.veelume.postroad.roads.gen.PlannedRoad("t$tag", dim, "test/$tag/a", "test/$tag/b", points, ByteArray(points.size))
         val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(server)
