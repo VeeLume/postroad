@@ -110,7 +110,25 @@ object RoadGen {
         val overworld = event.server.overworld()
         overworld.chunkSource.getGeneratorState().ensureStructuresGenerated()
         RoadPlanSnapshot.publish(RoadPlanStorage.get(event.server), overworld.dimension().location())
+        resumeProvisional(event.server, overworld)
         spawnPlanned = schedule(overworld, overworld.sharedSpawnPos)
+    }
+
+    /** Provisional roads left over from an earlier session: generate their corridors again and replan them. */
+    private fun resumeProvisional(server: MinecraftServer, level: ServerLevel) {
+        if (PostroadConfig.planPregenInFlight <= 0) return
+        val storage = RoadPlanStorage.get(server)
+        val dim = level.dimension().location()
+        var n = 0
+        for (road in storage.roadsIn(dim)) {
+            if (!road.provisional || road.replans >= MAX_REPLANS) continue
+            val chunks = LongOpenHashSet()
+            for (p in road.points) for (dz in -CORRIDOR_CHUNKS..CORRIDOR_CHUNKS) for (dx in -CORRIDOR_CHUNKS..CORRIDOR_CHUNKS) chunks.add(ChunkPos.asLong((p.x shr 4) + dx, (p.z shr 4) + dz))
+            pendingCorridors[road.id] = chunks
+            ChunkPregen.request(dim, chunks) { replan(server, dim, road.id) }
+            n++
+        }
+        if (n > 0) Postroad.LOGGER.info("Resuming {} provisional road(s): corridors queued for generation", n)
     }
 
     fun onServerStopping(event: ServerStoppingEvent) {

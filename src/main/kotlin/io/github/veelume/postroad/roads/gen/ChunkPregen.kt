@@ -28,6 +28,12 @@ object ChunkPregen {
     private class Request(val dimension: ResourceLocation, val chunk: Long, val job: Job?)
 
     private val queue = ArrayDeque<Request>()
+    /**
+     * Asked from the server thread, the chunk source waits for the chunk (vanilla joins on the main
+     * thread); asked from any other thread it merely schedules and returns a future. So requests
+     * go through this one thread and never touch the server thread until the chunk is ready.
+     */
+    private val dispatcher = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "postroad-pregen").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
     private val queued = HashSet<Long>()
     private val inFlight = AtomicInteger()
     private val jobIds = AtomicInteger()
@@ -71,17 +77,24 @@ object ChunkPregen {
     private fun start(level: ServerLevel, req: Request) {
         inFlight.incrementAndGet()
         val cx = ChunkPos.getX(req.chunk); val cz = ChunkPos.getZ(req.chunk)
-        level.chunkSource.getChunkFuture(cx, cz, ChunkStatus.CARVERS, true).whenCompleteAsync({ result, error ->
-            inFlight.decrementAndGet()
-            val chunk = if (error == null && result != null) result.orElse(null) else null
-            if (chunk == null) {
-                if (error != null) Postroad.LOGGER.warn("Pre-generation of chunk [{}, {}] failed: {}", cx, cz, error.toString())
-                finish(req, false)
-            } else {
-                KnownTerrain.record(req.dimension, chunk)
-                finish(req, true)
+        dispatcher.execute {
+            try {
+                level.chunkSource.getChunkFuture(cx, cz, ChunkStatus.CARVERS, true).whenCompleteAsync({ result, error ->
+                    inFlight.decrementAndGet()
+                    val chunk = if (error == null && result != null) result.orElse(null) else null
+                    if (chunk == null) {
+                        if (error != null) Postroad.LOGGER.warn("Pre-generation of chunk [{}, {}] failed: {}", cx, cz, error.toString())
+                        finish(req, false)
+                    } else {
+                        KnownTerrain.record(req.dimension, chunk)
+                        finish(req, true)
+                    }
+                }, level.server)
+            } catch (e: Throwable) {
+                Postroad.LOGGER.warn("Pre-generation request for chunk [{}, {}] failed: {}", cx, cz, e.toString())
+                level.server.execute { inFlight.decrementAndGet(); finish(req, false) }
             }
-        }, level.server)
+        }
     }
 
     private fun finish(req: Request, ok: Boolean) {
