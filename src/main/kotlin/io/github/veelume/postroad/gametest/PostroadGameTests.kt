@@ -527,7 +527,7 @@ class PostroadGameTests {
         val cell = { x: Int, z: Int -> io.github.veelume.postroad.roads.gen.Cell(x, z) }
         // Towns A and B far apart on a line, C off to the side near the middle.
         val grid = g.flat(120, 60, 64)
-        val towns = listOf(cell(5, 30), cell(115, 30), cell(60, 50))
+        val towns = listOf(cell(5, 30), cell(115, 30), cell(60, 50)).mapIndexed { i, c -> io.github.veelume.postroad.roads.gen.Town("t$i", c) }
         val plan = planner.planNetwork(grid, towns, neighbours = 2, maxLinkCells = 200.0)
         helper.assertTrue(plan.routes.size >= 2, "at least two routes planned (${plan.routes.size})")
         val roadCells = plan.routes.flatMap { it.cells }.toSet().size
@@ -536,6 +536,10 @@ class PostroadGameTests {
         helper.assertTrue(plan.junctions.isNotEmpty(), "a junction exists")
         // The trunk A–B is planned first; C's spur joins it and does not run alongside it.
         helper.assertTrue(plan.routes[0].from == towns[0] && plan.routes[0].to == towns[1], "the longest pair is the trunk")
+        helper.assertTrue(plan.junctions.all { it.joinedRoute == plan.routes[0].id }, "every junction is on the trunk: " + plan.junctions.joinToString { "${it.cell} ${it.joiningRoute}->${it.joinedRoute}" } + " routes " + plan.routes.joinToString { "${it.id}:${it.from.id}-${it.to.id}" })
+        // Planning again with the result as existing roads adds nothing.
+        val again = planner.planNetwork(grid, towns, neighbours = 2, maxLinkCells = 200.0, existing = plan.routes)
+        helper.assertValueEqual(again.routes.size, 0, "no new routes on a second pass")
         val trunk = plan.routes[0].cells.toSet()
         var parallel = 0
         var spurNew = 0
@@ -547,6 +551,99 @@ class PostroadGameTests {
         }
         helper.assertTrue(spurNew > 0, "the spur has cells of its own")
         helper.assertTrue(parallel * 5 < spurNew, "spur does not run parallel to the trunk ($parallel of $spurNew cells within 2 of it)")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun tiled_terrain_samples_lazily_and_routes_around_water(helper: GameTestHelper) {
+        val gen = io.github.veelume.postroad.roads.gen.TiledTerrain
+        val t = io.github.veelume.postroad.roads.gen.Terrain
+        // A synthetic sampler: flat at 64 with a water band at cells z in 20..22, a ford at x = 40.
+        val sampled = java.util.concurrent.atomic.AtomicInteger()
+        val sampler = io.github.veelume.postroad.roads.gen.TileSampler { tx, tz ->
+            sampled.incrementAndGet()
+            val tile = io.github.veelume.postroad.roads.gen.Tile.empty()
+            for (i in 0 until gen.TILE) for (j in 0 until gen.TILE) {
+                val cx = tx * gen.TILE + j
+                val cz = tz * gen.TILE + i
+                tile.heights[i * gen.TILE + j] = 64
+                if (cz in 20..22 && cx != 40) tile.flags[i * gen.TILE + j] = t.WATER.toByte()
+            }
+            tile
+        }
+        val terrain = io.github.veelume.postroad.roads.gen.TiledTerrain(4, sampler)
+        terrain.bounds = io.github.veelume.postroad.roads.gen.CellBox(-10, -10, 90, 60)
+        helper.assertValueEqual(terrain.tileCount, 0, "nothing sampled before the first read")
+        val route = io.github.veelume.postroad.roads.gen.RoadPlanner.route(terrain, io.github.veelume.postroad.roads.gen.Cell(10, 5), io.github.veelume.postroad.roads.gen.Cell(10, 40))
+            ?: return helper.fail("no route over tiled terrain")
+        helper.assertTrue(route.any { it.x == 40 && it.z == 21 }, "route crosses at the ford")
+        helper.assertTrue(route.none { terrain.has(it.x, it.z, t.WATER) }, "route stays dry")
+        helper.assertTrue(sampled.get() == terrain.tileCount && sampled.get() > 0, "each tile sampled once (${sampled.get()} / ${terrain.tileCount})")
+        // A structure box blocks cells on tiles loaded before and after it was added.
+        terrain.block(io.github.veelume.postroad.roads.gen.CellBox(60, 30, 65, 35))
+        helper.assertTrue(terrain.has(62, 32, t.BLOCKED), "box marks a loaded tile")
+        helper.assertTrue(terrain.has(64, 34, t.BLOCKED), "box marks a tile loaded later")
+        helper.assertTrue(terrain.cellToBlock(10, 5) == BlockPos(42, 64, 22), "cell centre at surface height")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun world_sampler_reads_the_generator_off_chunks(helper: GameTestHelper) {
+        val level = helper.level
+        val sampler = io.github.veelume.postroad.roads.gen.WorldTerrainSampler(level, null, 4)
+        val tile = sampler.sample(200, 200) // far from anything loaded
+        val expected = level.chunkSource.generator.getBaseHeight(200 * 64 + 2, 200 * 64 + 2, net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG, level, level.chunkSource.randomState())
+        helper.assertValueEqual(tile.heights[0].toInt(), expected, "tile height matches the generator's base height")
+        helper.assertTrue(tile.heights.all { it.toInt() == expected }, "the flat test world samples flat")
+        helper.assertTrue(tile.families.all { it in 0..5 }, "families are in range")
+        val finder = io.github.veelume.postroad.roads.gen.TownFinder(level)
+        var found = 0
+        for (cz in 100..103) for (cx in 100..103) if (finder.find(cx, cz) != null) found++
+        helper.assertTrue(found >= 0, "town finder runs off-chunk without error (${finder.villageSets.size} village set(s))")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun plan_pass_applies_as_uncharted_paths(helper: GameTestHelper) {
+        val gen = io.github.veelume.postroad.roads.gen.RoadGen
+        val level = helper.level
+        val server = level.server
+        val tag = java.util.UUID.randomUUID().toString().take(6)
+        val dim = level.dimension().location()
+        val box = { x: Int, z: Int -> net.minecraft.world.level.levelgen.structure.BoundingBox(x - 20, 60, z - 20, x + 20, 80, z + 20) }
+        val a = io.github.veelume.postroad.roads.gen.PlannedTown("test/$tag/a", dim, Postroad.id("test"), BlockPos(100000, 64, 100000), box(100000, 100000))
+        val b = io.github.veelume.postroad.roads.gen.PlannedTown("test/$tag/b", dim, Postroad.id("test"), BlockPos(100400, 64, 100000), box(100400, 100000))
+        val c = io.github.veelume.postroad.roads.gen.PlannedTown("test/$tag/c", dim, Postroad.id("test"), BlockPos(100200, 64, 100200), box(100200, 100200))
+        val request = io.github.veelume.postroad.roads.gen.RoadGen.PassRequest(dim, BlockPos(100200, 64, 100100), radius = 600, maxLink = 900, neighbours = 2, margin = 8,
+            costs = io.github.veelume.postroad.roads.gen.PlannerCosts(), knownTowns = listOf(a, b, c), knownRoads = emptyList(),
+            discovered = it.unimi.dsi.fastutil.longs.LongOpenHashSet(), discoverTowns = false)
+        val worker = gen.workerFor(level)
+        val result = gen.runPass(worker, request)
+        helper.assertTrue(result.newRoads.size >= 2, "roads planned between the three towns (${result.newRoads.size})")
+        helper.assertTrue(result.newRoads.all { r -> r.points.none { p -> p.x in 99980..100020 && p.z in 99980..100020 } }, "no road runs through town A's box")
+        helper.assertTrue(result.newJunctions.isNotEmpty(), "the spur joins the trunk")
+
+        val network = Network.get(server)
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(server)
+        val pathsBefore = network.paths.size
+        gen.apply(server, result)
+        helper.assertValueEqual(network.paths.size - pathsBefore, result.newRoads.size, "one uncharted path per planned road")
+        for (road in result.newRoads) {
+            val path = network.paths[road.id] ?: return helper.fail("path ${road.id} missing")
+            helper.assertTrue(!path.charted, "generated path starts uncharted")
+            helper.assertTrue(path.recordedBy == gen.GENERATED_BY, "generated path is recorded by the mod")
+            helper.assertTrue(storage.roads[road.id] != null, "plan storage knows the road")
+        }
+        helper.assertTrue(network.links.any { it.pathA == result.newJunctions[0].joiningRoad && it.pathB == result.newJunctions[0].joinedRoad }, "junction became a link")
+        // Uncharted: routing sees nothing.
+        val trunk = result.newRoads[0]
+        val nodeId = "test/$tag/node"
+        network.nodes[nodeId] = io.github.veelume.postroad.roads.RoadNode(nodeId, io.github.veelume.postroad.roads.RoadNode.KIND_SIGN, dim, trunk.points[0], trunk.id, 0, "n", null)
+        helper.assertTrue(io.github.veelume.postroad.roads.Routing.routes(network, nodeId).isEmpty(), "uncharted roads carry no travel")
+        // Applying the same result again changes nothing.
+        gen.apply(server, result)
+        helper.assertValueEqual(network.paths.size - pathsBefore, result.newRoads.size, "apply is idempotent")
+        network.nodes.remove(nodeId)
         helper.succeed()
     }
 

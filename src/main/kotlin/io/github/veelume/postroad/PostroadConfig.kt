@@ -63,6 +63,12 @@ object PostroadConfig {
     private val AUTO_NAME_SIGNS: ModConfigSpec.BooleanValue
     private val FLIP_SIGN_FACES: ModConfigSpec.BooleanValue
     private val TARGET_POOLS: ModConfigSpec.ConfigValue<List<out String>>
+    private val PLAN_ENABLED: ModConfigSpec.BooleanValue
+    private val PLAN_RADIUS: ModConfigSpec.IntValue
+    private val PLAN_MAX_LINK: ModConfigSpec.IntValue
+    private val PLAN_NEIGHBOURS: ModConfigSpec.IntValue
+    private val PLAN_REPASS_DISTANCE: ModConfigSpec.IntValue
+    private val PLAN_STRUCTURE_MARGIN: ModConfigSpec.IntValue
 
     val SPEC: ModConfigSpec
 
@@ -123,6 +129,15 @@ object PostroadConfig {
         TIER_FACTOR_PAVED = BUILDER.comment("Fare divisor for paved roads, in percent.").defineInRange("tierFactorPaved", 200, 1, 1000)
         BUILDER.pop()
 
+        BUILDER.push("plan")
+        PLAN_ENABLED = BUILDER.comment("Plan and build roads between predicted villages in the overworld.").define("enabled", true)
+        PLAN_RADIUS = BUILDER.comment("Half-size in blocks of the square around spawn and each player that is searched for villages and planned.").defineInRange("radius", 1500, 256, 10000)
+        PLAN_MAX_LINK = BUILDER.comment("Two villages further apart than this many blocks are never linked directly.").defineInRange("maxLink", 900, 64, 10000)
+        PLAN_NEIGHBOURS = BUILDER.comment("Each village is linked to this many nearest villages.").defineInRange("neighbours", 3, 1, 8)
+        PLAN_REPASS_DISTANCE = BUILDER.comment("A player who moved this many blocks since their last pass triggers a new one.").defineInRange("repassDistance", 256, 16, 10000)
+        PLAN_STRUCTURE_MARGIN = BUILDER.comment("Blocks of clearance kept around a predicted village's bounding box.").defineInRange("structureMargin", 8, 0, 64)
+        BUILDER.pop()
+
         BUILDER.push("signs")
         AUTO_NAME_SIGNS = BUILDER.comment("When a way sign is linked, point its arms along the path and write 'To: <next node>' on them.").define("autoName", true)
         FLIP_SIGN_FACES = BUILDER.comment("Invert which side of a way-sign arm carries the text (if arms come out facing away from the road).").define("flipFaces", false)
@@ -149,6 +164,12 @@ object PostroadConfig {
     val tierFactorDirt: Double get() = TIER_FACTOR_DIRT.get() / 100.0
     val tierFactorGravel: Double get() = TIER_FACTOR_GRAVEL.get() / 100.0
     val tierFactorPaved: Double get() = TIER_FACTOR_PAVED.get() / 100.0
+    val planEnabled: Boolean get() = PLAN_ENABLED.get()
+    val planRadius: Int get() = PLAN_RADIUS.get()
+    val planMaxLink: Int get() = PLAN_MAX_LINK.get()
+    val planNeighbours: Int get() = PLAN_NEIGHBOURS.get()
+    val planRepassDistance: Int get() = PLAN_REPASS_DISTANCE.get()
+    val planStructureMargin: Int get() = PLAN_STRUCTURE_MARGIN.get()
     val autoNameSigns: Boolean get() = AUTO_NAME_SIGNS.get()
     val flipSignFaces: Boolean get() = FLIP_SIGN_FACES.get()
 }

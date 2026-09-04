@@ -11,6 +11,7 @@ import io.github.veelume.postroad.network.LedgerEntry
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.registry.PostroadDataMaps
 import net.minecraft.commands.CommandSourceStack
+import net.minecraft.core.BlockPos
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.commands.Commands
 import net.minecraft.network.chat.Component
@@ -44,6 +45,13 @@ object PostroadCommands {
                         .then(Commands.literal("abort").executes { chartAbort(it) }),
                 )
                 .then(Commands.literal("paths").executes { paths(it) })
+                .then(
+                    Commands.literal("roads")
+                        .executes { roadsStatus(it) }
+                        .then(Commands.literal("status").executes { roadsStatus(it) })
+                        .then(Commands.literal("plan").requires { it.hasPermission(2) }.executes { roadsPlan(it) })
+                        .then(Commands.literal("clear").requires { it.hasPermission(2) }.executes { roadsClear(it) }),
+                )
                 .then(Commands.literal("nodes").executes { nodes(it) })
                 .then(
                     Commands.literal("balance")
@@ -171,6 +179,25 @@ object PostroadCommands {
             }, false)
         }
         return network.paths.size
+    }
+
+    private fun roadsStatus(ctx: CommandContext<CommandSourceStack>): Int {
+        for (line in io.github.veelume.postroad.roads.gen.RoadGen.status(ctx.source.server)) ctx.source.sendSuccess({ Component.literal(line) }, false)
+        return 1
+    }
+
+    private fun roadsPlan(ctx: CommandContext<CommandSourceStack>): Int {
+        val level = ctx.source.level
+        val pos = BlockPos.containing(ctx.source.position)
+        val queued = io.github.veelume.postroad.roads.gen.RoadGen.schedule(level, pos)
+        ctx.source.sendSuccess({ Component.literal(if (queued) "Road plan pass queued around ${pos.toShortString()}." else "The road planner is off (config plan.enabled).") }, true)
+        return if (queued) 1 else 0
+    }
+
+    private fun roadsClear(ctx: CommandContext<CommandSourceStack>): Int {
+        val ok = io.github.veelume.postroad.roads.gen.RoadGen.clear(ctx.source.server)
+        ctx.source.sendSuccess({ Component.literal(if (ok) "Road plan cleared; uncharted generated paths removed." else "A pass is running; try again in a moment.") }, true)
+        return if (ok) 1 else 0
     }
 
     private fun nodes(ctx: CommandContext<CommandSourceStack>): Int {

@@ -31,8 +31,16 @@ live in `docs/` (one per increment). This file is about the code.
   `RoadPath`/`PathLink`/`RoadNode` (the travel graph, stored on `Network`), `Charting` (per-player
   sessions, sampling + particles, record/link/attach), `ChartingMapItem` + payloads + `ChartingClient`
   (client-side state holder with no client imports; `ClientSetup` plugs the screen opener in).
-- `roads/gen/` — generated roads: `TerrainGrid` (4-block cells: height, flags, biome family), `RoadPlanner`
-  (A* with slope/water costs and a reuse discount; `planNetwork` → routes + junctions). Pure; no world access.
+- `roads/gen/` — generated roads. `Terrain` (cells of 4 blocks: height, flags, biome family) with two forms:
+  `TerrainGrid` (dense, tests) and `TiledTerrain` (lazy tiles from a `TileSampler`, BLOCKED/ROAD in an overlay).
+  `RoadPlanner` (A* with slope/water costs and a reuse discount; `planNetwork` → new routes + junctions, given
+  existing ones). `WorldTerrainSampler` (noise router's preliminary surface + biome source, no chunks; tiles cached
+  under `<world>/postroad/terrain/`), `Families` (biome-id keywords → palette family, mirrors the pack's
+  `gen_road_styles.py`), `TownFinder` (replays structure-set placement + `Structure.generate` to predict villages;
+  ids match `PlaceResolver`'s `<dim>/<chunkX>/<chunkZ>`), `RoadPlanStorage` (SavedData `postroad_roadplan`: predicted
+  towns, planned roads with build state, junctions, searched squares), `PlannerRules` (`roads/planner.json` costs),
+  `RoadGen` (the `postroad-planner` daemon thread: pass requests are snapshots built on the server thread, results
+  applied there — generated paths enter `Network` uncharted). The pass is a pure function of request + worker terrain.
 - `roads/Routing` — Dijkstra over anchors (nodes + link ends) on the path polylines.
 - `travel/` — `Fares`, `TravelService` (open list, depart: fare, fresh-loot mailing, teleport), `SignNodes`
   (map-on-sign links/unlinks, left-click opens travel; block tag `#postroad:sign_nodes`), payloads + `TravelClient`.
@@ -53,8 +61,10 @@ live in `docs/` (one per increment). This file is about the code.
 - **One state object.** All mutable server state goes through `Network`; block entities and
   items only carry ids or stamps. Call `setDirty()` on every mutation (the `TownContainer`
   wrapper does it for storage).
-- **Server thread only** in increments 1–4. Anything that will run off-thread later (the road
-  planner) must be a pure function over copied data.
+- **Server thread only**, with one exception: `RoadGen`'s planner thread. It only ever sees a
+  `PassRequest` snapshot and its own `TiledTerrain`; it reads the chunk generator's pure noise and
+  structure-placement functions, never chunks or SavedData. Results cross back through a queue
+  drained in `ServerTickEvent.Post`.
 - **Event listeners** use the explicit `addListener(Event::class.java, Consumer)` overload —
   the reflective one cannot resolve Kotlin lambdas' generic type.
 - **Sneak + item never reaches a block's `useItemOn`** — vanilla treats it as a secondary use

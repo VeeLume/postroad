@@ -9,6 +9,8 @@ import io.github.veelume.postroad.names.CultureRegistry
 import io.github.veelume.postroad.roads.Charting
 import io.github.veelume.postroad.roads.RoadBuff
 import io.github.veelume.postroad.roads.RoadRules
+import io.github.veelume.postroad.roads.gen.PlannerRules
+import io.github.veelume.postroad.roads.gen.RoadGen
 import io.github.veelume.postroad.registry.PostroadBlockEntities
 import io.github.veelume.postroad.registry.PostroadBlocks
 import io.github.veelume.postroad.registry.PostroadComponents
@@ -28,6 +30,7 @@ import net.neoforged.neoforge.event.AddReloadListenerEvent
 import net.neoforged.neoforge.event.RegisterCommandsEvent
 import net.neoforged.neoforge.event.server.ServerAboutToStartEvent
 import net.neoforged.neoforge.event.server.ServerStartedEvent
+import net.neoforged.neoforge.event.server.ServerStoppingEvent
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent
 import net.neoforged.neoforge.event.entity.player.PlayerEvent
 import net.neoforged.neoforge.event.tick.PlayerTickEvent
@@ -66,7 +69,7 @@ object Postroad {
 
         ModLoadingContext.get().activeContainer.registerConfig(ModConfig.Type.COMMON, PostroadConfig.SPEC)
 
-        FORGE_BUS.addListener(AddReloadListenerEvent::class.java, Consumer { it.addListener(CultureRegistry); it.addListener(RoadRules) })
+        FORGE_BUS.addListener(AddReloadListenerEvent::class.java, Consumer { it.addListener(CultureRegistry); it.addListener(RoadRules); it.addListener(PlannerRules) })
         FORGE_BUS.addListener(PlayerTickEvent.Post::class.java, Consumer(RoadBuff::onPlayerTick))
         FORGE_BUS.addListener(PlayerTickEvent.Post::class.java, Consumer(Charting::onPlayerTick))
         FORGE_BUS.addListener(LivingDeathEvent::class.java, Consumer(Charting::onDeath))
@@ -78,6 +81,9 @@ object Postroad {
         io.github.veelume.postroad.travel.SignNodes.register()
         FORGE_BUS.addListener(ServerStartedEvent::class.java, Consumer(MailService::onServerStarted))
         FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(MailService::onServerTick))
+        FORGE_BUS.addListener(ServerStartedEvent::class.java, Consumer(RoadGen::onServerStarted))
+        FORGE_BUS.addListener(ServerStoppingEvent::class.java, Consumer(RoadGen::onServerStopping))
+        FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(RoadGen::onServerTick))
 
         if (FMLEnvironment.dist == Dist.CLIENT) {
             ClientSetup.register()

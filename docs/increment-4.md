@@ -61,26 +61,35 @@ works. Out for now: the Rust core (see Decisions).
   generation. Where it does not (a village that fails for another reason),
   the road ends at an empty spot; the town node never appears; harmless.
 - Discovery runs for a square of `plan.radius` (1500 blocks) around each
-  player and around spawn, on the background thread, and is cached: a chunk
-  is asked once.
+  player and around spawn, on the background thread, and is bookkept per
+  256-block square: a square is searched once. Prediction replays the chunk
+  generator's own decision: the set's placement says whether a village may
+  start in a chunk, then the set's weighted draw and `Structure.generate`
+  (biome check, jigsaw layout) say whether it does. The layout is thrown
+  away; its bounding box is kept.
 - A predicted town is a **candidate node** at the structure's start position.
   It becomes a real `town` node when its depot registers (increment 1); the
   candidate carries the same id so the road already knows it.
 
 ## Terrain model
 
-- Grid cell: 4 blocks. Per cell: `ChunkGenerator.getBaseHeight` at
-  `WORLD_SURFACE_WG` (the noise surface before decoration), the biome at that
-  point, and derived flags: water (surface below sea level, or an ocean/river
-  biome), lava, and slope to the neighbours.
+- Grid cell: 4 blocks. Per cell: the noise router's preliminary surface
+  (`initial_density_without_jaggedness` scanned down the column, the same
+  estimate vanilla uses for surface depth — 2-D, so far cheaper than
+  `getBaseHeight`'s full column; non-noise generators fall back to
+  `getBaseHeight`), the biome at that point, and derived flags: water
+  (surface below sea level, or an ocean/river/beach biome) and the palette
+  family. Slope is computed from neighbours at search time.
 - The generator's noise calls are pure functions of position and the world's
   `RandomState`; they are safe off-thread and are what RoadArchitect used
   successfully. They are not cheap on modded worldgen, so the grid is filled
   lazily per 16×16-cell tile as the planner asks for it, and every tile is
   persisted (`postroad/terrain/<dim>/<tx>_<tz>.bin`) so a restart never
   resamples.
-- Structure boxes: the predicted village's start box, expanded by a margin,
-  marked impassable except the boundary cells.
+- Structure boxes: the predicted village's start box, expanded by
+  `plan.structureMargin` (8), marked impassable in an overlay on the tiles
+  (cached tiles stay pure terrain). A town's own road ends at the nearest
+  passable cell outside its box.
 
 ## Planner
 
@@ -156,8 +165,13 @@ works. Out for now: the Rust core (see Decisions).
 - One daemon thread, `postroad-planner`, lowest priority. Work items: discover
   towns around a position, fill terrain tiles, plan pairs. Results are handed
   to the server thread through a queue and applied there.
-- Triggers: server started (spawn area), player moved more than 256 blocks
-  since the last plan pass for them, and `/postroad roads plan`.
+- Triggers: server started (spawn area), player moved more than
+  `plan.repassDistance` (256) blocks since the last plan pass for them, and
+  `/postroad roads plan`. One pass at a time; a pass is a snapshot of config
+  and storage (`PassRequest`) plus the worker's terrain, and returns a
+  `PassResult` the server thread applies — the same call the tests make
+  synchronously.
+- Overworld only for now; other dimensions have no villages worth linking.
 - Nothing runs while the queue for the server thread is longer than
   `build.maxQueuedChunks`; back-pressure instead of growth.
 
@@ -168,10 +182,11 @@ works. Out for now: the Rust core (see Decisions).
 (re-queue loaded chunks), `/postroad roads clear` (op; drops the plan, not
 the network).
 
-Config: `plan.radius` (1500), `plan.maxLink` (900), `plan.neighbours` (3),
-`plan.mergeDistance` (24), `build.blocksPerTick` (200), `build.lampInterval`
-(24), `build.maxQueuedChunks` (64), `build.width` (3). Costs and palettes are
-data files.
+Config: `plan.enabled`, `plan.radius` (1500), `plan.maxLink` (900),
+`plan.neighbours` (3), `plan.repassDistance` (256), `plan.structureMargin`
+(8), `build.blocksPerTick` (200), `build.lampInterval` (24),
+`build.maxQueuedChunks` (64), `build.width` (3). Costs
+(`roads/planner.json`) and palettes (`roads/styles.json`) are data files.
 
 ## Test plan
 

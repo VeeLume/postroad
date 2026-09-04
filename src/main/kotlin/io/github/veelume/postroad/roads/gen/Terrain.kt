@@ -1,0 +1,129 @@
+package io.github.veelume.postroad.roads.gen
+
+import net.minecraft.core.BlockPos
+
+/**
+ * What the planner routes over: cells of [cellSize] blocks with a surface height, flags and a
+ * biome family. [TerrainGrid] is the dense in-memory form (tests); [TiledTerrain] fills
+ * itself lazily from a [TileSampler] and is what the world uses.
+ */
+interface Terrain {
+    val cellSize: Int
+
+    fun inBounds(cx: Int, cz: Int): Boolean
+    fun heightAt(cx: Int, cz: Int): Int
+    fun has(cx: Int, cz: Int, flag: Int): Boolean
+    fun set(cx: Int, cz: Int, flag: Int)
+    fun family(cx: Int, cz: Int): Int
+
+    /** Block position at the centre of a cell, at its surface height. */
+    fun cellToBlock(cx: Int, cz: Int): BlockPos
+    fun blockToCell(x: Int, z: Int): Cell
+
+    companion object {
+        const val WATER = 1
+        const val LAVA = 2
+        const val BLOCKED = 4
+        const val ROAD = 8
+
+        fun key(x: Int, z: Int): Long = (x.toLong() shl 32) or (z.toLong() and 0xffffffffL)
+        fun keyX(key: Long): Int = (key shr 32).toInt()
+        fun keyZ(key: Long): Int = key.toInt()
+    }
+}
+
+/** One sampled tile: [TiledTerrain.TILE] × [TiledTerrain.TILE] cells, row-major by z. */
+class Tile(val heights: ShortArray, val flags: ByteArray, val families: ByteArray) {
+    companion object {
+        fun empty(): Tile = Tile(ShortArray(TiledTerrain.CELLS), ByteArray(TiledTerrain.CELLS), ByteArray(TiledTerrain.CELLS))
+    }
+}
+
+/** Produces the terrain of a tile; the world sampler and the tests implement this. */
+fun interface TileSampler {
+    fun sample(tx: Int, tz: Int): Tile
+}
+
+/** A rectangle of cells, inclusive, that roads may not cross: a structure's footprint. */
+data class CellBox(val minX: Int, val minZ: Int, val maxX: Int, val maxZ: Int)
+
+/**
+ * World-sized terrain filled tile by tile as the planner asks. Sampled data (height, water,
+ * family) comes from the sampler; BLOCKED and ROAD live in an overlay so the sampled tiles
+ * stay pure terrain and can be cached. Owned by one thread at a time.
+ */
+class TiledTerrain(override val cellSize: Int, private val sampler: TileSampler) : Terrain {
+    private val tiles = HashMap<Long, Tile>()
+    private val overlays = HashMap<Long, ByteArray>()
+    private val boxes = LinkedHashSet<CellBox>()
+
+    /** Cells outside this rectangle are out of bounds for the search; null = unbounded. */
+    var bounds: CellBox? = null
+
+    val tileCount: Int get() = tiles.size
+
+    private fun tileOf(cx: Int, cz: Int): Tile {
+        val tx = Math.floorDiv(cx, TILE)
+        val tz = Math.floorDiv(cz, TILE)
+        val key = Terrain.key(tx, tz)
+        tiles[key]?.let { return it }
+        val tile = sampler.sample(tx, tz)
+        tiles[key] = tile
+        for (box in boxes) markBox(tx, tz, box)
+        return tile
+    }
+
+    private fun overlayOf(cx: Int, cz: Int, create: Boolean): ByteArray? {
+        val key = Terrain.key(Math.floorDiv(cx, TILE), Math.floorDiv(cz, TILE))
+        return if (create) overlays.getOrPut(key) { ByteArray(CELLS) } else overlays[key]
+    }
+
+    private fun idx(cx: Int, cz: Int): Int = Math.floorMod(cz, TILE) * TILE + Math.floorMod(cx, TILE)
+
+    override fun inBounds(cx: Int, cz: Int): Boolean {
+        val b = bounds ?: return true
+        return cx in b.minX..b.maxX && cz in b.minZ..b.maxZ
+    }
+
+    override fun heightAt(cx: Int, cz: Int): Int = tileOf(cx, cz).heights[idx(cx, cz)].toInt()
+
+    override fun has(cx: Int, cz: Int, flag: Int): Boolean {
+        val i = idx(cx, cz)
+        val sampled = tileOf(cx, cz).flags[i].toInt()
+        val overlay = overlayOf(cx, cz, create = false)?.get(i)?.toInt() ?: 0
+        return ((sampled or overlay) and flag) != 0
+    }
+
+    override fun set(cx: Int, cz: Int, flag: Int) {
+        val o = overlayOf(cx, cz, create = true)!!
+        val i = idx(cx, cz)
+        o[i] = (o[i].toInt() or flag).toByte()
+    }
+
+    override fun family(cx: Int, cz: Int): Int = tileOf(cx, cz).families[idx(cx, cz)].toInt()
+
+    override fun cellToBlock(cx: Int, cz: Int): BlockPos =
+        BlockPos(cx * cellSize + cellSize / 2, heightAt(cx, cz), cz * cellSize + cellSize / 2)
+
+    override fun blockToCell(x: Int, z: Int): Cell = Cell(Math.floorDiv(x, cellSize), Math.floorDiv(z, cellSize))
+
+    /** Marks a structure footprint impassable, on tiles already loaded and on every tile loaded later. */
+    fun block(box: CellBox) {
+        if (!boxes.add(box)) return
+        for (key in tiles.keys) markBox(Terrain.keyX(key), Terrain.keyZ(key), box)
+    }
+
+    private fun markBox(tx: Int, tz: Int, box: CellBox) {
+        val fromX = maxOf(box.minX, tx * TILE)
+        val toX = minOf(box.maxX, tx * TILE + TILE - 1)
+        val fromZ = maxOf(box.minZ, tz * TILE)
+        val toZ = minOf(box.maxZ, tz * TILE + TILE - 1)
+        if (fromX > toX || fromZ > toZ) return
+        for (cz in fromZ..toZ) for (cx in fromX..toX) set(cx, cz, Terrain.BLOCKED)
+    }
+
+    companion object {
+        const val TILE = 16
+        const val CELLS = TILE * TILE
+    }
+}
