@@ -100,10 +100,21 @@ works. Out for now: the Rust core (see Decisions).
 ## Planner
 
 - **Graph**: the cell grid with 8-neighbour moves. Cost per step: base 1,
-  plus slope penalty (`|Δh|` squared, capped), plus water (very high), lava
-  (impassable), impassable structure cells, and a **reuse discount**: a cell
-  already on a planned road costs a fraction of base. Cost is data-driven
-  (`data/postroad/roads/planner.json`).
+  plus slope penalty (`|Δh|` squared, capped high), plus water (very high),
+  lava (impassable), impassable structure cells, and a **reuse discount**: a
+  cell already on a planned road costs a fraction of base. Cost is
+  data-driven (`data/postroad/roads/planner.json`).
+- **Rules from the first in-world look** (playtest 15): more than `maxStep`
+  (3) blocks of height change per 4-block cell is impassable on new ground —
+  cliffs were cheap under the old cap and roads climbed them; an **elevation
+  band**: cells above the higher town or below the lower one (past a margin)
+  cost `bandPenalty` per block, so a road keeps to its towns' height and goes
+  around a mountain instead of over it; a town's **exit** is where the line
+  to the other town leaves its box, not the box edge nearest the centre; a
+  route that leaves an existing road and rejoins it within 16 cells is
+  **snapped** onto the road (the small rings at junctions); pairs the planner
+  gives up on keep their reason (water, unreachable) and are drawn red in
+  the debug view.
 - **Which pairs**: for each town, its `k` nearest candidate towns within
   `plan.maxLink` blocks (k = 3, 900 blocks); duplicates removed; the pairs
   are planned longest-first so trunks exist before the spurs that join them
@@ -223,7 +234,11 @@ Game tests (all headless):
 In play: whether predicted towns match generated ones, how the trunk looks
 against Tectonic terrain, junction sign placement, the tick cost of building
 while flying, and the planner thread's behaviour on the test server (jcmd
-sampling as in the RoadArchitect investigation).
+sampling as in the RoadArchitect investigation). Two tools for this:
+`/postroad roads export` draws the plan as a PNG, and `/postroad roads
+debug` (op) overlays roads, junctions, towns, nodes and dropped pairs in
+the world — the picture shows the network, the overlay shows the terrain
+the network ignores.
 
 ## Decisions
 
