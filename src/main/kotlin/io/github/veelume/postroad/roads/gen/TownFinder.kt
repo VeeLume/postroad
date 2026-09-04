@@ -63,8 +63,10 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
         private set
     @Volatile var obstaclesFound: Int = 0
         private set
-    /** Per structure: layouts built and nanoseconds spent, for the cost picture in `status`. */
+    /** Per structure: layouts built, nanoseconds spent, and how many came out buried — the cost picture in `status`. */
     val timing = ConcurrentHashMap<String, LongArray>()
+    /** Structures whose first [LEARN_BURIED] layouts were all buried: never built again, they cannot be obstacles or towns. */
+    val skipped: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
     private val warned = HashSet<String>()
     private val dimension: ResourceLocation = level.dimension().location()
 
@@ -137,6 +139,8 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
         val y = surface(x, z)
         val biome = biomeSource.getNoiseBiome(net.minecraft.core.QuartPos.fromBlock(x), net.minecraft.core.QuartPos.fromBlock(y), net.minecraft.core.QuartPos.fromBlock(z), randomState.sampler())
         if (!biomes.contains(biome)) { prefiltered++; return Outcome(false) }
+        val sid = structureId.toString()
+        if (sid in skipped) return Outcome(false)
         generated++
         val t0 = System.nanoTime()
         val start = try {
@@ -149,7 +153,7 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
             if (warned.add(structureId.toString())) Postroad.LOGGER.warn("Structure {} could not be predicted at {}: {}", structureId, chunkPos, e.toString())
             return Outcome(false)
         } finally {
-            val t = timing.getOrPut(structureId.toString()) { LongArray(2) }
+            val t = timing.getOrPut(sid) { LongArray(3) }
             t[0]++; t[1] += System.nanoTime() - t0
         }
         if (!start.isValid) return Outcome(false)
@@ -158,7 +162,12 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
             // On the surface, or buried? The box's mid-height against the estimated surface at its centre.
             val centre = box.center
             val ground = surface(centre.x, centre.z)
-            if ((box.minY() + box.maxY()) / 2 < ground - BURIED_BELOW) return Outcome(true)
+            if ((box.minY() + box.maxY()) / 2 < ground - BURIED_BELOW) {
+                // Buried. A structure that is always buried (dungeons, chambers) is not worth another layout.
+                val t = timing[sid]
+                if (t != null && ++t[2] >= LEARN_BURIED && t[2] == t[0]) skipped.add(sid)
+                return Outcome(true)
+            }
             obstaclesFound++
             return Outcome(true, obstacle = Obstacle(structureId, chunkPos, box))
         }
@@ -175,5 +184,7 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
     companion object {
         /** A structure whose box mid-height is this far under the surface is buried and ignored. */
         const val BURIED_BELOW = 4
+        /** After this many layouts that all came out buried, a structure is skipped for good. */
+        const val LEARN_BURIED = 4
     }
 }

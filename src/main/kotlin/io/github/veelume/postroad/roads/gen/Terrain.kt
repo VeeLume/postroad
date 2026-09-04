@@ -53,8 +53,9 @@ data class CellBox(val minX: Int, val minZ: Int, val maxX: Int, val maxZ: Int)
  * stay pure terrain and can be cached. Owned by one thread at a time.
  */
 class TiledTerrain(override val cellSize: Int, private val sampler: TileSampler) : Terrain {
-    private val tiles = HashMap<Long, Tile>()
-    private val overlays = HashMap<Long, ByteArray>()
+    // Concurrent maps: the planner thread fills them, the server thread reads loaded cells for the debug view.
+    private val tiles = java.util.concurrent.ConcurrentHashMap<Long, Tile>()
+    private val overlays = java.util.concurrent.ConcurrentHashMap<Long, ByteArray>()
     private val boxes = LinkedHashSet<CellBox>()
 
     /** Cells outside this rectangle are out of bounds for the search; null = unbounded. */

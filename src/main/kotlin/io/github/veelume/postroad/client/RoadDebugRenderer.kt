@@ -4,6 +4,8 @@ import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
 import io.github.veelume.postroad.roads.gen.RoadDebug
 import io.github.veelume.postroad.roads.gen.RoadDebugClient
+import io.github.veelume.postroad.roads.gen.Terrain
+import io.github.veelume.postroad.roads.gen.TerrainDebugClient
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.Font
 import net.minecraft.client.renderer.LevelRenderer
@@ -33,7 +35,8 @@ object RoadDebugRenderer {
     private fun onRenderStage(event: RenderLevelStageEvent) {
         if (event.stage != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) return
         val state = RoadDebugClient.state
-        if (state.roads.isEmpty() && state.towns.isEmpty() && state.nodes.isEmpty()) return
+        val terrain = TerrainDebugClient.state
+        if (state.roads.isEmpty() && state.towns.isEmpty() && state.nodes.isEmpty() && terrain.grids.isEmpty()) return
         val mc = Minecraft.getInstance()
         val level = mc.level ?: return
         val camera = event.camera
@@ -66,6 +69,7 @@ object RoadDebugRenderer {
 
         // Junctions and nodes as short vertical posts; towns as boxes.
         val lines = buffers.getBuffer(RenderType.lines())
+        for (g in terrain.grids) drawGrid(pose, lines, level, g)
         for (j in state.junctions) {
             val y = surfaceY(j.pos)
             post(pose, lines, j.pos, y, 4.0, if (j.signPlaced) Triple(255, 230, 0) else Triple(200, 120, 0))
@@ -112,6 +116,51 @@ object RoadDebugRenderer {
         }
         buffers.endBatch()
         pose.popPose()
+    }
+
+    /**
+     * The planner's cells: a cross at each estimated surface, coloured by the step class to the
+     * cell's east and south neighbours (what the planner would pay to walk there) or by its flags,
+     * and a tick from the estimate to the real surface where the two disagree by more than a block.
+     */
+    private fun drawGrid(pose: PoseStack, vc: VertexConsumer, level: net.minecraft.client.multiplayer.ClientLevel, g: io.github.veelume.postroad.roads.gen.DebugGrid) {
+        val m = pose.last()
+        val arm = (g.cellSize * 0.35).toFloat()
+        val alpha = if (g.cellSize <= 4) 255 else 120
+        fun line(x1: Float, y1: Float, z1: Float, x2: Float, y2: Float, z2: Float, r: Int, gr: Int, b: Int, a: Int = alpha) {
+            vc.addVertex(m.pose(), x1, y1, z1).setColor(r, gr, b, a).setNormal(m, 0f, 1f, 0f)
+            vc.addVertex(m.pose(), x2, y2, z2).setColor(r, gr, b, a).setNormal(m, 0f, 1f, 0f)
+        }
+        for (dz in 0 until g.h) for (dx in 0 until g.w) {
+            val h = g.heights[dz * g.w + dx]
+            if (h == Int.MIN_VALUE) continue
+            val flags = g.flags[dz * g.w + dx].toInt()
+            var step = 0
+            if (dx + 1 < g.w) g.heights[dz * g.w + dx + 1].let { if (it != Int.MIN_VALUE) step = max(step, kotlin.math.abs(it - h)) }
+            if (dz + 1 < g.h) g.heights[(dz + 1) * g.w + dx].let { if (it != Int.MIN_VALUE) step = max(step, kotlin.math.abs(it - h)) }
+            val (r, gr, b) = when {
+                flags and Terrain.ROAD != 0 -> Triple(255, 255, 255)
+                flags and Terrain.BLOCKED != 0 -> Triple(255, 0, 255)
+                flags and Terrain.LAVA != 0 -> Triple(255, 90, 0)
+                flags and Terrain.WATER != 0 -> Triple(60, 120, 255)
+                step == 0 -> Triple(80, 220, 80)
+                step <= 2 -> Triple(230, 230, 60)
+                step <= 6 -> Triple(255, 150, 30)
+                step <= 12 -> Triple(255, 60, 60)
+                else -> Triple(150, 0, 170)
+            }
+            val cx = ((g.originCx + dx) * g.cellSize + g.cellSize / 2 + 0.5).toFloat()
+            val cz = ((g.originCz + dz) * g.cellSize + g.cellSize / 2 + 0.5).toFloat()
+            val y = (h + 0.15).toFloat()
+            line(cx - arm, y, cz, cx + arm, y, cz, r, gr, b)
+            line(cx, y, cz - arm, cx, y, cz + arm, r, gr, b)
+            // Estimate against the world, fine cells only: red tick floating above the ground, blue tick buried.
+            if (g.cellSize <= 4 && level.hasChunk(cx.toInt() shr 4, cz.toInt() shr 4)) {
+                val real = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, cx.toInt(), cz.toInt())
+                if (h > real + 1) line(cx, real.toFloat(), cz, cx, y, cz, 255, 50, 50, 255)
+                else if (h < real - 1) line(cx, y, cz, cx, real.toFloat(), cz, 50, 90, 255, 255)
+            }
+        }
     }
 
     private fun post(pose: PoseStack, vc: VertexConsumer, p: BlockPos, y: Double, height: Double, rgb: Triple<Int, Int, Int>) {

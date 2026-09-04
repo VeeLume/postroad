@@ -65,6 +65,49 @@ data class RoadDebugPayload(val state: RoadDebugState) : CustomPacketPayload {
     }
 }
 
+/**
+ * One grid of the planner's sampled cells around the player: cell size in blocks, the cell
+ * coordinates of the grid's corner, its size, and per cell the estimated surface height
+ * (`Int.MIN_VALUE` where the planner has not sampled) and the terrain flags.
+ */
+class DebugGrid(val cellSize: Int, val originCx: Int, val originCz: Int, val w: Int, val h: Int, val heights: IntArray, val flags: ByteArray)
+
+class TerrainDebugState(val grids: List<DebugGrid>) {
+    companion object {
+        val EMPTY = TerrainDebugState(emptyList())
+        val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, TerrainDebugState> = StreamCodec.of(
+            { buf, s ->
+                buf.writeCollection(s.grids) { b, g ->
+                    b.writeVarInt(g.cellSize); b.writeInt(g.originCx); b.writeInt(g.originCz); b.writeVarInt(g.w); b.writeVarInt(g.h)
+                    for (v in g.heights) b.writeInt(v)
+                    b.writeByteArray(g.flags)
+                }
+            },
+            { buf ->
+                TerrainDebugState(buf.readList { b ->
+                    val cell = b.readVarInt(); val ox = b.readInt(); val oz = b.readInt(); val w = b.readVarInt(); val h = b.readVarInt()
+                    val heights = IntArray(w * h) { b.readInt() }
+                    DebugGrid(cell, ox, oz, w, h, heights, b.readByteArray())
+                })
+            },
+        )
+    }
+}
+
+data class TerrainDebugPayload(val state: TerrainDebugState) : CustomPacketPayload {
+    override fun type(): CustomPacketPayload.Type<TerrainDebugPayload> = TYPE
+
+    companion object {
+        val TYPE: CustomPacketPayload.Type<TerrainDebugPayload> = CustomPacketPayload.Type(Postroad.id("terrain_debug"))
+        val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, TerrainDebugPayload> = TerrainDebugState.STREAM_CODEC.map(::TerrainDebugPayload, TerrainDebugPayload::state)
+    }
+}
+
+object TerrainDebugClient {
+    @Volatile
+    var state: TerrainDebugState = TerrainDebugState.EMPTY
+}
+
 /** Client-side holder; the client renderer reads it. No client imports here. */
 object RoadDebugClient {
     @Volatile
@@ -80,8 +123,49 @@ object RoadDebug {
     private const val INTERVAL_TICKS = 40
 
     private val enabled = HashSet<UUID>()
+    private val terrainEnabled = HashSet<UUID>()
+
+    /** Fine cells (4 blocks) this far around the player, coarse cells (16 blocks) four times as far. */
+    private const val TERRAIN_RADIUS = 64
 
     fun isEnabled(player: ServerPlayer): Boolean = player.uuid in enabled
+
+    /** The terrain layer: the planner's sampled cells with their flags. Returns the new state. */
+    fun toggleTerrain(player: ServerPlayer): Boolean {
+        return if (terrainEnabled.remove(player.uuid)) {
+            PacketDistributor.sendToPlayer(player, TerrainDebugPayload(TerrainDebugState.EMPTY))
+            false
+        } else {
+            terrainEnabled.add(player.uuid)
+            sendTerrain(player)
+            true
+        }
+    }
+
+    private fun sendTerrain(player: ServerPlayer) {
+        PacketDistributor.sendToPlayer(player, TerrainDebugPayload(collectTerrain(player)))
+    }
+
+    /** The loaded cells of the planner's fine and coarse terrain around the player; never samples. */
+    fun collectTerrain(player: ServerPlayer): TerrainDebugState {
+        val level = player.serverLevel()
+        if (!RoadGen.isOverworld(level)) return TerrainDebugState.EMPTY
+        val worker = RoadGen.workerFor(level)
+        val centre = player.blockPosition()
+        fun grid(terrain: TiledTerrain, radius: Int): DebugGrid {
+            val min = terrain.blockToCell(centre.x - radius, centre.z - radius)
+            val max = terrain.blockToCell(centre.x + radius, centre.z + radius)
+            val w = max.x - min.x + 1; val h = max.z - min.z + 1
+            val heights = IntArray(w * h); val flags = ByteArray(w * h)
+            for (dz in 0 until h) for (dx in 0 until w) {
+                val cx = min.x + dx; val cz = min.z + dz
+                heights[dz * w + dx] = terrain.loadedHeightAt(cx, cz) ?: Int.MIN_VALUE
+                flags[dz * w + dx] = (terrain.loadedFlagsAt(cx, cz) ?: 0).toByte()
+            }
+            return DebugGrid(terrain.cellSize, min.x, min.z, w, h, heights, flags)
+        }
+        return TerrainDebugState(listOf(grid(worker.terrain, TERRAIN_RADIUS), grid(worker.coarse, TERRAIN_RADIUS * 4)))
+    }
 
     /** Returns the new state. */
     fun toggle(player: ServerPlayer): Boolean {
@@ -96,15 +180,19 @@ object RoadDebug {
     }
 
     fun onServerTick(event: ServerTickEvent.Post) {
-        if (enabled.isEmpty() || event.server.tickCount % INTERVAL_TICKS != 0) return
+        if ((enabled.isEmpty() && terrainEnabled.isEmpty()) || event.server.tickCount % INTERVAL_TICKS != 0) return
         for (player in event.server.playerList.players) {
             if (player.uuid in enabled) send(player)
+            if (player.uuid in terrainEnabled) sendTerrain(player)
         }
     }
 
     fun register(registrar: PayloadRegistrar) {
         registrar.playToClient(RoadDebugPayload.TYPE, RoadDebugPayload.STREAM_CODEC) { payload, _ ->
             RoadDebugClient.state = payload.state
+        }
+        registrar.playToClient(TerrainDebugPayload.TYPE, TerrainDebugPayload.STREAM_CODEC) { payload, _ ->
+            TerrainDebugClient.state = payload.state
         }
     }
 
