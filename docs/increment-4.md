@@ -91,7 +91,8 @@ works. Out for now: the Rust core (see Decisions).
   (`data/postroad/roads/planner.json`).
 - **Which pairs**: for each town, its `k` nearest candidate towns within
   `plan.maxLink` blocks (k = 3, 900 blocks); duplicates removed; the pairs
-  are planned shortest-first so trunks exist before spurs try to join them.
+  are planned longest-first so trunks exist before the spurs that join them
+  (shortest-first produced Y-shapes through intermediate towns in tests).
 - **Route reuse and junctions**: because road cells are cheap, a later route
   runs toward the nearest existing road, joins it, and rides it; the point
   where it joins is a **junction**. A route that never touches an existing

@@ -67,6 +67,7 @@ object Routing {
         fun edges(a: Anchor) = graph.getOrPut(a) { ArrayList() }
         for ((pathId, indices) in anchorsByPath) {
             val path = network.paths[pathId] ?: continue
+            if (!path.charted) continue
             val sorted = indices.filter { it in path.points.indices }.sorted()
             for (i in 0 until sorted.size - 1) {
                 val a = Anchor(pathId, sorted[i])
@@ -79,7 +80,9 @@ object Routing {
             if (sorted.size == 1) edges(Anchor(pathId, sorted[0]))
         }
         for (link in network.links) {
-            if (network.paths[link.pathA] == null || network.paths[link.pathB] == null) continue
+            val pa = network.paths[link.pathA]
+            val pb = network.paths[link.pathB]
+            if (pa == null || pb == null || !pa.charted || !pb.charted) continue
             val a = Anchor(link.pathA, link.indexA)
             val b = Anchor(link.pathB, link.indexB)
             edges(a).add(Edge(b, 0.0, null))

@@ -16,6 +16,8 @@ class RoadPath(
     val tiers: MutableList<Tier?>,
     val recordedBy: String,
     val recordedDay: Long,
+    /** False for generated roads nobody has walked yet; routing ignores those. */
+    var charted: Boolean = true,
 ) {
     val length: Double get() = lengthBetween(0, points.size - 1)
 
@@ -66,6 +68,7 @@ class RoadPath(
         tag.putByteArray("Tiers", tiers.map { (it?.ordinal ?: -1).toByte() }.toByteArray())
         tag.putString("RecordedBy", recordedBy)
         tag.putLong("RecordedDay", recordedDay)
+        tag.putBoolean("Charted", charted)
         return tag
     }
 
@@ -82,7 +85,8 @@ class RoadPath(
             val points = tag.getLongArray("Points").map { BlockPos.of(it) }.toMutableList()
             val tiers = tag.getByteArray("Tiers").map { b -> if (b < 0) null else Tier.entries.getOrNull(b.toInt()) }.toMutableList()
             if (points.isEmpty() || tiers.size != points.size) return null
-            return RoadPath(tag.getString("Id"), dimension, points, tiers, tag.getString("RecordedBy"), tag.getLong("RecordedDay"))
+            return RoadPath(tag.getString("Id"), dimension, points, tiers, tag.getString("RecordedBy"), tag.getLong("RecordedDay"),
+                charted = !tag.contains("Charted") || tag.getBoolean("Charted"))
         }
     }
 }

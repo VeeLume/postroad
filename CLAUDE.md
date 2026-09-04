@@ -31,6 +31,8 @@ live in `docs/` (one per increment). This file is about the code.
   `RoadPath`/`PathLink`/`RoadNode` (the travel graph, stored on `Network`), `Charting` (per-player
   sessions, sampling + particles, record/link/attach), `ChartingMapItem` + payloads + `ChartingClient`
   (client-side state holder with no client imports; `ClientSetup` plugs the screen opener in).
+- `roads/gen/` — generated roads: `TerrainGrid` (4-block cells: height, flags, biome family), `RoadPlanner`
+  (A* with slope/water costs and a reuse discount; `planNetwork` → routes + junctions). Pure; no world access.
 - `roads/Routing` — Dijkstra over anchors (nodes + link ends) on the path polylines.
 - `travel/` — `Fares`, `TravelService` (open list, depart: fare, fresh-loot mailing, teleport), `SignNodes`
   (map-on-sign links/unlinks, left-click opens travel; block tag `#postroad:sign_nodes`), payloads + `TravelClient`.

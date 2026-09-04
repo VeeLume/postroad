@@ -487,6 +487,70 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun planner_detours_water_contours_hills_and_avoids_structures(helper: GameTestHelper) {
+        val g = io.github.veelume.postroad.roads.gen.TerrainGrid
+        val planner = io.github.veelume.postroad.roads.gen.RoadPlanner
+        val cell = { x: Int, z: Int -> io.github.veelume.postroad.roads.gen.Cell(x, z) }
+
+        // A river across the middle with a ford at x = 30: the route should cross at the ford.
+        val river = g.flat(60, 40, 64)
+        river.fill(0, 19, 59, 21, g.WATER)
+        river.clear(30, 19, g.WATER); river.clear(30, 20, g.WATER); river.clear(30, 21, g.WATER)
+        val crossing = planner.route(river, cell(5, 5), cell(5, 35)) ?: return helper.fail("river route not found")
+        val wet = crossing.count { river.has(it.x, it.z, g.WATER) }
+        helper.assertValueEqual(wet, 0, "route uses the ford, no wet cells")
+        helper.assertTrue(crossing.any { it.x == 30 && it.z == 20 }, "route passes the ford")
+
+        // A steep hill in the middle: the route goes around rather than over.
+        val hill = g.flat(60, 60, 64)
+        for (z in 20..40) for (x in 20..40) {
+            val d = maxOf(kotlin.math.abs(x - 30), kotlin.math.abs(z - 30))
+            hill.setHeight(x, z, 64 + (10 - d).coerceAtLeast(0) * 6)
+        }
+        val around = planner.route(hill, cell(5, 30), cell(55, 30)) ?: return helper.fail("hill route not found")
+        val peak = around.maxOf { hill.heightAt(it.x, it.z) }
+        helper.assertTrue(peak < 64 + 30, "route stays off the summit (peak height $peak)")
+
+        // A structure box between two towns: the route goes around it.
+        val box = g.flat(40, 40, 64)
+        box.fill(15, 10, 25, 30, g.BLOCKED)
+        val past = planner.route(box, cell(5, 20), cell(35, 20)) ?: return helper.fail("box route not found")
+        helper.assertTrue(past.none { box.has(it.x, it.z, g.BLOCKED) }, "route never enters the box")
+        helper.assertTrue(planner.route(box, cell(5, 20), cell(20, 20)) != null, "a town inside a box is still reachable as the goal")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun planner_reuses_roads_and_makes_one_junction(helper: GameTestHelper) {
+        val g = io.github.veelume.postroad.roads.gen.TerrainGrid
+        val planner = io.github.veelume.postroad.roads.gen.RoadPlanner
+        val cell = { x: Int, z: Int -> io.github.veelume.postroad.roads.gen.Cell(x, z) }
+        // Towns A and B far apart on a line, C off to the side near the middle.
+        val grid = g.flat(120, 60, 64)
+        val towns = listOf(cell(5, 30), cell(115, 30), cell(60, 50))
+        val plan = planner.planNetwork(grid, towns, neighbours = 2, maxLinkCells = 200.0)
+        helper.assertTrue(plan.routes.size >= 2, "at least two routes planned (${plan.routes.size})")
+        val roadCells = plan.routes.flatMap { it.cells }.toSet().size
+        val summed = plan.routes.sumOf { it.cells.size }
+        helper.assertTrue(summed > roadCells, "later routes ride earlier road cells (reuse happened)")
+        helper.assertTrue(plan.junctions.isNotEmpty(), "a junction exists")
+        // The trunk A–B is planned first; C's spur joins it and does not run alongside it.
+        helper.assertTrue(plan.routes[0].from == towns[0] && plan.routes[0].to == towns[1], "the longest pair is the trunk")
+        val trunk = plan.routes[0].cells.toSet()
+        var parallel = 0
+        var spurNew = 0
+        for (r in 1 until plan.routes.size) {
+            for (c in planner.newCells(plan, r)) {
+                spurNew++
+                if (c !in trunk && trunk.any { it.distanceTo(c) <= 2.0 }) parallel++
+            }
+        }
+        helper.assertTrue(spurNew > 0, "the spur has cells of its own")
+        helper.assertTrue(parallel * 5 < spurNew, "spur does not run parallel to the trunk ($parallel of $spurNew cells within 2 of it)")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun names_are_deterministic_per_seed_and_place(helper: GameTestHelper) {
         val culture = Culture(
             id = "test",
