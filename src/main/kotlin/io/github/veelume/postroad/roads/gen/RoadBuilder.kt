@@ -14,6 +14,8 @@ import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.util.Mth
 import net.minecraft.world.level.ChunkPos
+import net.minecraft.world.level.LevelAccessor
+import net.minecraft.world.level.WorldGenLevel
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.levelgen.Heightmap
@@ -88,10 +90,8 @@ object RoadBuilder {
                 queue.removeFirst(); queued.remove(key(job)); continue
             }
             if (generatedWithRoad(level, job.chunk)) {
-                // Worldgen laid this chunk's road as a structure piece; nothing for the builder to do.
-                for (road in storage.roadsInChunk(job.dimension, job.chunk)) road.builtChunks.add(job.chunk)
-                storage.setDirty()
-                queue.removeFirst(); queued.remove(key(job)); continue
+                // Worldgen laid this chunk's roads as structure pieces; only the junction signs are left.
+                for (road in storage.roadsInChunk(job.dimension, job.chunk)) if (road.builtChunks.add(job.chunk)) storage.setDirty()
             }
             if (job.startedAt == 0L) job.startedAt = System.nanoTime()
             val finished = buildChunkStep(level, storage, job, deadline)
@@ -230,19 +230,7 @@ object RoadBuilder {
             val c = path[i]
             if (run.terrainKnown(i)) {
                 // The rise block goes on the lower of two neighbouring columns, facing the higher one.
-                val up = if (i + 1 < path.size && target[i + 1] == target[i] + 1) path[i + 1] else null
-                val down = if (i > 0 && target[i - 1] == target[i] + 1) path[i - 1] else null
-                val higher = up ?: down
-                val inRun = (i > 0 && target[i - 1] != target[i]) && (i + 1 < path.size && target[i + 1] != target[i]) ||
-                    (up != null && i + 2 < path.size && target[i + 2] != target[i + 1]) ||
-                    (down != null && i >= 2 && target[i - 2] != target[i - 1])
-                // Stairs only face the four cardinals: a rise along a diagonal step gets a slab instead.
-                val diagonal = higher != null && higher[0] != c[0] && higher[1] != c[1]
-                val shape = when {
-                    higher == null -> SHAPE_FLAT
-                    inRun && !diagonal -> SHAPE_STAIRS
-                    else -> SHAPE_SLAB
-                }
+                val shape = RoadShapes.at(path, target, i)
                 // The column's own blocks (round stamp, no checkerboard on diagonals), the whole cross-section
                 // at its height and, on a rise, all of it carrying the slab or stairs.
                 for (dz in -half..half) for (dx in -half..half) {
@@ -253,7 +241,7 @@ object RoadBuilder {
                     val centre = dx == 0 && dz == 0
                     val palette = if (centre) style.surface else style.edge
                     val t0 = System.nanoTime()
-                    placed += placeColumn(level, x, z, target[i], palette, style, styles, boxes, shape, c, higher ?: c)
+                    placed += placeColumn(level, x, z, target[i], palette, style, styles, boxes, shape.kind, c, shape.higher ?: c)
                     job.setBlockNanos += System.nanoTime() - t0
                 }
                 // A lamppost every lampInterval columns, sides alternating, two blocks off the centre.
@@ -274,7 +262,7 @@ object RoadBuilder {
     }
 
     /** The straight block line through [waypoints], one block per step (the fallback when refining fails). */
-    private fun straight(waypoints: List<BlockPos>): List<IntArray> {
+    internal fun straight(waypoints: List<BlockPos>): List<IntArray> {
         val out = ArrayList<IntArray>()
         for (w in 1 until waypoints.size) {
             val a = waypoints[w - 1]; val b = waypoints[w]
@@ -361,12 +349,9 @@ object RoadBuilder {
 
     private const val FLAT_WINDOW = 12
     /** Planned points sampled either side of a run as context for the flattening. */
-    private const val CONTEXT_POINTS = 4
+    internal const val CONTEXT_POINTS = 4
     private const val MAX_CUT = 4
 
-    private const val SHAPE_FLAT = 0
-    private const val SHAPE_SLAB = 1
-    private const val SHAPE_STAIRS = 2
     private const val MAX_FILL = 6
     private const val HEADROOM = 3
 
@@ -379,6 +364,12 @@ object RoadBuilder {
                             shape: Int, from: IntArray, to: IntArray): Int {
         if (!level.hasChunk(x shr 4, z shr 4) || inBox(x, z, boxes)) return 0
         val ground = groundY(level, x, z, top, styles)
+        return placeColumnAt(level, x, z, top, ground, palette, style, styles, shape, from, to)
+    }
+
+    /** [placeColumn] on any level, [ground] already known — the structure piece's way in. */
+    internal fun placeColumnAt(level: LevelAccessor, x: Int, z: Int, top: Int, ground: Int, palette: Palette, style: RoadStyle, styles: RoadStyleSet,
+                               shape: Int, from: IntArray, to: IntArray): Int {
         if (ground <= level.minBuildHeight || top <= level.minBuildHeight) return 0
         val groundState = level.getBlockState(BlockPos(x, ground, z))
         if (!groundState.fluidState.isEmpty || !level.getFluidState(BlockPos(x, ground + 1, z)).isEmpty) return 0
@@ -424,10 +415,10 @@ object RoadBuilder {
         val chosen = palette.pick(randomAt(level, x, z))
         if (level.getBlockState(topPos) != chosen) { level.setBlock(topPos, chosen, 2 or 16); changed++ }
         // The rise: a slab or stairs on top of this column when the road climbs out of it.
-        if (shape != SHAPE_FLAT) {
+        if (shape != RoadShapes.FLAT) {
             val above = BlockPos(x, top + 1, z)
             if (styles.isClearable(level.getBlockState(above))) {
-                val state = if (shape == SHAPE_SLAB) style.slab else {
+                val state = if (shape == RoadShapes.SLAB) style.slab else {
                     val dir = net.minecraft.core.Direction.getNearest((to[0] - from[0]).toDouble(), 0.0, (to[1] - from[1]).toDouble())
                     val horizontal = if (dir.axis.isHorizontal) dir else net.minecraft.core.Direction.NORTH
                     style.stairs.trySetValue(net.minecraft.world.level.block.StairBlock.FACING, horizontal)
@@ -467,11 +458,15 @@ object RoadBuilder {
 
     private const val SCAN = 16
 
-    private fun randomAt(level: ServerLevel, x: Int, z: Int): Random = Random(Mth.getSeed(x, 0, z) xor level.seed)
+    private fun randomAt(level: LevelAccessor, x: Int, z: Int): Random = Random(Mth.getSeed(x, 0, z) xor ((level as? WorldGenLevel)?.seed ?: 0L))
 
     private fun placeLamppost(level: ServerLevel, x: Int, z: Int, style: RoadStyle, styles: RoadStyleSet, boxes: List<BoundingBox>, hint: Int): Int {
         if (!level.hasChunk(x shr 4, z shr 4) || inBox(x, z, boxes)) return 0
-        val y = groundY(level, x, z, hint, styles)
+        return placeLamppostAt(level, x, z, groundY(level, x, z, hint, styles), style, styles)
+    }
+
+    /** A lamppost on the ground block at [y]: the family's post with its lamp on top. */
+    internal fun placeLamppostAt(level: LevelAccessor, x: Int, z: Int, y: Int, style: RoadStyle, styles: RoadStyleSet): Int {
         if (y <= level.minBuildHeight) return 0
         val ground = BlockPos(x, y, z)
         val state = level.getBlockState(ground)

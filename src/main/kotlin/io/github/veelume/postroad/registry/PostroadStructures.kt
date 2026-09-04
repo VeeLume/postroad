@@ -1,7 +1,8 @@
 package io.github.veelume.postroad.registry
 
 import io.github.veelume.postroad.Postroad
-import io.github.veelume.postroad.roads.gen.RoadPiece
+import io.github.veelume.postroad.roads.gen.RoadBeardPiece
+import io.github.veelume.postroad.roads.gen.RoadRunPiece
 import io.github.veelume.postroad.roads.gen.RoadPlacement
 import io.github.veelume.postroad.roads.gen.RoadStructure
 import net.minecraft.core.registries.Registries
@@ -13,7 +14,7 @@ import net.neoforged.neoforge.registries.DeferredRegister
 
 /**
  * Generated roads as a structure: the type, its placement (from the plan snapshot) and its
- * piece. The structure itself is data (`worldgen/structure/road.json`) in the set
+ * pieces (the run that lays the road, the segments that grade the ground). The structure itself is data (`worldgen/structure/road.json`) in the set
  * `worldgen/structure_set/roads.json`.
  */
 object PostroadStructures {
@@ -23,5 +24,6 @@ object PostroadStructures {
 
     val ROAD_TYPE: DeferredHolder<StructureType<*>, StructureType<RoadStructure>> = TYPES.register("road") { -> StructureType { RoadStructure.CODEC } }
     val PLANNED_PLACEMENT: DeferredHolder<StructurePlacementType<*>, StructurePlacementType<RoadPlacement>> = PLACEMENTS.register("planned") { -> StructurePlacementType { RoadPlacement.CODEC } }
-    val ROAD_PIECE: DeferredHolder<StructurePieceType, StructurePieceType> = PIECES.register("road") { -> StructurePieceType.ContextlessType { tag -> RoadPiece(tag) } }
+    val ROAD_PIECE: DeferredHolder<StructurePieceType, StructurePieceType> = PIECES.register("road") { -> StructurePieceType.ContextlessType { tag -> RoadRunPiece(tag) } }
+    val ROAD_BEARD_PIECE: DeferredHolder<StructurePieceType, StructurePieceType> = PIECES.register("road_beard") { -> StructurePieceType.ContextlessType { tag -> RoadBeardPiece(tag) } }
 }

@@ -553,6 +553,16 @@ class PostroadGameTests {
         val longHill = (0 until 40).map { x -> 64 + (if (x in 10..30) 3 else 0) }
         val kept = io.github.veelume.postroad.roads.gen.RoadBuilder.flatten(longHill)
         helper.assertTrue(kept[20] == 67, "a 21-block hill stays (${kept.toList()})")
+        // The shape table: stairs inside a run of rises, a slab on a lone rise, a slab on a diagonal step.
+        val shapes = io.github.veelume.postroad.roads.gen.RoadShapes
+        val line = (0 until 8).map { intArrayOf(it, 0) }
+        val climb = intArrayOf(64, 64, 65, 66, 67, 67, 67, 67)
+        helper.assertTrue(shapes.at(line, climb, 1).kind == shapes.STAIRS && shapes.at(line, climb, 3).kind == shapes.STAIRS, "a three-block climb carries stairs")
+        helper.assertTrue(shapes.at(line, climb, 5).kind == shapes.FLAT, "the flat after the climb carries nothing")
+        val lone = intArrayOf(64, 64, 65, 65, 65, 65, 65, 65)
+        helper.assertTrue(shapes.at(line, lone, 1).kind == shapes.SLAB, "a lone rise carries a slab")
+        val diagonal = listOf(intArrayOf(0, 0), intArrayOf(1, 1), intArrayOf(2, 2), intArrayOf(3, 3))
+        helper.assertTrue(shapes.at(diagonal, intArrayOf(64, 65, 66, 67), 1).kind == shapes.SLAB, "a diagonal climb carries slabs, never stairs")
 
         // A structure box between two towns: the route goes around it.
         val box = g.flat(40, 40, 64)
