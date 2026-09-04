@@ -87,6 +87,12 @@ object RoadBuilder {
             if (level == null || !level.hasChunk(ChunkPos.getX(job.chunk), ChunkPos.getZ(job.chunk))) {
                 queue.removeFirst(); queued.remove(key(job)); continue
             }
+            if (generatedWithRoad(level, job.chunk)) {
+                // Worldgen laid this chunk's road as a structure piece; nothing for the builder to do.
+                for (road in storage.roadsInChunk(job.dimension, job.chunk)) road.builtChunks.add(job.chunk)
+                storage.setDirty()
+                queue.removeFirst(); queued.remove(key(job)); continue
+            }
             if (job.startedAt == 0L) job.startedAt = System.nanoTime()
             val finished = buildChunkStep(level, storage, job, deadline)
             if (!finished) break // resumes next tick where it stopped
@@ -98,6 +104,10 @@ object RoadBuilder {
     }
 
     private fun key(job: Job) = "${job.dimension}|${job.chunk}"
+
+    /** True when the chunk has a road structure start: generated with its road. */
+    fun generatedWithRoad(level: ServerLevel, chunk: Long): Boolean =
+        level.structureManager().startsForStructure(ChunkPos(chunk)) { it is RoadStructure }.isNotEmpty()
 
     private fun offer(job: Job) {
         if (queued.add(key(job))) queue.addLast(job)

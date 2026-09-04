@@ -97,12 +97,14 @@ object RoadGen {
         }
         val overworld = event.server.overworld()
         overworld.chunkSource.getGeneratorState().ensureStructuresGenerated()
+        RoadPlanSnapshot.publish(RoadPlanStorage.get(event.server), overworld.dimension().location())
         spawnPlanned = schedule(overworld, overworld.sharedSpawnPos)
     }
 
     fun onServerStopping(event: ServerStoppingEvent) {
         executor?.shutdownNow()
         executor = null
+        RoadPlanSnapshot.clear()
         workers.clear()
         results.clear()
         lastPass.clear()
@@ -299,6 +301,7 @@ object RoadGen {
             network.addLink(PathLink(j.joiningRoad, j.joiningIndex, j.joinedRoad, j.joinedIndex))
             junctions++
         }
+        if (roads > 0) RoadPlanSnapshot.publish(storage, result.dimension)
         storage.markDiscovered(result.dimension, result.discovered)
         storage.markDropped(result.dropped.map { Triple(it.id, it.from.id to it.to.id, it.reason) })
         passesRun++
@@ -317,6 +320,7 @@ object RoadGen {
         lastPass.clear()
         spawnPlanned = false
         RoadBuilder.reset()
+        RoadPlanSnapshot.clear()
         return true
     }
 
@@ -332,6 +336,7 @@ object RoadGen {
         }
         val built = storage.roads.values.sumOf { it.builtChunks.size }
         val total = storage.roads.values.sumOf { it.chunks().size }
+        lines.add("worldgen: ${RoadPlanSnapshot.segments.size} chunk(s) in the snapshot, ${RoadPlanSnapshot.starts.get()} structure start(s), ${RoadPlanSnapshot.piecesPlaced.get()} piece(s) generated")
         lines.add("$built of $total road chunk(s) built; builder: ${RoadBuilder.chunksBuilt} chunk(s), ${RoadBuilder.blocksPlaced} block(s), ${RoadBuilder.signsPlaced} sign(s) this session, ${RoadBuilder.queueSize} queued")
         return lines
     }

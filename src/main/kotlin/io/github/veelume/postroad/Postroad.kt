@@ -67,6 +67,9 @@ object Postroad {
         PostroadCreativeTabs.REGISTER.register(MOD_BUS)
         PostroadLootModifiers.REGISTER.register(MOD_BUS)
         PostroadMenus.REGISTER.register(MOD_BUS)
+        io.github.veelume.postroad.registry.PostroadStructures.TYPES.register(MOD_BUS)
+        io.github.veelume.postroad.registry.PostroadStructures.PLACEMENTS.register(MOD_BUS)
+        io.github.veelume.postroad.registry.PostroadStructures.PIECES.register(MOD_BUS)
         MOD_BUS.addListener(RegisterPayloadHandlersEvent::class.java, Consumer(PostroadNetworking::register))
         MOD_BUS.addListener(RegisterDataMapTypesEvent::class.java, Consumer(PostroadDataMaps::register))
 

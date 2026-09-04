@@ -1,0 +1,9 @@
+{
+  "structures": [
+    { "structure": "postroad:road", "weight": 1 }
+  ],
+  "placement": {
+    "type": "postroad:planned",
+    "salt": 947381
+  }
+}
