@@ -303,7 +303,14 @@ object PostroadCommands {
         val runs = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.segmentsAt(pos.x shr 4, pos.z shr 4).size
         val tagged = level.chunkSource.generator.biomeSource.getNoiseBiome(pos.x shr 2, base shr 2, pos.z shr 2, level.chunkSource.randomState().sampler()).`is`(net.minecraft.tags.BiomeTags.IS_OVERWORLD)
         val structure = when { start != null -> "own ($pieces)"; referenced -> "referenced only"; else -> "none" }
-        ctx.source.sendSuccess({ Component.literal("(${pos.x}, ${pos.z}): estimate $estimate, generator base $base, real ${if (real < 0) "unloaded" else real.toString()}, top $top, sea ${level.chunkSource.generator.seaLevel}, biome $biome (overworld-tag $tagged); chunk: ${roadsHere.size} planned road(s), $runs snapshot run(s), structure start $structure, builder-built ${roadsHere.any { it.builtChunks.contains(chunkKey) }}") }, false)
+        // Every structure whose start reaches this column (not just ours): what the planner may have run into.
+        val others = if (loaded) {
+            val registry = level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE)
+            level.structureManager().getAllStructuresAt(BlockPos(pos.x, base, pos.z)).keys
+                .filter { it !is io.github.veelume.postroad.roads.gen.RoadStructure }
+                .mapNotNull { registry.getKey(it)?.toString() }.sorted().joinToString(", ").ifEmpty { "none" }
+        } else "?"
+        ctx.source.sendSuccess({ Component.literal("(${pos.x}, ${pos.z}): estimate $estimate, generator base $base, real ${if (real < 0) "unloaded" else real.toString()}, top $top, sea ${level.chunkSource.generator.seaLevel}, biome $biome (overworld-tag $tagged); chunk: ${roadsHere.size} planned road(s), $runs snapshot run(s), structure start $structure, builder-built ${roadsHere.any { it.builtChunks.contains(chunkKey) }}; other structures here: $others") }, false)
         return 1
     }
 
