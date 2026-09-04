@@ -93,7 +93,11 @@ class RoadStructure(settings: StructureSettings) : Structure(settings) {
         if (runs.isEmpty()) return Optional.empty()
         RoadPlanSnapshot.starts.incrementAndGet()
         return Optional.of(GenerationStub(runs[0].points.first()) { builder ->
-            for (run in runs) builder.addPiece(RoadPiece(run.roadId, run.points, run.family))
+            // One piece per planned segment (4 blocks): each carries its own beard floor, so the
+            // terrain grading follows the road's profile instead of one flat floor per chunk run.
+            for (run in runs) for (i in 1 until run.points.size) {
+                builder.addPiece(RoadPiece(run.roadId, listOf(run.points[i - 1], run.points[i]), run.family))
+            }
         })
     }
 
@@ -172,12 +176,16 @@ class RoadPiece : StructurePiece, PieceBeardifierModifier {
     }
 
     companion object {
-        /** The strip's box: a block either side of the points, from the lowest planned surface to three above the highest. */
+        /**
+         * The segment's box: a block either side of its points, floor at the mean planned surface
+         * (the beard grades the ground to it), three blocks of headroom above the higher end.
+         */
         fun boxOf(points: List<BlockPos>): BoundingBox {
             val minX = points.minOf { it.x } - 1; val maxX = points.maxOf { it.x } + 1
             val minZ = points.minOf { it.z } - 1; val maxZ = points.maxOf { it.z } + 1
-            val minY = points.minOf { it.y }; val maxY = points.maxOf { it.y } + 3
-            return BoundingBox(minX, minY, minZ, maxX, maxY, maxZ)
+            val floor = Math.round(points.sumOf { it.y }.toDouble() / points.size).toInt()
+            val maxY = points.maxOf { it.y } + 3
+            return BoundingBox(minX, floor, minZ, maxX, maxY, maxZ)
         }
     }
 }
