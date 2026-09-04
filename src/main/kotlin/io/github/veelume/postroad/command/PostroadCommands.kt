@@ -215,7 +215,13 @@ object PostroadCommands {
         val base = level.chunkSource.generator.getBaseHeight(pos.x, pos.z, net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG, level, level.chunkSource.randomState())
         val real = if (level.hasChunk(pos.x shr 4, pos.z shr 4)) level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, pos.x, pos.z) else -1
         val biome = level.chunkSource.generator.biomeSource.getNoiseBiome(pos.x shr 2, base shr 2, pos.z shr 2, level.chunkSource.randomState().sampler()).unwrapKey().map { it.location().toString() }.orElse("?")
-        ctx.source.sendSuccess({ Component.literal("(${pos.x}, ${pos.z}): estimate $estimate, generator base $base, real ${if (real < 0) "unloaded" else real.toString()}, sea ${level.chunkSource.generator.seaLevel}, biome $biome") }, false)
+        val loaded = level.hasChunk(pos.x shr 4, pos.z shr 4)
+        val top = if (loaded) net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(level.getBlockState(BlockPos(pos.x, real - 1, pos.z)).block).path else "?"
+        val chunkKey = net.minecraft.world.level.ChunkPos.asLong(pos.x shr 4, pos.z shr 4)
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(ctx.source.server)
+        val roadsHere = storage.roadsInChunk(level.dimension().location(), chunkKey)
+        val structure = if (loaded) io.github.veelume.postroad.roads.gen.RoadBuilder.generatedWithRoad(level, chunkKey) else false
+        ctx.source.sendSuccess({ Component.literal("(${pos.x}, ${pos.z}): estimate $estimate, generator base $base, real ${if (real < 0) "unloaded" else real.toString()}, top $top, sea ${level.chunkSource.generator.seaLevel}, biome $biome; chunk: ${roadsHere.size} planned road(s), structure start ${if (structure) "yes" else "no"}, builder-built ${roadsHere.any { it.builtChunks.contains(chunkKey) }}") }, false)
         return 1
     }
 
