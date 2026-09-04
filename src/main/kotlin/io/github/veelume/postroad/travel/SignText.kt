@@ -81,7 +81,7 @@ object SignWriter {
                     val dirX = (aim.x - node.pos.x).toDouble(); val dirZ = (aim.z - node.pos.z).toDouble()
                     val toViewerX = (viewer.x - node.pos.x).toDouble(); val toViewerZ = (viewer.z - node.pos.z).toDouble()
                     val cross = dirX * toViewerZ - dirZ * toViewerX
-                    setLeft.invoke(arm, (cross > 0) != io.github.veelume.postroad.PostroadConfig.flipSignFaces)
+                    setLeft.invoke(arm, (cross > 0) == io.github.veelume.postroad.PostroadConfig.flipSignFaces)
                 }
                 pointToward.invoke(arm, node.pos, aim)
                 labels.add(Component.translatable("sign.postroad.to", target.name).string)

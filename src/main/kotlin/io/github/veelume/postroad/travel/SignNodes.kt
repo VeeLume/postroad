@@ -88,7 +88,7 @@ object SignNodes {
         val (path, index) = near
         val ownText = signName(level, pos)?.takeUnless { it.startsWith(Component.translatable("sign.postroad.to", "").string.trim()) }
         val town = nearestTownName(network, dimension, pos)
-        val name = ownText ?: town?.let { Component.translatable("message.postroad.sign.default_name", it).string } ?: "Signpost"
+        val name = ownText ?: defaultNodeName(network, path, index) ?: town?.let { Component.translatable("message.postroad.sign.default_name", it).string } ?: "Signpost"
         val node = RoadNode(id, RoadNode.KIND_SIGN, dimension, pos, path.id, index, name, null)
         network.nodes[id] = node
         network.setDirty()
@@ -96,7 +96,7 @@ object SignNodes {
             level.getBlockEntity(pos)?.let { entity ->
                 if (entity is SignBlockEntity) {
                     // A plain sign with no text of its own shows the place it stands by.
-                    if (ownText == null && town != null) SignWriter.labelSign(level, entity, town, Component.translatable("sign.postroad.signpost").string)
+                    if (ownText == null && town != null) SignWriter.labelSign(level, entity, Component.translatable("sign.postroad.town").string, town)
                 } else {
                     val arms = SignWriter.pointWaySign(level, entity, network, node, player.blockPosition())
                     if (arms > 0) player.displayClientMessage(Component.translatable("message.postroad.sign.arms_set", arms), true)
@@ -106,6 +106,14 @@ object SignNodes {
         PostroadAdvancements.award(player, PostroadAdvancements.SIGN_LINKED)
         player.displayClientMessage(Component.translatable("message.postroad.sign.linked", name, path.length.toInt()).withStyle(ChatFormatting.GOLD), false)
         Postroad.LOGGER.info("{} linked sign '{}' at {} to path {}", player.gameProfile.name, name, pos.toShortString(), path.id)
+    }
+
+    /** "<Town> road, N blocks": the nearest town along this path, by road distance. */
+    private fun defaultNodeName(network: Network, path: io.github.veelume.postroad.roads.RoadPath, index: Int): String? {
+        val towns = network.nodes.values.filter { it.pathId == path.id && it.kind == RoadNode.KIND_TOWN }
+        val nearest = towns.minByOrNull { path.lengthBetween(index, it.pointIndex) } ?: return null
+        val blocks = path.lengthBetween(index, nearest.pointIndex).toInt()
+        return Component.translatable("message.postroad.sign.road_name", nearest.name, blocks).string
     }
 
     /** Renames a sign node (never a town) and rewrites a plain sign's text to match. */

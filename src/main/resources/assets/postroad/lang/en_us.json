@@ -158,7 +158,7 @@
   "message.postroad.sign.linked": "Sign '%s' linked to a %s-block path.",
   "message.postroad.sign.unlinked": "Sign '%s' unlinked.",
   "message.postroad.sign.no_path": "No charted path within %s blocks of this sign.",
-  "message.postroad.sign.default_name": "Signpost near %s",
+  "message.postroad.sign.default_name": "Near %s",
   "advancement.postroad.sign_linked.title": "Waymarker",
   "advancement.postroad.sign_linked.description": "Link a sign to a path.",
   "advancement.postroad.first_journey.title": "Fellow Traveller",
@@ -173,5 +173,7 @@
   "message.postroad.sign.renamed": "Sign renamed to '%s'.",
   "screen.postroad.travel.name": "Name",
   "screen.postroad.travel.rename": "Rename",
-  "screen.postroad.travel.name_hint": "Rename this sign (plain signs are rewritten too)."
+  "screen.postroad.travel.name_hint": "Rename this sign (plain signs are rewritten too).",
+  "sign.postroad.town": "Town",
+  "message.postroad.sign.road_name": "%s road, %s blocks"
 }
