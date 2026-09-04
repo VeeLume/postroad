@@ -127,6 +127,7 @@ class WorldTerrainSampler(private val level: ServerLevel, private val cacheDir: 
                 y = known.top
                 if (known.water) flags = flags or Terrain.WATER
                 if (known.lava) flags = flags or Terrain.LAVA
+                if (known.blocked) flags = flags or Terrain.BLOCKED
                 knownCells++
             } else {
                 // The cell to the left (or, at a row start, above) is the best guess for this one.

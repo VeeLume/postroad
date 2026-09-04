@@ -15,7 +15,7 @@ import java.util.concurrent.ConcurrentHashMap
  * planner needs: the real surface, holes, lakes, and every structure's ground, before trees.
  */
 object KnownTerrain {
-    class ChunkTops(val top: ShortArray, val liquid: ByteArray, val lava: ByteArray) {
+    class ChunkTops(val top: ShortArray, val liquid: ByteArray, val lava: ByteArray, val blocked: ByteArray = ByteArray(256)) {
         fun index(x: Int, z: Int): Int = (z and 15) shl 4 or (x and 15)
     }
 
@@ -29,7 +29,7 @@ object KnownTerrain {
     fun column(dimension: ResourceLocation, x: Int, z: Int): DhTerrain.Column? {
         val tops = chunks[dimension]?.get(ChunkPos.asLong(x shr 4, z shr 4)) ?: return null
         val i = tops.index(x, z)
-        return DhTerrain.Column(tops.top[i].toInt(), tops.liquid[i].toInt() != 0, tops.lava[i].toInt() != 0)
+        return DhTerrain.Column(tops.top[i].toInt(), tops.liquid[i].toInt() != 0, tops.lava[i].toInt() != 0, tops.blocked[i].toInt() != 0)
     }
 
     /**
@@ -37,7 +37,7 @@ object KnownTerrain {
      * ground and the water. On finished chunks, trees are already there; the top is walked down
      * past logs and leaves so the road's ground is what the planner sees.
      */
-    fun record(dimension: ResourceLocation, chunk: ChunkAccess) {
+    fun record(dimension: ResourceLocation, chunk: ChunkAccess, level: net.minecraft.server.level.ServerLevel? = null) {
         val worldSurface = if (chunk.hasPrimedHeightmap(Heightmap.Types.WORLD_SURFACE_WG)) Heightmap.Types.WORLD_SURFACE_WG else Heightmap.Types.WORLD_SURFACE
         val oceanFloor = if (chunk.hasPrimedHeightmap(Heightmap.Types.OCEAN_FLOOR_WG)) Heightmap.Types.OCEAN_FLOOR_WG else Heightmap.Types.OCEAN_FLOOR
         val tops = ChunkTops(ShortArray(256), ByteArray(256), ByteArray(256))
@@ -68,8 +68,48 @@ object KnownTerrain {
             }
             tops.top[i] = floor.toShort()
         }
+        if (level != null) markStructures(level, chunk, tops)
         chunks.getOrPut(dimension) { ConcurrentHashMap() }[pos.toLong()] = tops
     }
+
+    /**
+     * Columns under the pieces of real structures (not villages — those are endpoints with their own
+     * footprints): the chunk's own starts plus the starts it references, whose pieces reach into it.
+     * Structure blocks are only placed at the features step, so the pre-generated ground does not show
+     * them; their piece boxes do. Buried pieces (top well under the ground) do not count.
+     */
+    private fun markStructures(level: net.minecraft.server.level.ServerLevel, chunk: ChunkAccess, tops: ChunkTops) {
+        val registry = level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE)
+        val pos = chunk.pos
+        val starts = ArrayList<net.minecraft.world.level.levelgen.structure.StructureStart>(chunk.allStarts.values)
+        for ((structure, refs) in chunk.allReferences) {
+            val it = refs.iterator()
+            while (it.hasNext()) {
+                val ref = it.nextLong()
+                if (ref == pos.toLong()) continue
+                val other = level.chunkSource.getChunk(ChunkPos.getX(ref), ChunkPos.getZ(ref), net.minecraft.world.level.chunk.status.ChunkStatus.STRUCTURE_STARTS, false) ?: continue
+                other.allStarts[structure]?.let { starts.add(it) }
+            }
+        }
+        for (start in starts) {
+            if (!start.isValid) continue
+            val holder = registry.wrapAsHolder(start.structure)
+            if (holder.`is`(net.minecraft.tags.StructureTags.VILLAGE)) continue
+            for (piece in start.pieces) {
+                val b = piece.boundingBox
+                val minX = maxOf(b.minX(), pos.minBlockX); val maxX = minOf(b.maxX(), pos.maxBlockX)
+                val minZ = maxOf(b.minZ(), pos.minBlockZ); val maxZ = minOf(b.maxZ(), pos.maxBlockZ)
+                if (minX > maxX || minZ > maxZ) continue
+                for (z in minZ..maxZ) for (x in minX..maxX) {
+                    val i = tops.index(x, z)
+                    if (b.maxY() >= tops.top[i] - BURIED_BELOW) tops.blocked[i] = 1
+                }
+            }
+        }
+    }
+
+    /** A piece whose top is this far under the ground surface is buried and does not block. */
+    private const val BURIED_BELOW = 4
 
     fun clear() {
         chunks.clear()

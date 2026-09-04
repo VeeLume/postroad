@@ -98,7 +98,7 @@ object ChunkPregen {
                         if (error != null) Postroad.LOGGER.warn("Pre-generation of chunk [{}, {}] failed: {}", cx, cz, error.toString())
                         finish(req, false)
                     } else {
-                        KnownTerrain.record(req.dimension, chunk)
+                        KnownTerrain.record(req.dimension, chunk, level)
                         finish(req, true)
                     }
                 }, level.server)

@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object DhTerrain {
     /** A column as DH knows it: the first air block above the ground, and what the ground is. */
-    class Column(val top: Int, val water: Boolean, val lava: Boolean)
+    class Column(val top: Int, val water: Boolean, val lava: Boolean, val blocked: Boolean = false)
 
     val present: Boolean by lazy { ModList.get().isLoaded(MOD_ID) }
 

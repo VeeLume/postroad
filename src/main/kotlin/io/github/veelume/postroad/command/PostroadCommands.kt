@@ -242,6 +242,7 @@ object PostroadCommands {
         // Planned height against the generated ground, per planned point in generated chunks: how far the plan's
         // idea of the surface is from what the world got (negative = the plan lies under the real ground).
         val buckets = IntArray(7) // <=-9, -8..-4, -3..-1, 0, 1..3, 4..8, >=9
+        var waterPoints = 0
         val bucketNames = listOf("<=-9", "-8..-4", "-3..-1", "0", "1..3", "4..8", ">=9")
         val deep = ArrayList<String>()
         fun bucket(d: Int): Int = when { d <= -9 -> 0; d <= -4 -> 1; d <= -1 -> 2; d == 0 -> 3; d <= 3 -> 4; d <= 8 -> 5; else -> 6 }
@@ -254,7 +255,17 @@ object PostroadCommands {
             if (chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.SURFACE)) {
                 for (run in runs) for (p in run.points) {
                     if ((p.x shr 4) != cx || (p.z shr 4) != cz) continue
-                    val ground = chunk.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR_WG, p.x and 15, p.z and 15)
+                    // Ground as the planner means it: below trees, and the water surface where there is water.
+                    val surface = chunk.getHeight(if (chunk.hasPrimedHeightmap(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG)) net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG else net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE, p.x and 15, p.z and 15)
+                    var ground = chunk.getHeight(if (chunk.hasPrimedHeightmap(net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR_WG)) net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR_WG else net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR, p.x and 15, p.z and 15)
+                    var guard = 0
+                    while (ground > chunk.minBuildHeight && guard++ < 48) {
+                        val s = chunk.getBlockState(BlockPos(p.x, ground - 1, p.z))
+                        if (io.github.veelume.postroad.roads.gen.DhTerrain.isGround(s) || !s.fluidState.isEmpty) break
+                        ground--
+                    }
+                    val water = surface > ground && !chunk.getBlockState(BlockPos(p.x, surface - 1, p.z)).fluidState.isEmpty
+                    if (water) { waterPoints++; continue }
                     val d = p.y - ground
                     buckets[bucket(d)]++
                     if (kotlin.math.abs(d) >= 9 && deep.size < 15) deep.add("${p.toShortString()} planned ${p.y} ground $ground (${if (start != null) "own start" else "no start"})")
@@ -273,7 +284,7 @@ object PostroadCommands {
         ctx.source.sendSuccess({ Component.literal("Audit within $radius: $withStart road chunk(s) laid by the feature this session, $without finished without it, $absent not past their features step yet${if (fix) "; $unmarked road-chunk mark(s) cleared for the builder" else ""}") }, false)
         val total = buckets.sum()
         if (total > 0) {
-            ctx.source.sendSuccess({ Component.literal("Planned height minus generated ground over $total planned point(s): " +
+            ctx.source.sendSuccess({ Component.literal("Planned height minus generated ground (below trees) over $total land point(s), $waterPoints on water: " +
                 bucketNames.indices.joinToString(", ") { "${bucketNames[it]}: ${buckets[it]}" }) }, false)
             for (m in deep) ctx.source.sendSuccess({ Component.literal("  off by 9+: $m") }, false)
         }
