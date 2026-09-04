@@ -193,6 +193,39 @@ works. Out for now: the Rust core (see Decisions).
   flattened (features shorter than 12 blocks cut ≤ 4 or filled ≤ 6) and
   limited to one block per column; a lone step gets a slab, a run stairs.
 
+## Roads as a structure (decided 2026-09-04)
+
+The chunk-load builder above works on chunks that already exist; the primary
+path is now the same mechanism villages use — the road is a **structure**
+placed *while the chunk generates*, and vanilla's terrain adaptation bends
+the noise to it.
+
+- `worldgen/structure/road.json` (`postroad:road`, `#minecraft:is_overworld`,
+  step `surface_structures`, `beard_thin`) in `structure_set/roads.json` with
+  placement `postroad:planned`: a chunk is a structure chunk when the
+  **plan snapshot** (`RoadPlanSnapshot`, an immutable per-chunk copy of the
+  planned runs, published by the server thread on start/apply/clear) has a
+  run there. Worker threads only ever read the snapshot.
+- Per run in the chunk the start holds one **run piece** (box clipped to
+  the chunk, no grading) and one **beard piece per 4-block segment** (box
+  floor at the mean planned height, `beard_thin`, places nothing). Splitting
+  the grading by segment keeps the terrain on the road's profile instead of
+  one flat floor per chunk run.
+- The run piece runs the builder's shaping on the graded surface
+  (`OCEAN_FLOOR_WG`, water columns skipped): profile flattened with the
+  planned points before/after the run as context, smoothed to one block per
+  column, columns cut or filled, slab/stairs by the shared `RoadShapes`
+  table, lampposts. Junction signs stay with the builder (they need the
+  network on the server thread).
+- **Timing is the rule.** A chunk's structure starts are computed ~10 chunks
+  ahead of anything the player sees; a road planned after that gets no start
+  there. Those chunks fall to the chunk-load builder (`generatedWithRoad`
+  means the chunk's *own* start; a start merely referenced from a neighbour
+  doesn't count). `/postroad roads audit <radius> [fix]` finds them.
+- Measured (2026-09-04, fresh ring 900–1000): 113 placement checks, 113
+  starts, 0 refused. An earlier 100-of-368 gap was entirely chunks whose
+  starts predated the roads through them.
+
 ## Network integration
 
 - Generated paths are registered with `charted = false` (new field on
@@ -268,6 +301,10 @@ the network ignores.
   it is needed.
 - Water is avoided by cost, not bridged. Bridges are a later increment with
   their own look.
+- **Structure path is primary, chunk-load builder is the fallback** (see
+  "Roads as a structure"). Same shaping code in both; the builder keeps the
+  block-level refiner because it meets real trees, the piece runs before
+  vegetation and needs none.
 - Trunks are paved and lit from the start; the design's "local paths: dirt
   spurs to minor structures" waits for a later increment.
 - 4-block cells: fine enough that roads follow valleys, coarse enough that a

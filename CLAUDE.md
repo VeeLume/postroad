@@ -51,7 +51,16 @@ live in `docs/` (one per increment). This file is about the code.
   `Charting.markGenerated` charts a generated road a walk followed instead of recording a duplicate.
   `RoadDebug` (+ `client/RoadDebugRenderer`): `/postroad roads debug` toggles a per-player in-world overlay of
   roads/junctions/towns/nodes within 512 blocks, sent every 2 s; `/postroad roads export` draws the plan as a PNG;
-  `/postroad roads probe <x> <z>` compares the sampler's surface with the generator and the real heightmap.
+  `/postroad roads probe <x> <z>` compares the sampler's surface with the generator and the real heightmap and
+  says whether the chunk has its own road structure start; `/postroad roads audit <radius> [fix]` counts generated
+  road chunks with and without their own start (`fix` hands the start-less ones back to the chunk-load builder).
+  **Roads generate as a structure** (`RoadStructure`, data `worldgen/structure/road.json` + `structure_set/roads.json`,
+  placement `postroad:planned` answering from `RoadPlanSnapshot`, an immutable per-chunk copy of the plan published by
+  the server thread): per chunk run one `RoadRunPiece` (lays the strip with the builder's flatten/smooth/shape code
+  at `surface_structures`, before vegetation) plus one `RoadBeardPiece` per 4-block segment (a `beard_thin` box
+  that grades the noise to the planned height, places nothing). `RoadShapes` is the one flat/slab/stairs table.
+  The chunk-load builder is the fallback for chunks whose structure starts were generated before the plan covered
+  them (`RoadBuilder.generatedWithRoad` = the chunk's *own* start; starts referenced from neighbours don't count).
   The sampler calibrates a surface offset against `getBaseHeight` once per world (Tectonic's real surface sits
   a few blocks above the density crossing).
 - `roads/Routing` — Dijkstra over anchors (nodes + link ends) on the path polylines.
