@@ -12,6 +12,7 @@ import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.registry.PostroadDataMaps
 import net.minecraft.commands.CommandSourceStack
 import net.minecraft.core.BlockPos
+import net.minecraft.server.level.ServerLevel
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.commands.Commands
 import net.minecraft.network.chat.Component
@@ -54,6 +55,10 @@ object PostroadCommands {
                         .then(Commands.literal("rebuild").requires { it.hasPermission(2) }.executes { roadsRebuild(it) })
                         .then(Commands.literal("export").requires { it.hasPermission(2) }.executes { roadsExport(it) })
                         .then(Commands.literal("debug").requires { it.hasPermission(2) }.executes { roadsDebug(it) })
+                        .then(
+                            Commands.literal("audit").requires { it.hasPermission(2) }
+                                .then(Commands.argument("radius", IntegerArgumentType.integer(16, 4000)).executes { roadsAudit(it, IntegerArgumentType.getInteger(it, "radius")) }),
+                        )
                         .then(
                             Commands.literal("probe")
                                 .executes { roadsProbe(it, BlockPos.containing(it.source.position)) }
@@ -207,10 +212,49 @@ object PostroadCommands {
         return if (queued) 1 else 0
     }
 
+    /** One sampler per level for probes, so the calibration runs once instead of per probe. */
+    private var probeSampler: Pair<ServerLevel, io.github.veelume.postroad.roads.gen.WorldTerrainSampler>? = null
+
+    private fun samplerFor(level: ServerLevel): io.github.veelume.postroad.roads.gen.WorldTerrainSampler {
+        probeSampler?.let { if (it.first === level) return it.second }
+        return io.github.veelume.postroad.roads.gen.WorldTerrainSampler(level, null, 4).also { probeSampler = level to it }
+    }
+
+    /**
+     * `/postroad roads audit <radius>`: every chunk with a planned run within [radius] blocks of the
+     * caller that already exists on disk — does it have its own road structure start? Chunks are
+     * read at structure-start status (not generated), so the audit is cheap and touches nothing.
+     */
+    private fun roadsAudit(ctx: CommandContext<CommandSourceStack>, radius: Int): Int {
+        val level = ctx.source.level
+        val centre = BlockPos.containing(ctx.source.position)
+        val snapshot = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.segments
+        var withStart = 0; var without = 0; var absent = 0
+        val missing = ArrayList<String>()
+        for ((key, runs) in snapshot) {
+            val cx = net.minecraft.world.level.ChunkPos.getX(key); val cz = net.minecraft.world.level.ChunkPos.getZ(key)
+            if (maxOf(kotlin.math.abs(cx * 16 + 8 - centre.x), kotlin.math.abs(cz * 16 + 8 - centre.z)) > radius) continue
+            val chunk = level.chunkSource.getChunk(cx, cz, net.minecraft.world.level.chunk.status.ChunkStatus.EMPTY, true)
+            if (chunk == null || !chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.STRUCTURE_STARTS)) { absent++; continue }
+            val start = io.github.veelume.postroad.roads.gen.RoadBuilder.roadStart(chunk)
+            if (start != null) { withStart++; continue }
+            without++
+            if (missing.size < 25) {
+                val first = runs.first().points.first()
+                val biome = level.chunkSource.generator.biomeSource.getNoiseBiome(first.x shr 2, first.y shr 2, first.z shr 2, level.chunkSource.randomState().sampler())
+                val name = biome.unwrapKey().map { it.location().toString() }.orElse("?")
+                missing.add("[$cx, $cz] status ${chunk.persistedStatus} first point ${first.toShortString()} biome $name overworld-tag ${biome.`is`(net.minecraft.tags.BiomeTags.IS_OVERWORLD)}")
+            }
+        }
+        ctx.source.sendSuccess({ Component.literal("Audit within $radius: $withStart chunk(s) with their own road start, $without without, $absent not generated yet") }, false)
+        for (m in missing) ctx.source.sendSuccess({ Component.literal("  missing: $m") }, false)
+        return 1
+    }
+
     /** Sampler vs. world at one column: the planner's surface estimate against the generator and the real heightmap. */
     private fun roadsProbe(ctx: CommandContext<CommandSourceStack>, pos: BlockPos): Int {
         val level = ctx.source.level
-        val sampler = io.github.veelume.postroad.roads.gen.WorldTerrainSampler(level, null, 4)
+        val sampler = samplerFor(level)
         val estimate = sampler.surface(pos.x, pos.z)
         val base = level.chunkSource.generator.getBaseHeight(pos.x, pos.z, net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG, level, level.chunkSource.randomState())
         val real = if (level.hasChunk(pos.x shr 4, pos.z shr 4)) level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, pos.x, pos.z) else -1
@@ -220,8 +264,13 @@ object PostroadCommands {
         val chunkKey = net.minecraft.world.level.ChunkPos.asLong(pos.x shr 4, pos.z shr 4)
         val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(ctx.source.server)
         val roadsHere = storage.roadsInChunk(level.dimension().location(), chunkKey)
-        val structure = if (loaded) io.github.veelume.postroad.roads.gen.RoadBuilder.generatedWithRoad(level, chunkKey) else false
-        ctx.source.sendSuccess({ Component.literal("(${pos.x}, ${pos.z}): estimate $estimate, generator base $base, real ${if (real < 0) "unloaded" else real.toString()}, top $top, sea ${level.chunkSource.generator.seaLevel}, biome $biome; chunk: ${roadsHere.size} planned road(s), structure start ${if (structure) "yes" else "no"}, builder-built ${roadsHere.any { it.builtChunks.contains(chunkKey) }}") }, false)
+        val start = if (loaded) io.github.veelume.postroad.roads.gen.RoadBuilder.roadStart(level.getChunk(pos.x shr 4, pos.z shr 4)) else null
+        val referenced = loaded && start == null && level.structureManager().startsForStructure(net.minecraft.world.level.ChunkPos(chunkKey)) { it is io.github.veelume.postroad.roads.gen.RoadStructure }.isNotEmpty()
+        val pieces = start?.pieces?.let { p -> "${p.count { it is io.github.veelume.postroad.roads.gen.RoadRunPiece }} run + ${p.count { it is io.github.veelume.postroad.roads.gen.RoadBeardPiece }} beard piece(s)" } ?: ""
+        val runs = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.segmentsAt(pos.x shr 4, pos.z shr 4).size
+        val tagged = level.chunkSource.generator.biomeSource.getNoiseBiome(pos.x shr 2, base shr 2, pos.z shr 2, level.chunkSource.randomState().sampler()).`is`(net.minecraft.tags.BiomeTags.IS_OVERWORLD)
+        val structure = when { start != null -> "own ($pieces)"; referenced -> "referenced only"; else -> "none" }
+        ctx.source.sendSuccess({ Component.literal("(${pos.x}, ${pos.z}): estimate $estimate, generator base $base, real ${if (real < 0) "unloaded" else real.toString()}, top $top, sea ${level.chunkSource.generator.seaLevel}, biome $biome (overworld-tag $tagged); chunk: ${roadsHere.size} planned road(s), $runs snapshot run(s), structure start $structure, builder-built ${roadsHere.any { it.builtChunks.contains(chunkKey) }}") }, false)
         return 1
     }
 
