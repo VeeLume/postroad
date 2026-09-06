@@ -807,6 +807,47 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun pieces_anchor_squares_cover_ends_turns_and_dips(helper: GameTestHelper) {
+        val L = io.github.veelume.postroad.roads.gen.RoadPieceLayer
+        val p = { x: Int, y: Int, z: Int -> BlockPos(x, y, z) }
+        helper.assertTrue(L.needsSquare(null, p(0, 64, 0), p(3, 64, 0)), "a road's first point")
+        helper.assertTrue(L.needsSquare(p(0, 64, 0), p(3, 64, 0), null), "a road's last point")
+        helper.assertTrue(L.needsSquare(p(0, 64, 0), p(3, 64, 0), p(3, 64, 3)), "a turn")
+        helper.assertTrue(!L.needsSquare(p(0, 64, 0), p(3, 64, 0), p(6, 64, 0)), "a straight flat run: the piece lays its exit anchor")
+        helper.assertTrue(!L.needsSquare(p(0, 64, 0), p(3, 66, 0), p(6, 67, 0)), "a climb: the rise piece lays its exit anchor")
+        helper.assertTrue(!L.needsSquare(p(0, 66, 0), p(3, 65, 0), p(6, 64, 0)), "a descent chain: the next reversed piece lays this anchor")
+        helper.assertTrue(L.needsSquare(p(0, 66, 0), p(3, 65, 0), p(6, 65, 0)), "a dip after a descent: nobody lays it")
+        helper.assertTrue(L.needsSquare(p(0, 66, 0), p(3, 64, 0), p(6, 66, 0)), "the bottom of a valley")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun pieces_road_block_gets_a_solid_block_below(helper: GameTestHelper) {
+        // A hollow under the floor top: the road block above it gets fill beneath so it cannot sink or fall.
+        val floorY = shapeFloor(helper) { _, _ -> 1 }
+        for (x in 1..5) helper.setBlock(BlockPos(x, F + 1, 3), Blocks.AIR)
+        for (x in 1..5) helper.setBlock(BlockPos(x, F + 2, 3), Blocks.STONE)
+        layPiece(helper, floorY, BlockPos(1, F + 3, 3), BlockPos(4, F + 3, 3))
+        for (x in 2..4) helper.assertTrue(blockAt(helper, x, F + 1, 3) != Blocks.AIR, "solid block under the road at ($x, 3)")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun planner_judges_steps_onto_a_road_by_its_stored_height(helper: GameTestHelper) {
+        val T = io.github.veelume.postroad.roads.gen.TerrainGrid(0, 0, 3, 40, 12)
+        for (z in 0 until 12) for (x in 0 until 40) T.setHeight(x, z, 64)
+        // An existing road along z = 6 built 5 blocks above the terrain of today: stepping onto it is a rise of 5.
+        val existing = (0 until 40).map { io.github.veelume.postroad.roads.gen.Cell(it, 6) }
+        for (c in existing) T.setHeight(c.x, c.z, 69)
+        val road = io.github.veelume.postroad.roads.gen.PlannedRoute("old", io.github.veelume.postroad.roads.gen.Town("a", existing.first()), io.github.veelume.postroad.roads.gen.Town("b", existing.last()), existing)
+        val towns = listOf(io.github.veelume.postroad.roads.gen.Town("c", io.github.veelume.postroad.roads.gen.Cell(20, 1)), io.github.veelume.postroad.roads.gen.Town("d", io.github.veelume.postroad.roads.gen.Cell(20, 11)))
+        val costs = io.github.veelume.postroad.roads.gen.PlannerCosts(steps = io.github.veelume.postroad.roads.gen.RoadPieces.current.stepClasses(), diagonalSteps = io.github.veelume.postroad.roads.gen.RoadPieces.current.diagonalStepClasses())
+        val plan = io.github.veelume.postroad.roads.gen.RoadPlanner.planNetwork(T, towns, costs, neighbours = 1, maxLinkCells = 100.0, existing = listOf(road))
+        helper.assertTrue(plan.routes.isEmpty() && plan.dropped.size == 1, "no route may step 5 blocks onto the old road (${plan.routes.size} routes, ${plan.dropped.size} dropped)")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun pieces_flat_piece_steps_over_a_bump(helper: GameTestHelper) {
         val floorY = shapeFloor(helper) { x, _ -> if (x == 3) 1 else 0 }
         layPiece(helper, floorY, BlockPos(1, F + 1, 3), BlockPos(4, F + 1, 3))

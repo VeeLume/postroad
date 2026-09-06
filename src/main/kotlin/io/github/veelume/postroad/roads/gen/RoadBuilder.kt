@@ -218,7 +218,7 @@ object RoadBuilder {
         // Corner squares and road ends, after the pieces.
         val points = road.points
         for ((k, pt) in points.withIndex()) {
-            if (!RoadPieceLayer.turnsAt(points, k)) continue
+            if (!RoadPieceLayer.needsSquare(points.getOrNull(k - 1), pt, points.getOrNull(k + 1))) continue
             val c = (pt.x shr 4); val d = (pt.z shr 4)
             if (kotlin.math.abs(c - cx) > 1 || kotlin.math.abs(d - cz) > 1) continue
             val style = styles.style(road.families.getOrElse(k) { 0 }.toInt())

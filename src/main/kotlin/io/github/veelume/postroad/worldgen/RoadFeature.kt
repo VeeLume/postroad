@@ -37,17 +37,16 @@ class RoadFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<NoneFeatureC
         fun inChunk(x: Int, z: Int): Boolean = (x shr 4) == chunk.x && (z shr 4) == chunk.z
         var placed = 0
         for (seg in segments) {
-            val p = catalog.placement(seg.a, seg.b, seg.index) ?: continue
+            val p = catalog.placement(seg.a, seg.b, seg.index) ?: run { RoadPlanSnapshot.noPiece.incrementAndGet(); null } ?: continue
             // The neighbouring pieces' footprints keep this piece's decoration off them.
             val around = listOfNotNull(seg.prev?.let { catalog.placement(it, seg.a, seg.index - 1) }, p, seg.next?.let { catalog.placement(seg.b, it, seg.index + 1) })
             val footprint = RoadPieceLayer.footprintOf(around)
             placed += RoadPieceLayer.lay(level, p, styles.style(seg.family), styles, ::ground, ::inChunk) { x, z -> footprint.contains(RoadPieceLayer.key(x, z)) }
         }
-        // Corner squares and road ends, after the pieces so they win where a stair row met a turn.
+        // Anchor squares after the pieces: ends, turns and dips (see RoadPieceLayer.needsSquare).
         for (seg in segments) {
             val style = styles.style(seg.family)
-            if (seg.prev == null || Integer.signum(seg.a.x - seg.prev.x) != Integer.signum(seg.b.x - seg.a.x) || Integer.signum(seg.a.z - seg.prev.z) != Integer.signum(seg.b.z - seg.a.z))
-                placed += RoadPieceLayer.layCorner(level, seg.a.below(), style, styles, ::ground, ::inChunk)
+            if (RoadPieceLayer.needsSquare(seg.prev, seg.a, seg.b)) placed += RoadPieceLayer.layCorner(level, seg.a.below(), style, styles, ::ground, ::inChunk)
             if (seg.next == null) placed += RoadPieceLayer.layCorner(level, seg.b.below(), style, styles, ::ground, ::inChunk)
         }
         RoadPlanSnapshot.piecesPlaced.addAndGet(segments.size)

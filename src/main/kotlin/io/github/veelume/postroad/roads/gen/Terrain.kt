@@ -12,6 +12,8 @@ interface Terrain {
 
     fun inBounds(cx: Int, cz: Int): Boolean
     fun heightAt(cx: Int, cz: Int): Int
+    /** Overrides a cell's height: an existing road's stored level, which is the ground there now. */
+    fun setHeight(cx: Int, cz: Int, y: Int)
     fun has(cx: Int, cz: Int, flag: Int): Boolean
     fun set(cx: Int, cz: Int, flag: Int)
     fun family(cx: Int, cz: Int): Int
@@ -92,7 +94,11 @@ class TiledTerrain(override val cellSize: Int, private val sampler: TileSampler)
         return cx in b.minX..b.maxX && cz in b.minZ..b.maxZ
     }
 
-    override fun heightAt(cx: Int, cz: Int): Int = tileOf(cx, cz).heights[idx(cx, cz)].toInt()
+    /** Heights set by [setHeight] (road cells), over the sampled ones. */
+    private val heightOverrides = java.util.concurrent.ConcurrentHashMap<Long, Int>()
+
+    override fun heightAt(cx: Int, cz: Int): Int = heightOverrides[Terrain.key(cx, cz)] ?: tileOf(cx, cz).heights[idx(cx, cz)].toInt()
+    override fun setHeight(cx: Int, cz: Int, y: Int) { heightOverrides[Terrain.key(cx, cz)] = y }
 
     /**
      * Forgets provisional tiles older than [maxAgeMs]. Called between passes, never inside one: a pass

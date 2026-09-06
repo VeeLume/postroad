@@ -105,6 +105,11 @@ object RoadPieceLayer {
         val topPos = BlockPos(x, top, z)
         if (top > ground && !styles.isClearable(level.getBlockState(topPos))) return changed
         if (level.getBlockState(topPos) != state) { level.setBlock(topPos, state, 2 or 16); changed++ }
+        // A solid block under every road block: sand and gravel fall, and a road on leaves or over a
+        // hollow sinks. The deck's support is placed above; this covers ground that is not ground.
+        val below = BlockPos(x, top - 1, z)
+        val b = level.getBlockState(below)
+        if (top - 1 > level.minBuildHeight && !b.isSolid && b.fluidState.isEmpty && styles.isClearable(b)) { level.setBlock(below, style.fill, 2 or 16); changed++ }
         return changed
     }
 
@@ -157,6 +162,18 @@ object RoadPieceLayer {
         if (i <= 0 || i >= points.size - 1) return true // the ends get a square too
         val a = points[i - 1]; val b = points[i]; val c = points[i + 1]
         return Integer.signum(b.x - a.x) != Integer.signum(c.x - b.x) || Integer.signum(b.z - a.z) != Integer.signum(c.z - b.z)
+    }
+
+    /**
+     * True when the anchor [a] needs its own square: the road ends or turns there, or no piece lays
+     * it — a piece lays its exit anchor and not its entry, and a descent is the rise piece reversed,
+     * so a descent into [a] followed by anything but a descent leaves [a] to nobody (the dip with no
+     * steps). [prev] is the point before [a], [next] the one after; null at the ends.
+     */
+    fun needsSquare(prev: BlockPos?, a: BlockPos, next: BlockPos?): Boolean {
+        if (prev == null || next == null) return true
+        if (Integer.signum(a.x - prev.x) != Integer.signum(next.x - a.x) || Integer.signum(a.z - prev.z) != Integer.signum(next.z - a.z)) return true
+        return a.y < prev.y && next.y >= a.y
     }
 
     /** Decoration of a straight piece: posts and lamps off the side, only on solid ground and off every footprint. */

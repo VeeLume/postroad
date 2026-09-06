@@ -24,6 +24,8 @@ object RoadPlanSnapshot {
     val laid: MutableSet<Long> = ConcurrentHashMap.newKeySet()
     val featureRuns = AtomicInteger()
     val piecesPlaced = AtomicInteger()
+    /** Segments the feature met that no catalog piece fits; the plan is checked at storage time, so this should stay 0. */
+    val noPiece = AtomicInteger()
 
     fun segmentsAt(chunkX: Int, chunkZ: Int): List<Segment> = segments[ChunkPos.asLong(chunkX, chunkZ)] ?: emptyList()
 

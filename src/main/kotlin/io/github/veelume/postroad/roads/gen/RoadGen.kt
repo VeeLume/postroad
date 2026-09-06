@@ -314,8 +314,11 @@ object RoadGen {
             .filter { it.pos.distSqr(req.center) <= reach.toDouble() * reach }
             .map { Town(it.id, terrain.blockToCell(it.pos.x, it.pos.z), it.streets.map { s -> terrain.blockToCell(s.x, s.z) },
                         reach = (maxOf(it.box.xSpan, it.box.zSpan) / 2 + req.margin) / CELL_SIZE + 1).also { t -> townById[t.id] = t } }
+        // An existing road's cells are at its stored heights now (built, or about to be), so the search
+        // judges steps onto and along it by those, not by the terrain of its day.
         val existing = req.knownRoads.map { road ->
             val cells = road.points.map { terrain.blockToCell(it.x, it.z) }
+            for ((i, c) in cells.withIndex()) terrain.setHeight(c.x, c.z, road.points[i].y)
             PlannedRoute(road.id, townById[road.from] ?: Town(road.from, cells.first()), townById[road.to] ?: Town(road.to, cells.last()), cells)
         }
         val plan = RoadPlanner.planNetwork(terrain, towns, req.costs, req.neighbours, req.maxLink.toDouble() / CELL_SIZE, existing, coarse, COARSE_CELL / CELL_SIZE, req.dropped)
@@ -327,10 +330,17 @@ object RoadGen {
         // cell must lay the same blocks, and the built one is the ground there now.
         val existingY = HashMap<Long, Int>()
         for (road in req.knownRoads) for (p in road.points) { val c = terrain.blockToCell(p.x, p.z); existingY.putIfAbsent(Terrain.key(c.x, c.z), p.y) }
-        val newRoads = plan.routes.map { route ->
+        val catalog = RoadPieces.current
+        val newRoads = plan.routes.mapNotNull { route ->
+            val points = route.cells.map { c -> val b = terrain.cellToBlock(c.x, c.z); existingY[Terrain.key(c.x, c.z)]?.let { BlockPos(b.x, it, b.z) } ?: b }
+            // What cannot be built is not stored: every segment must be a catalog piece.
+            val bad = (1 until points.size).firstOrNull { catalog.placement(points[it - 1], points[it], it - 1) == null }
+            if (bad != null) {
+                Postroad.LOGGER.warn("Road {} ({} -> {}) dropped: no piece for {} -> {}", route.id, route.from.id, route.to.id, points[bad - 1].toShortString(), points[bad].toShortString())
+                return@mapNotNull null
+            }
             val road = PlannedRoad(
-                route.id, req.dimension, route.from.id, route.to.id,
-                route.cells.map { c -> val b = terrain.cellToBlock(c.x, c.z); existingY[Terrain.key(c.x, c.z)]?.let { BlockPos(b.x, it, b.z) } ?: b },
+                route.id, req.dimension, route.from.id, route.to.id, points,
                 ByteArray(route.cells.size) { terrain.family(route.cells[it].x, route.cells[it].z).toByte() },
             )
             if (route.cells.any { terrain.has(it.x, it.z, Terrain.ESTIMATED) }) {
@@ -498,7 +508,7 @@ object RoadGen {
         }
         val built = storage.roads.values.sumOf { it.builtChunks.size }
         val total = storage.roads.values.sumOf { it.chunks().size }
-        lines.add("worldgen: ${RoadPlanSnapshot.segments.size} chunk(s) in the snapshot, ${RoadPlanSnapshot.featureRuns.get()} chunk(s) laid by the road feature (${RoadPlanSnapshot.piecesPlaced.get()} run(s)); ${ChunkPregen.status()}; ${KnownTerrain.size(server.overworld().dimension().location())} chunk(s) of known terrain; ${storage.roads.values.count { it.provisional }} provisional road(s), $replanned replanned")
+        lines.add("worldgen: ${RoadPlanSnapshot.segments.size} chunk(s) in the snapshot, ${RoadPlanSnapshot.laid.size} chunk(s) laid by the road feature (${RoadPlanSnapshot.featureRuns.get()} run(s), ${RoadPlanSnapshot.piecesPlaced.get()} piece(s), ${RoadPlanSnapshot.noPiece.get()} without a piece); ${ChunkPregen.status()}; ${KnownTerrain.size(server.overworld().dimension().location())} chunk(s) of known terrain; ${storage.roads.values.count { it.provisional }} provisional road(s), $replanned replanned")
         lines.add("$built of $total road chunk(s) built; builder: ${RoadBuilder.chunksBuilt} chunk(s), ${RoadBuilder.blocksPlaced} block(s), ${RoadBuilder.signsPlaced} sign(s) this session, ${RoadBuilder.queueSize} queued")
         return lines
     }

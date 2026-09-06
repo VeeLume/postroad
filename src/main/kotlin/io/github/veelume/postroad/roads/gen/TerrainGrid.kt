@@ -22,7 +22,7 @@ class TerrainGrid(
     fun index(cx: Int, cz: Int): Int = cz * width + cx
 
     override fun heightAt(cx: Int, cz: Int): Int = heights[index(cx, cz)].toInt()
-    fun setHeight(cx: Int, cz: Int, y: Int) { heights[index(cx, cz)] = y.toShort() }
+    override fun setHeight(cx: Int, cz: Int, y: Int) { heights[index(cx, cz)] = y.toShort() }
 
     override fun has(cx: Int, cz: Int, flag: Int): Boolean = (flags[index(cx, cz)].toInt() and flag) != 0
     override fun set(cx: Int, cz: Int, flag: Int) { flags[index(cx, cz)] = (flags[index(cx, cz)].toInt() or flag).toByte() }
