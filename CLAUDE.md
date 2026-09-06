@@ -31,7 +31,7 @@ live in `docs/` (one per increment). This file is about the code.
   `RoadPath`/`PathLink`/`RoadNode` (the travel graph, stored on `Network`), `Charting` (per-player
   sessions, sampling + particles, record/link/attach), `ChartingMapItem` + payloads + `ChartingClient`
   (client-side state holder with no client imports; `ClientSetup` plugs the screen opener in).
-- `roads/gen/` — generated roads. `Terrain` (cells of 4 blocks: height, flags, biome family) with two forms:
+- `roads/gen/` — generated roads. `Terrain` (cells of 3 blocks = the piece grid; coarse map 12: height, flags, biome family) with two forms:
   `TerrainGrid` (dense, tests) and `TiledTerrain` (lazy tiles from a `TileSampler`, BLOCKED/ROAD in an overlay).
   `RoadPlanner` (A* with slope/water costs and a reuse discount; `planNetwork` → new routes + junctions, given
   existing ones). `WorldTerrainSampler` (noise router's preliminary surface + biome source, no chunks; tiles cached
@@ -55,12 +55,14 @@ live in `docs/` (one per increment). This file is about the code.
   says whether the chunk has its own road structure start; `/postroad roads audit <radius> [fix]` counts generated
   road chunks with and without their own start (`fix` hands the start-less ones back to the chunk-load builder).
   **Roads are built from a catalog of pieces** (`docs/increment-5.md`): `RoadPieces` loads
-  `data/postroad/roads/pieces/*.json` — straight pieces per rise 0…4 (four rows of `surface`/`stair`/`slab` at
-  levels relative to the entry anchor, decoration, a `fit` of cut/fill/deck) and one flat `diagonal` piece; the
-  planner's move set and step costs come from the catalog (`PieceCatalog.stepClasses`, diagonal moves only
-  flat). `PieceCatalog.placement(a, b)` turns two consecutive planned points into a `PiecePlacement` (descents =
-  the rise piece reversed); `RoadPieceLayer.lay` writes its blocks with the ground fitted per column. Same code
-  for the road feature at generation time and the chunk-load builder.
+  `data/postroad/roads/pieces/*.json` — straight pieces per rise 0…3 (three rows of `surface`/`stair`/`slab` at
+  levels relative to the entry anchor, decoration, a `fit` of cut/fill/deck) and diagonal pieces per rise 0…2
+  (six zigzag stamps, rising by slab rows); the planner's move set and step costs come from the catalog
+  (`PieceCatalog.stepClasses` / `diagonalStepClasses`). `PieceCatalog.placement(a, b)` turns two consecutive
+  planned points into a `PiecePlacement` (descents = the rise piece reversed); `RoadPieceLayer.lay` writes its
+  blocks with the ground fitted per column (a flat piece steps over a one-block bump instead of cutting it);
+  `layCorner` lays the anchor's flat 3×3 square after the pieces wherever the facing changes and at road ends
+  (`turnsAt`). Same code for the road feature at generation time and the chunk-load builder.
   **Roads generate as a placed feature** (`worldgen/RoadFeature`, data `worldgen/configured_feature/road.json`,
   `placed_feature/road.json`, biome modifier `neoforge/biome_modifier/road.json` on every overworld biome at
   `surface_structures`): once per chunk it asks `RoadPlanSnapshot` (segments whose piece footprints touch the
