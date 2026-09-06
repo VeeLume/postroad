@@ -275,7 +275,10 @@ object RoadPlanner {
                 else route(terrain, a, b, costs))
             if (raw == null) { dropped.add(DroppedPair(id, towns[i], towns[j], "unreachable")); known.add(id); continue }
             if (longestWaterRun(terrain, raw) > costs.maxWaterRun) { dropped.add(DroppedPair(id, towns[i], towns[j], "water")); known.add(id); continue }
-            val cells = snapExcursions(raw, owner, EXCURSION_MAX)
+            // Snapping splices another road's cells in; those were judged on that road's heights, so the
+            // result is checked on today's terrain and the raw route kept when a step no class allows.
+            val snapped = snapExcursions(raw, owner, EXCURSION_MAX)
+            val cells = if (stepsFeasible(terrain, snapped, costs)) snapped else raw
             // A junction is where the route's own new cells meet an existing road: stepping onto one, or
             // off one. Road-to-road steps pass through junctions recorded when those roads met, and the
             // route's two ends are towns, not junctions.
@@ -329,6 +332,18 @@ object RoadPlanner {
             }
         }
         return out
+    }
+
+    /** True when every step between consecutive [cells] is within the last step class on [terrain]. */
+    fun stepsFeasible(terrain: Terrain, cells: List<Cell>, costs: PlannerCosts): Boolean {
+        val limit = costs.steps.maxOfOrNull { it.upTo } ?: return true
+        for (k in 1 until cells.size) {
+            val a = cells[k - 1]; val b = cells[k]
+            val diagonal = a.x != b.x && a.z != b.z
+            val dh = abs(terrain.heightAt(b.x, b.z) - terrain.heightAt(a.x, a.z)).toDouble() / (if (diagonal) SQRT2 else 1.0)
+            if (dh > limit) return false
+        }
+        return true
     }
 
     /** BFS over the cells of one road from [a] to [b]; null if they are not connected within a short distance. */

@@ -322,10 +322,14 @@ object RoadGen {
         // 4. Back to blocks. A route over any estimated cell is provisional: its corridor is generated
         //    and the route planned again on the real terrain.
         val corridors = HashMap<String, LongOpenHashSet>()
+        // Cells an existing road already occupies keep that road's stored height: two roads through one
+        // cell must lay the same blocks, and the built one is the ground there now.
+        val existingY = HashMap<Long, Int>()
+        for (road in req.knownRoads) for (p in road.points) { val c = terrain.blockToCell(p.x, p.z); existingY.putIfAbsent(Terrain.key(c.x, c.z), p.y) }
         val newRoads = plan.routes.map { route ->
             val road = PlannedRoad(
                 route.id, req.dimension, route.from.id, route.to.id,
-                route.cells.map { terrain.cellToBlock(it.x, it.z) },
+                route.cells.map { c -> val b = terrain.cellToBlock(c.x, c.z); existingY[Terrain.key(c.x, c.z)]?.let { BlockPos(b.x, it, b.z) } ?: b },
                 ByteArray(route.cells.size) { terrain.family(route.cells[it].x, route.cells[it].z).toByte() },
             )
             if (route.cells.any { terrain.has(it.x, it.z, Terrain.ESTIMATED) }) {
@@ -377,7 +381,13 @@ object RoadGen {
         for (id in result.replaced) {
             val old = storage.roads[id] ?: continue
             val fresh = result.newRoads.firstOrNull { it.id == id }
-            if (fresh == null) { old.provisional = false; storage.setDirty(); continue }
+            if (fresh == null) {
+                // No route for the pair on the real terrain: the estimate-based road goes with it.
+                storage.removeRoad(id)
+                network.removePath(id)
+                Postroad.LOGGER.info("Road {} ({} -> {}) dropped: no route on the generated terrain", id, old.from, old.to)
+                continue
+            }
             fresh.replans = old.replans + 1
             storage.removeRoad(id)
             network.removePath(id)
