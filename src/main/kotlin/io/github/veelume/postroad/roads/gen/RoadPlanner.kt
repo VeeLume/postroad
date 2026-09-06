@@ -90,14 +90,11 @@ object RoadPlanner {
         val onRoad = terrain.has(x, z, Terrain.ROAD)
         val dh = abs(h - fromHeight).toDouble() / (slopeDivisor * (if (diagonal) SQRT2 else 1.0))
         var cost = costs.base * (if (diagonal) SQRT2 else 1.0)
-        if (onRoad) {
-            // Existing roads were already judged and built; riding them costs the discount only.
-            cost *= costs.reuseFactor
-        } else {
-            // New ground: the step class of this change, or impassable beyond the last class.
-            val cls = costs.steps.firstOrNull { dh <= it.upTo } ?: return null
-            cost += cls.cost
-        }
+        // The step class of this change, or impassable beyond the last class — on new ground and on an
+        // existing road alike: a road's cells were judged on the heights of its day (perhaps estimates),
+        // and this route's heights may differ. Riding a road only discounts the cost.
+        val cls = costs.steps.firstOrNull { dh <= it.upTo } ?: return null
+        if (onRoad) cost = (cost + cls.cost) * costs.reuseFactor else cost += cls.cost
         if (terrain.has(x, z, Terrain.WATER)) cost += costs.water
         if (band != null && !onRoad) {
             val above = h - band.high
