@@ -54,6 +54,7 @@ object PostroadCommands {
                         .then(Commands.literal("clear").requires { it.hasPermission(2) }.executes { roadsClear(it) })
                         .then(Commands.literal("rebuild").requires { it.hasPermission(2) }.executes { roadsRebuild(it) })
                         .then(Commands.literal("export").requires { it.hasPermission(2) }.executes { roadsExport(it) })
+                        .then(Commands.literal("trace").requires { it.hasPermission(2) }.then(Commands.argument("pair", com.mojang.brigadier.arguments.StringArgumentType.word()).executes { roadsTrace(it) }))
                         .then(
                             Commands.literal("debug").requires { it.hasPermission(2) }.executes { roadsDebug(it) }
                                 .then(Commands.literal("terrain").executes { roadsDebugTerrain(it) }),
@@ -340,6 +341,12 @@ object PostroadCommands {
         val file = io.github.veelume.postroad.roads.gen.RoadGen.exportImage(level, pos, io.github.veelume.postroad.PostroadConfig.planRadius + io.github.veelume.postroad.PostroadConfig.planMaxLink)
         ctx.source.sendSuccess({ Component.literal(if (file != null) "Plan drawn to $file" else "Nothing to draw: no planner data for this dimension, or a pass is running.") }, true)
         return if (file != null) 1 else 0
+    }
+
+    private fun roadsTrace(ctx: CommandContext<CommandSourceStack>): Int {
+        val msg = io.github.veelume.postroad.roads.gen.RoadGen.trace(ctx.source.level, com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "pair"))
+        ctx.source.sendSuccess({ Component.literal(msg) }, false)
+        return 1
     }
 
     private fun roadsRebuild(ctx: CommandContext<CommandSourceStack>): Int {

@@ -312,7 +312,8 @@ object RoadGen {
         val townById = HashMap<String, Town>()
         val towns = allTowns
             .filter { it.pos.distSqr(req.center) <= reach.toDouble() * reach }
-            .map { Town(it.id, terrain.blockToCell(it.pos.x, it.pos.z), it.streets.map { s -> terrain.blockToCell(s.x, s.z) }).also { t -> townById[t.id] = t } }
+            .map { Town(it.id, terrain.blockToCell(it.pos.x, it.pos.z), it.streets.map { s -> terrain.blockToCell(s.x, s.z) },
+                        reach = (maxOf(it.box.xSpan, it.box.zSpan) / 2 + req.margin) / CELL_SIZE + 1).also { t -> townById[t.id] = t } }
         val existing = req.knownRoads.map { road ->
             val cells = road.points.map { terrain.blockToCell(it.x, it.z) }
             PlannedRoute(road.id, townById[road.from] ?: Town(road.from, cells.first()), townById[road.to] ?: Town(road.to, cells.last()), cells)
@@ -517,6 +518,79 @@ object RoadGen {
      * blue, town boxes red, roads white, junctions yellow, towns magenta. One pixel per fine cell.
      * Server thread, and only while no pass runs (it reads the worker's tiles). Returns the file, or null.
      */
+    /**
+     * Plans one dropped pair again on the current terrain and draws the fine cells the search closed,
+     * with the corridor's blocked/water flags and heights, to `<world>/postroad/trace_<pair>.png`.
+     * A debugging aid: it says why a pair is unreachable where the log line cannot.
+     */
+    fun trace(level: ServerLevel, pairId: String): String {
+        if (pending.get() > 0) return "A pass is running; try again when it is done."
+        val worker = workers[level.dimension().location()] ?: return "No planner data for this dimension."
+        val storage = RoadPlanStorage.get(level.server)
+        val d = storage.droppedDetails[pairId] ?: return "No dropped pair $pairId."
+        val req = request(level, BlockPos.ZERO)
+        val terrain = worker.terrain; val coarse = worker.coarse
+        fun town(id: String): Town? {
+            val t = storage.towns[id] ?: return null
+            return Town(t.id, terrain.blockToCell(t.pos.x, t.pos.z), t.streets.map { s -> terrain.blockToCell(s.x, s.z) },
+                        reach = (maxOf(t.box.xSpan, t.box.zSpan) / 2 + req.margin) / CELL_SIZE + 1)
+        }
+        val a = town(d.first) ?: return "Unknown town ${d.first}"
+        val b = town(d.second) ?: return "Unknown town ${d.second}"
+        val closed = LongOpenHashSet()
+        RoadPlanner.trace.set(closed); RoadPlanner.traceEnds.set(null)
+        val exitA = a.exitToward(b.cell); val exitB = b.exitToward(a.cell)
+        val t0 = System.nanoTime()
+        val route = try { RoadPlanner.routeHierarchical(terrain, coarse, COARSE_CELL / CELL_SIZE, exitA, exitB, req.costs, a.reach, b.reach) } finally { RoadPlanner.trace.set(null) }
+        val ends = RoadPlanner.traceEnds.get()
+        val ms = (System.nanoTime() - t0) / 1_000_000
+        // Draw: the closed cells' bounding box plus both exits, 12 cells of margin, 4 px per cell.
+        var minX = minOf(exitA.x, exitB.x); var maxX = maxOf(exitA.x, exitB.x); var minZ = minOf(exitA.z, exitB.z); var maxZ = maxOf(exitA.z, exitB.z)
+        val iter = closed.iterator()
+        while (iter.hasNext()) { val k = iter.nextLong(); val x = Terrain.keyX(k); val z = Terrain.keyZ(k); if (x < minX) minX = x; if (x > maxX) maxX = x; if (z < minZ) minZ = z; if (z > maxZ) maxZ = z }
+        minX -= 12; minZ -= 12; maxX += 12; maxZ += 12
+        val w = (maxX - minX + 1).coerceAtMost(600); val h = (maxZ - minZ + 1).coerceAtMost(600)
+        val px = 4
+        val image = java.awt.image.BufferedImage(w * px, h * px, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        var minH = Int.MAX_VALUE; var maxH = Int.MIN_VALUE
+        for (z in 0 until h) for (x in 0 until w) { val hh = terrain.loadedHeightAt(minX + x, minZ + z) ?: continue; if (hh < minH) minH = hh; if (hh > maxH) maxH = hh }
+        if (minH > maxH) { minH = 60; maxH = 120 }
+        val g2 = image.createGraphics()
+        for (z in 0 until h) for (x in 0 until w) {
+            val cx = minX + x; val cz = minZ + z
+            val hh = terrain.loadedHeightAt(cx, cz)
+            val flags = terrain.loadedFlagsAt(cx, cz) ?: 0
+            val rgb = when {
+                hh == null -> 0x202020
+                flags and Terrain.BLOCKED != 0 -> 0x803030
+                flags and Terrain.LAVA != 0 -> 0xff8000
+                flags and Terrain.WATER != 0 -> 0x2050a0
+                else -> { val t = ((hh - minH).toDouble() / (maxH - minH).coerceAtLeast(1)).coerceIn(0.0, 1.0); ((50 + 150 * t).toInt() shl 16) or ((90 + 130 * t).toInt() shl 8) or (40 + 60 * t).toInt() }
+            }
+            g2.color = java.awt.Color(rgb)
+            g2.fillRect(x * px, z * px, px, px)
+            if (closed.contains(Terrain.key(cx, cz))) { g2.color = java.awt.Color.WHITE; g2.fillRect(x * px + 1, z * px + 1, px - 2, px - 2) }
+        }
+        g2.color = java.awt.Color.CYAN
+        for (s in a.exits + b.exits) if (s.x in minX..maxX && s.z in minZ..maxZ) g2.fillRect((s.x - minX) * px, (s.z - minZ) * px, px, px)
+        g2.color = java.awt.Color.MAGENTA
+        for (c in listOf(exitA, exitB)) g2.fillRect((c.x - minX) * px - 2, (c.z - minZ) * px - 2, px + 4, px + 4)
+        g2.color = java.awt.Color.YELLOW
+        ends?.let { (f, t) -> for (c in listOf(f, t)) g2.fillRect((c.x - minX) * px - 1, (c.z - minZ) * px - 1, px + 2, px + 2) }
+        if (route != null) { g2.color = java.awt.Color.GREEN; for (c in route) g2.fillRect((c.x - minX) * px + 1, (c.z - minZ) * px + 1, px - 2, px - 2) }
+        g2.dispose()
+        val file = level.server.getWorldPath(LevelResource("postroad")).resolve("trace_$pairId.png")
+        java.nio.file.Files.createDirectories(file.parent)
+        javax.imageio.ImageIO.write(image, "png", file.toFile())
+        // Step-class statistics on the closed cells' neighbourhood: how many cardinal steps exceed the largest rise.
+        val limit = req.costs.steps.maxOf { it.upTo }
+        var steps = 0; var tooSteep = 0
+        val it2 = closed.iterator()
+        while (it2.hasNext()) { val k = it2.nextLong(); val x = Terrain.keyX(k); val z = Terrain.keyZ(k); val hh = terrain.heightAt(x, z)
+            for ((dx, dz) in listOf(1 to 0, 0 to 1)) { if (terrain.has(x + dx, z + dz, Terrain.BLOCKED)) continue; steps++; if (kotlin.math.abs(terrain.heightAt(x + dx, z + dz) - hh) > limit) tooSteep++ } }
+        return "Pair $pairId ${d.first} -> ${d.second}: ${if (route != null) "route of ${route.size} cells" else "unreachable: ${RoadPlanner.lastFailure.get()}"}; exits $exitA / $exitB, resolved $ends, ${closed.size} fine cell(s) closed in $ms ms, $tooSteep of $steps cardinal steps off closed cells exceed rise $limit; drawn to $file (${minX * CELL_SIZE}, ${minZ * CELL_SIZE}) to (${maxX * CELL_SIZE}, ${maxZ * CELL_SIZE}), $px px per cell"
+    }
+
     fun exportImage(level: ServerLevel, center: BlockPos, radius: Int): java.nio.file.Path? {
         if (pending.get() > 0) return null
         val worker = workers[level.dimension().location()] ?: return null

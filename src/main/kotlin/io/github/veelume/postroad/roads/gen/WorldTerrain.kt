@@ -187,7 +187,15 @@ class WorldTerrainSampler(private val level: ServerLevel, private val cacheDir: 
             val mid = lo + ((hi - lo) / 2 / step) * step
             if (density.compute(DensityFunction.SinglePointContext(x, mid, z)) > SOLID) lo = mid else hi = mid
         }
-        // hi is the first air sample: the surface height the generator's heightmaps report (probe-verified: lo sat 8 below).
+        // lo is the last solid sample and hi the first air one, a noise cell apart. The generator interpolates
+        // density linearly between cell samples, so the crossing inside the cell is where the surface really is;
+        // without this the estimate moves in whole cells (4 or 8 blocks), which the piece grid cannot climb.
+        val dLo = density.compute(DensityFunction.SinglePointContext(x, lo, z))
+        val dHi = density.compute(DensityFunction.SinglePointContext(x, hi, z))
+        if (dLo > SOLID && dHi <= SOLID && dLo > dHi) {
+            val frac = (dLo - SOLID) / (dLo - dHi)
+            return lo + Math.ceil(frac * (hi - lo)).toInt().coerceIn(1, hi - lo)
+        }
         return hi
     }
 
