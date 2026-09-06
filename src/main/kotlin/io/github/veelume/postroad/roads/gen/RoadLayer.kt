@@ -13,8 +13,11 @@ import net.minecraft.world.level.levelgen.Heightmap
  * skipped (no bridges yet). The same shaping the chunk-load builder does on finished terrain.
  */
 object RoadLayer {
-    /** Lays [run] inside [chunk] of [level]; returns the columns it placed. */
-    fun lay(level: WorldGenLevel, run: RoadPlanSnapshot.Segment, chunk: ChunkPos): Int {
+    /**
+     * Lays [run] inside [chunk] of [level]; returns the blocks it placed. Tests hand in their own
+     * [groundAt] (the arena's heightmaps count the harness's barriers) and no [chunk] clip.
+     */
+    fun lay(level: WorldGenLevel, run: RoadPlanSnapshot.Segment, chunk: ChunkPos?, groundAt: ((Int, Int) -> Int)? = null): Int {
         val points = run.points
         if (points.size < 2) return 0
         val styles = RoadStyles.current
@@ -24,6 +27,7 @@ object RoadLayer {
         val path = RoadBuilder.straight(points)
         // The generated ground per column; water columns count as unknown and are left alone.
         fun ground(x: Int, z: Int): Int {
+            if (groundAt != null) return groundAt(x, z)
             if (!level.hasChunk(x shr 4, z shr 4)) return Int.MIN_VALUE
             val y = level.getHeight(Heightmap.Types.OCEAN_FLOOR_WG, x, z) - 1
             if (y <= level.minBuildHeight) return Int.MIN_VALUE
@@ -39,11 +43,16 @@ object RoadLayer {
         // Every strip block belongs to one column: its own centre, else the first stamp that reaches it.
         val owner = it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap().apply { defaultReturnValue(-1) }
         fun key(x: Int, z: Int): Long = (x.toLong() shl 32) or (z.toLong() and 0xffffffffL)
-        for ((i, c) in path.withIndex()) for (dz in -half..half) for (dx in -half..half) {
+        // Own centre first, then the blocks straight beside a column (its row of the strip), then diagonals:
+        // a rise's slab or stairs then span the whole width of that row.
+        for ((i, c) in path.withIndex()) owner[key(c[0], c[1])] = i
+        for (ring in 0..1) for ((i, c) in path.withIndex()) for (dz in -half..half) for (dx in -half..half) {
             if (dx * dx + dz * dz > (half + 0.5) * (half + 0.5)) continue
-            if (dx == 0 && dz == 0) owner[key(c[0] + dx, c[1] + dz)] = i else owner.putIfAbsent(key(c[0] + dx, c[1] + dz), i)
+            val diagonal = dx != 0 && dz != 0
+            if ((ring == 0) == diagonal) continue
+            owner.putIfAbsent(key(c[0] + dx, c[1] + dz), i)
         }
-        fun inChunk(x: Int, z: Int): Boolean = (x shr 4) == chunk.x && (z shr 4) == chunk.z
+        fun inChunk(x: Int, z: Int): Boolean = chunk == null || ((x shr 4) == chunk.x && (z shr 4) == chunk.z)
         var placed = 0
         for ((i, c) in path.withIndex()) {
             if (target[i] == Int.MIN_VALUE) continue

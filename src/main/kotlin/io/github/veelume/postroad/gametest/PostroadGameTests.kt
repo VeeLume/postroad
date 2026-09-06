@@ -547,7 +547,7 @@ class PostroadGameTests {
         helper.assertTrue(town.exitToward(cell(55, 20)) == cell(29, 20), "east street exit toward an eastern neighbour (${town.exitToward(cell(55, 20))})")
         helper.assertTrue(town.exitToward(cell(25, 0)) == cell(25, 11), "north street exit toward a northern neighbour")
         // The builder's profile flattening: a short bump is cut, a short dip filled, a long hill kept.
-        val bumpy = (0 until 40).map { x -> 64 + (if (x in 10..15) 3 else 0) - (if (x in 22..25) 2 else 0) }
+        val bumpy = (0 until 40).map { x -> 64 + (if (x in 10..15) 2 else 0) - (if (x in 22..25) 2 else 0) }
         val levelled = io.github.veelume.postroad.roads.gen.RoadBuilder.flatten(bumpy)
         helper.assertTrue(levelled.all { it == 64 }, "a 6-block bump and a 4-block dip are levelled (${levelled.toList()})")
         val longHill = (0 until 40).map { x -> 64 + (if (x in 10..30) 3 else 0) }
@@ -698,6 +698,79 @@ class PostroadGameTests {
         gen.apply(server, result)
         helper.assertValueEqual(network.paths.size - pathsBefore, result.newRoads.size, "apply is idempotent")
         network.nodes.remove(nodeId)
+        helper.succeed()
+    }
+
+    // ---- the road structure, laid by the feature's layer on shaped arena floors ----------------------
+
+    /** The arena floor's top is stone at relative y [F]; [extra] stone is stacked on it. Returns the absolute y of that top. */
+    private val F = 1
+    private fun shapeFloor(helper: GameTestHelper, extra: (Int, Int) -> Int): Int {
+        for (z in 0..6) for (x in 0..6) for (y in F + 1..F + extra(x, z)) helper.setBlock(BlockPos(x, y, z), Blocks.STONE)
+        return helper.absolutePos(BlockPos(0, F, 0)).y
+    }
+
+    private fun layRoad(helper: GameTestHelper, floorY: Int, points: List<BlockPos>): Int {
+        val level = helper.level
+        val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
+        val run = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.Segment("t", points, emptyList(), emptyList(), 0)
+        return io.github.veelume.postroad.roads.gen.RoadLayer.lay(level, run, null) { x, z -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 1, styles) }
+    }
+
+    private fun blockAt(helper: GameTestHelper, x: Int, y: Int, z: Int): net.minecraft.world.level.block.Block = helper.level.getBlockState(helper.absolutePos(BlockPos(x, y, z))).block
+
+    @GameTest(template = ARENA)
+    fun layer_on_flat_ground_lays_only_the_strip(helper: GameTestHelper) {
+        val floorY = shapeFloor(helper) { _, _ -> 0 }
+        val a = helper.absolutePos(BlockPos(1, F + 1, 3)); val b = helper.absolutePos(BlockPos(5, F + 1, 3))
+        layRoad(helper, floorY, listOf(a, b))
+        for (x in 1..5) for (z in 2..4) helper.assertTrue(blockAt(helper, x, F, z) != Blocks.STONE, "strip column ($x, $z) is road")
+        for (x in 1..5) for (z in listOf(1, 5)) {
+            helper.assertTrue(blockAt(helper, x, F, z) == Blocks.STONE, "ground beside the road untouched at ($x, $z): ${blockAt(helper, x, F, z)}")
+            helper.assertTrue(blockAt(helper, x, F + 1, z) == Blocks.AIR, "nothing built beside the road at ($x, $z): ${blockAt(helper, x, F + 1, z)}")
+        }
+        for (x in 1..5) for (z in 2..4) helper.assertTrue(blockAt(helper, x, F + 1, z) == Blocks.AIR, "a flat road carries nothing above it at ($x, $z)")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun layer_one_step_up_carries_a_slab(helper: GameTestHelper) {
+        val floorY = shapeFloor(helper) { x, _ -> if (x >= 4) 1 else 0 }
+        layRoad(helper, floorY, listOf(helper.absolutePos(BlockPos(1, F + 1, 3)), helper.absolutePos(BlockPos(5, F + 2, 3))))
+        for (z in 2..4) helper.assertTrue(blockAt(helper, 3, F + 1, z) is net.minecraft.world.level.block.SlabBlock, "a slab on the lower column at (3, $z): ${blockAt(helper, 3, F + 1, z)}")
+        for (z in 2..4) helper.assertTrue(blockAt(helper, 4, F + 1, z) != Blocks.STONE && blockAt(helper, 4, F + 1, z) != Blocks.AIR, "the upper column keeps its level at (4, $z): ${blockAt(helper, 4, F + 1, z)}")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun layer_repeated_steps_carry_stairs(helper: GameTestHelper) {
+        val floorY = shapeFloor(helper) { x, _ -> when { x >= 5 -> 2; x >= 3 -> 1; else -> 0 } }
+        layRoad(helper, floorY, listOf(helper.absolutePos(BlockPos(1, F + 1, 3)), helper.absolutePos(BlockPos(5, F + 3, 3))))
+        helper.assertTrue(blockAt(helper, 2, F + 1, 3) is net.minecraft.world.level.block.StairBlock, "stairs before the first step at (2, 3): ${blockAt(helper, 2, F + 1, 3)}")
+        helper.assertTrue(blockAt(helper, 4, F + 2, 3) is net.minecraft.world.level.block.StairBlock, "stairs before the second step at (4, 3): ${blockAt(helper, 4, F + 2, 3)}")
+        for (z in 2..4) helper.assertTrue(blockAt(helper, 2, F + 1, z) is net.minecraft.world.level.block.StairBlock, "stairs across the whole width at (2, $z): ${blockAt(helper, 2, F + 1, z)}")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun layer_follows_a_gentle_slope_without_a_trench(helper: GameTestHelper) {
+        val floorY = shapeFloor(helper) { x, _ -> when { x >= 5 -> 2; x >= 3 -> 1; else -> 0 } }
+        layRoad(helper, floorY, listOf(helper.absolutePos(BlockPos(1, F + 1, 3)), helper.absolutePos(BlockPos(5, F + 3, 3))))
+        // The ground's own top block becomes the road's: nothing dug below it anywhere along the slope.
+        for (x in 1..5) {
+            val top = F + when { x >= 5 -> 2; x >= 3 -> 1; else -> 0 }
+            helper.assertTrue(blockAt(helper, x, top, 3) != Blocks.AIR, "no trench at ($x, 3): the ground top is gone")
+            helper.assertTrue(blockAt(helper, x, top, 3) != Blocks.STONE, "the road surface replaces the ground top at ($x, 3)")
+        }
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun layer_side_slope_fills_the_low_edge_without_a_pile(helper: GameTestHelper) {
+        val floorY = shapeFloor(helper) { _, z -> if (z <= 3) 1 else 0 }
+        layRoad(helper, floorY, listOf(helper.absolutePos(BlockPos(1, F + 2, 3)), helper.absolutePos(BlockPos(5, F + 2, 3))))
+        for (x in 1..5) helper.assertTrue(blockAt(helper, x, F + 1, 4) != Blocks.AIR, "the low edge is filled to road level at ($x, 4)")
+        for (x in 1..5) helper.assertTrue(blockAt(helper, x, F + 1, 5) == Blocks.AIR && blockAt(helper, x, F, 5) == Blocks.STONE, "no embankment beyond the strip for a one-block drop at ($x, 5): ${blockAt(helper, x, F + 1, 5)}")
         helper.succeed()
     }
 

@@ -216,10 +216,13 @@ object RoadBuilder {
             val run = Run(path, pace(smooth(flat, null), path), first)
             // Every block of the strip belongs to one column: a column's own centre always, the rest to
             // the first column whose round stamp reaches it. Then each column places only its own blocks.
-            for ((i, c) in path.withIndex()) for (dz in -half..half) for (dx in -half..half) {
+            for ((i, c) in path.withIndex()) run.owner[(c[0].toLong() shl 32) or (c[1].toLong() and 0xffffffffL)] = i
+            for (ring in 0..1) for ((i, c) in path.withIndex()) for (dz in -half..half) for (dx in -half..half) {
                 if (dx * dx + dz * dz > (half + 0.5) * (half + 0.5)) continue
+                val diagonal = dx != 0 && dz != 0
+                if ((ring == 0) == diagonal) continue
                 val k = ((c[0] + dx).toLong() shl 32) or ((c[1] + dz).toLong() and 0xffffffffL)
-                if (dx == 0 && dz == 0) run.owner[k] = i else run.owner.putIfAbsent(k, i)
+                run.owner.putIfAbsent(k, i)
             }
             job.run = run
         }
@@ -291,22 +294,20 @@ object RoadBuilder {
     }
 
     /**
-     * What stairs and slabs can carry: at most one rise per two columns (stair, landing, stair), and a
-     * landing wherever the road turns by a right angle while rising. A forward pass over the smoothed
+     * What stairs and slabs can carry: one rise per column at most, and a landing wherever the road
+     * turns by a right angle while rising (stairs face one way). A forward pass over the smoothed
      * profile; where the terrain climbs faster the road lags it and the cut/fill limits decide.
      */
     fun pace(target: IntArray, path: List<IntArray>): IntArray {
         val t = target.copyOf()
         if (t.size < 2) return t
-        var prev = 0
         for (i in 1 until t.size) {
-            if (t[i] == Int.MIN_VALUE || t[i - 1] == Int.MIN_VALUE) { prev = 0; continue }
+            if (t[i] == Int.MIN_VALUE || t[i - 1] == Int.MIN_VALUE) continue
             var dh = (t[i] - t[i - 1]).coerceIn(-1, 1)
-            val turn = i + 1 < path.size && i < path.size &&
+            val turn = i + 1 < path.size &&
                 (path[i][0] - path[i - 1][0]) * (path[i + 1][0] - path[i][0]) + (path[i][1] - path[i - 1][1]) * (path[i + 1][1] - path[i][1]) <= 0
-            if (dh != 0 && (dh == prev || turn)) dh = 0
+            if (dh != 0 && turn) dh = 0
             t[i] = t[i - 1] + dh
-            prev = dh
         }
         return t
     }
@@ -320,6 +321,9 @@ object RoadBuilder {
         var placed = 0
         for (dz in -1..1) for (dx in -1..1) {
             if (dx == 0 && dz == 0) continue
+            // Only where the strip's own edge stands on a real fill; a one- or two-block drop is just an edge.
+            val edge = ground(c[0] + dx * half, c[1] + dz * half)
+            if (edge == Int.MIN_VALUE || top - edge < EMBANK_FROM) continue
             for (k in 1..MAX_EMBANK) {
                 val x = c[0] + dx * (half + k); val z = c[1] + dz * (half + k)
                 val g = ground(x, z)
@@ -404,12 +408,13 @@ object RoadBuilder {
     private const val FLAT_WINDOW = 12
     /** Planned points sampled either side of a run as context for the flattening. */
     internal const val CONTEXT_POINTS = 4
-    private const val MAX_CUT = 4
+    private const val MAX_CUT = 2
 
-    private const val MAX_FILL = 8
+    private const val MAX_FILL = 6
     private const val HEADROOM = 3
-    /** How far out from the strip an embankment reaches, one block down per block. */
-    private const val MAX_EMBANK = 6
+    /** How far out from the strip an embankment reaches, one block down per block, and the fill depth at the edge that earns one. */
+    private const val MAX_EMBANK = 3
+    private const val EMBANK_FROM = 3
 
     /**
      * One column of road at height [top] (the walking surface's supporting block): fill up to it or cut
