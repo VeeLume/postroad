@@ -233,6 +233,8 @@ object RoadGen {
         val t0 = System.nanoTime()
         val terrain = worker.terrain
         val coarse = worker.coarse
+        // Terrain is frozen for the pass: stale estimates are dropped now, never while the search runs.
+        terrain.dropStaleProvisional(); coarse.dropStaleProvisional()
         if (!req.refresh.isEmpty()) { terrain.dropProvisionalTouching(req.refresh); coarse.dropProvisionalTouching(req.refresh) }
         val sampledBefore = worker.sampler.sampled
         val coarseBefore = worker.coarseSampler.sampled

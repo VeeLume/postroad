@@ -73,7 +73,7 @@ class TiledTerrain(override val cellSize: Int, private val sampler: TileSampler)
         val tx = Math.floorDiv(cx, TILE)
         val tz = Math.floorDiv(cz, TILE)
         val key = Terrain.key(tx, tz)
-        tiles[key]?.let { if (!it.provisional || System.currentTimeMillis() - it.sampledAt < REFRESH_MS) return it }
+        tiles[key]?.let { return it }
         val tile = sampler.sample(tx, tz)
         tiles[key] = tile
         for (box in boxes) markBox(tx, tz, box)
@@ -93,6 +93,16 @@ class TiledTerrain(override val cellSize: Int, private val sampler: TileSampler)
     }
 
     override fun heightAt(cx: Int, cz: Int): Int = tileOf(cx, cz).heights[idx(cx, cz)].toInt()
+
+    /**
+     * Forgets provisional tiles older than [maxAgeMs]. Called between passes, never inside one: a pass
+     * must see one set of heights from its first expansion to its stored points, or a road can carry
+     * a step the search never judged.
+     */
+    fun dropStaleProvisional(maxAgeMs: Long = REFRESH_MS) {
+        val now = System.currentTimeMillis()
+        tiles.entries.removeIf { it.value.provisional && now - it.value.sampledAt > maxAgeMs }
+    }
 
     /** Forgets provisional tiles covering any of [chunks], so the next look samples them afresh (their corridor was just generated). */
     fun dropProvisionalTouching(chunks: it.unimi.dsi.fastutil.longs.LongOpenHashSet) {
