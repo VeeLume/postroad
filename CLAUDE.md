@@ -33,6 +33,10 @@ live in `docs/` (one per increment). This file is about the code.
   (client-side state holder with no client imports; `ClientSetup` plugs the screen opener in).
 - `roads/gen/` — generated roads. `Terrain` (cells of 3 blocks = the piece grid; coarse map 12: height, flags, biome family) with two forms:
   `TerrainGrid` (dense, tests) and `TiledTerrain` (lazy tiles from a `TileSampler`, BLOCKED/ROAD in an overlay).
+  Everything on the planner side is sized in blocks and divided by the cell size (`RoadPlanner.ENDPOINT_REACH`,
+  `CORRIDOR_HALF`, town `reach`); the height estimate interpolates the density crossing inside the last noise
+  cell so it is block-precise (a whole-cell estimate moves in 4-block steps, which a rise limit of 3 cannot climb).
+  `/postroad roads trace <pair>` re-plans one dropped pair and draws what the fine search saw.
   `RoadPlanner` (A* with slope/water costs and a reuse discount; `planNetwork` → new routes + junctions, given
   existing ones). `WorldTerrainSampler` (noise router's preliminary surface + biome source, no chunks; tiles cached
   under `<world>/postroad/terrain/`), `Families` (biome-id keywords → palette family, mirrors the pack's
