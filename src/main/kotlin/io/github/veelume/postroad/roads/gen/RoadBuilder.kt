@@ -251,8 +251,6 @@ object RoadBuilder {
                     placed += placeColumn(level, x, z, target[i], palette, style, styles, boxes, shape.kind, c, shape.higher ?: c)
                     job.setBlockNanos += System.nanoTime() - t0
                 }
-                // The embankment: outside the strip, fill steps down one block per block until it meets the ground.
-                placed += embank(level, c, half, target[i], style, styles, { x, z -> if (level.hasChunk(x shr 4, z shr 4) && !inBox(x, z, boxes)) groundY(level, x, z, target[i], styles) else Int.MIN_VALUE })
                 // A lamppost every lampInterval columns, sides alternating, two blocks off the centre.
                 if (lampInterval > 0 && i > 0 && i % lampInterval == 0) {
                     val prev = path[i - 1]
@@ -310,36 +308,6 @@ object RoadBuilder {
             t[i] = t[i - 1] + dh
         }
         return t
-    }
-
-    /**
-     * Fill outside the strip around column [c]: from each edge column outward, one block lower per
-     * block, down to the ground — a slope, not a wall. [ground] gives a column's ground or
-     * `Int.MIN_VALUE` where nothing may be placed. Returns blocks placed.
-     */
-    fun embank(level: LevelAccessor, c: IntArray, half: Int, top: Int, style: RoadStyle, styles: RoadStyleSet, ground: (Int, Int) -> Int): Int {
-        var placed = 0
-        for (dz in -1..1) for (dx in -1..1) {
-            if (dx == 0 && dz == 0) continue
-            // Only where the strip's own edge stands on a real fill; a one- or two-block drop is just an edge.
-            val edge = ground(c[0] + dx * half, c[1] + dz * half)
-            if (edge == Int.MIN_VALUE || top - edge < EMBANK_FROM) continue
-            for (k in 1..MAX_EMBANK) {
-                val x = c[0] + dx * (half + k); val z = c[1] + dz * (half + k)
-                val g = ground(x, z)
-                if (g == Int.MIN_VALUE) break
-                val upTo = top - k
-                if (g >= upTo) break
-                val gs = level.getBlockState(BlockPos(x, g, z))
-                if (!gs.fluidState.isEmpty) break
-                for (y in g + 1..upTo) {
-                    val p = BlockPos(x, y, z)
-                    if (!styles.isClearable(level.getBlockState(p))) break
-                    level.setBlock(p, style.fill, 2 or 16); placed++
-                }
-            }
-        }
-        return placed
     }
 
     /**
@@ -408,13 +376,14 @@ object RoadBuilder {
     private const val FLAT_WINDOW = 12
     /** Planned points sampled either side of a run as context for the flattening. */
     internal const val CONTEXT_POINTS = 4
+    /** The profile flattening: bumps cut and dips filled up to these (a dip beyond the fill is bridged by a deck). */
     private const val MAX_CUT = 2
 
     private const val MAX_FILL = 6
     private const val HEADROOM = 3
-    /** How far out from the strip an embankment reaches, one block down per block, and the fill depth at the edge that earns one. */
-    private const val MAX_EMBANK = 3
-    private const val EMBANK_FROM = 3
+    /** A column: cut into a hillside up to this (a retaining edge), filled solid up to [COLUMN_FILL]; deeper drops get a deck. */
+    private const val COLUMN_CUT = 4
+    private const val COLUMN_FILL = 3
 
     /**
      * One column of road at height [top] (the walking surface's supporting block): fill up to it or cut
@@ -439,8 +408,8 @@ object RoadBuilder {
         val air = Blocks.AIR.defaultBlockState()
         if (top < ground) {
             // Cut: everything from the new top up to the old ground plus headroom, if it may be removed.
-            // Never deeper than the flattening allows — a profile that lags a slope must not dig a trench.
-            if (ground - top > MAX_CUT) return 0
+            // A hillside edge is cut like a terrace, never deeper than this: beyond it the road is not laid.
+            if (ground - top > COLUMN_CUT) return 0
             for (y in top + 1..ground + HEADROOM) {
                 val p = BlockPos(x, y, z)
                 val s = level.getBlockState(p)
@@ -450,8 +419,10 @@ object RoadBuilder {
                 level.setBlock(p, air, 2 or 16); changed++
             }
         } else if (top > ground) {
-            if (top - ground > MAX_FILL) return 0
-            for (y in ground + 1 until top) {
+            // A shallow drop is filled solid; a deeper one carries the road on a deck, one support block
+            // under the surface and air below — a causeway, not a pile.
+            val from = if (top - ground > COLUMN_FILL) top - 1 else ground + 1
+            for (y in from until top) {
                 val p = BlockPos(x, y, z)
                 if (!styles.isClearable(level.getBlockState(p))) return changed
                 level.setBlock(p, style.fill, 2 or 16); changed++

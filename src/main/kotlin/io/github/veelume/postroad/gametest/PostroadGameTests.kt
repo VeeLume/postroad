@@ -766,6 +766,19 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun layer_bridges_a_deep_dip_on_a_deck(helper: GameTestHelper) {
+        // Four blocks of ground everywhere but a two-wide gully at x 3..4: the road crosses on a deck, not a fill.
+        val floorY = shapeFloor(helper) { x, _ -> if (x in 3..4) 0 else 4 }
+        layRoad(helper, floorY, listOf(helper.absolutePos(BlockPos(1, F + 5, 3)), helper.absolutePos(BlockPos(5, F + 5, 3))))
+        for (x in 3..4) {
+            helper.assertTrue(blockAt(helper, x, F + 4, 3) != Blocks.AIR, "the deck surface spans the gully at ($x, 3): ${blockAt(helper, x, F + 4, 3)}")
+            helper.assertTrue(blockAt(helper, x, F + 3, 3) != Blocks.AIR, "one support block under the deck at ($x, 3)")
+            helper.assertTrue(blockAt(helper, x, F + 2, 3) == Blocks.AIR && blockAt(helper, x, F + 1, 3) == Blocks.AIR, "air under the deck at ($x, 3), no pile: ${blockAt(helper, x, F + 2, 3)} / ${blockAt(helper, x, F + 1, 3)}")
+        }
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun layer_side_slope_fills_the_low_edge_without_a_pile(helper: GameTestHelper) {
         val floorY = shapeFloor(helper) { _, z -> if (z <= 3) 1 else 0 }
         layRoad(helper, floorY, listOf(helper.absolutePos(BlockPos(1, F + 2, 3)), helper.absolutePos(BlockPos(5, F + 2, 3))))

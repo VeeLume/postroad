@@ -66,7 +66,6 @@ object RoadLayer {
                 val centre = dx == 0 && dz == 0
                 placed += RoadBuilder.placeColumnAt(level, x, z, target[i], g, if (centre) style.surface else style.edge, style, styles, shape.kind, c, shape.higher ?: c)
             }
-            placed += RoadBuilder.embank(level, c, half, target[i], style, styles) { x, z -> if (inChunk(x, z)) ground(x, z) else Int.MIN_VALUE }
             if (lampInterval > 0 && i > 0 && i % lampInterval == 0) {
                 val prev = path[i - 1]
                 val dxp = (c[0] - prev[0]).toDouble(); val dzp = (c[1] - prev[1]).toDouble()
