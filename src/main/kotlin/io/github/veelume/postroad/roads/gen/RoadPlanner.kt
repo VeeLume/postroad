@@ -120,12 +120,15 @@ object RoadPlanner {
     private fun passable(terrain: Terrain, x: Int, z: Int): Boolean =
         terrain.inBounds(x, z) && !terrain.has(x, z, Terrain.BLOCKED) && !terrain.has(x, z, Terrain.LAVA)
 
+    /** How far (blocks) an endpoint may be moved to leave a town's box and reach the corridor: past any village's half-width. */
+    const val ENDPOINT_REACH = 160
+
     /**
      * The cell itself if passable, else the first passable cell walking from it toward [toward] (a town
      * inside its box leaves the box on the side facing the other town), else the nearest passable cell
-     * within [maxRing] rings.
+     * within [maxRing] rings ([ENDPOINT_REACH] blocks by default, whatever the cell size).
      */
-    fun resolveEndpoint(terrain: Terrain, cell: Cell, maxRing: Int = 32, toward: Cell? = null): Cell? {
+    fun resolveEndpoint(terrain: Terrain, cell: Cell, maxRing: Int = maxOf(32, ENDPOINT_REACH / terrain.cellSize), toward: Cell? = null): Cell? {
         // The cell itself may be out of bounds (a town inside its box, outside a corridor); only candidates must be in.
         if (passable(terrain, cell.x, cell.z)) return cell
         if (toward != null) {

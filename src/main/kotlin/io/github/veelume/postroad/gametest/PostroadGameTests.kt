@@ -646,7 +646,8 @@ class PostroadGameTests {
         val server = level.server
         val tag = java.util.UUID.randomUUID().toString().take(6)
         val dim = level.dimension().location()
-        val box = { x: Int, z: Int -> net.minecraft.world.level.levelgen.structure.BoundingBox(x - 20, 60, z - 20, x + 20, 80, z + 20) }
+        // Village-sized boxes (±90 blocks): the endpoint resolver must reach the corridor outside them on any cell size.
+        val box = { x: Int, z: Int -> net.minecraft.world.level.levelgen.structure.BoundingBox(x - 90, 60, z - 90, x + 90, 80, z + 90) }
         val a = io.github.veelume.postroad.roads.gen.PlannedTown("test/$tag/a", dim, Postroad.id("test"), BlockPos(100000, 64, 100000), box(100000, 100000))
         val b = io.github.veelume.postroad.roads.gen.PlannedTown("test/$tag/b", dim, Postroad.id("test"), BlockPos(100400, 64, 100000), box(100400, 100000))
         val c = io.github.veelume.postroad.roads.gen.PlannedTown("test/$tag/c", dim, Postroad.id("test"), BlockPos(100200, 64, 100200), box(100200, 100200))
@@ -656,7 +657,7 @@ class PostroadGameTests {
         val worker = gen.workerFor(level)
         val result = gen.runPass(worker, request)
         helper.assertTrue(result.newRoads.size >= 2, "roads planned between the three towns (${result.newRoads.size})")
-        helper.assertTrue(result.newRoads.all { r -> r.points.none { p -> p.x in 99980..100020 && p.z in 99980..100020 } }, "no road runs through town A's box")
+        helper.assertTrue(result.newRoads.all { r -> r.points.none { p -> p.x in 99910..100090 && p.z in 99910..100090 } }, "no road runs through town A's box")
         helper.assertTrue(result.newJunctions.isNotEmpty(), "the spur joins the trunk")
 
         val network = Network.get(server)
