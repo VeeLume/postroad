@@ -93,10 +93,9 @@ object RoadBuilder {
             if (level == null || !level.hasChunk(ChunkPos.getX(job.chunk), ChunkPos.getZ(job.chunk))) {
                 queue.removeFirst(); queued.remove(key(job)); continue
             }
-            if (generatedWithRoad(level, job.chunk)) {
-                // Worldgen laid this chunk's roads as structure pieces; only the junction signs are left.
-                for (road in storage.roadsInChunk(job.dimension, job.chunk)) if (road.builtChunks.add(job.chunk)) storage.setDirty()
-            }
+            // Roads the feature laid while the chunk generated are done; the builder lays the rest.
+            val laidHere = RoadPlanSnapshot.laidRoads(job.chunk)
+            if (laidHere.isNotEmpty()) for (road in storage.roadsInChunk(job.dimension, job.chunk)) if (road.id in laidHere && road.builtChunks.add(job.chunk)) storage.setDirty()
             if (job.startedAt == 0L) job.startedAt = System.nanoTime()
             val finished = buildChunkStep(level, storage, job, deadline)
             if (!finished) break // resumes next tick where it stopped
@@ -110,14 +109,14 @@ object RoadBuilder {
     private fun key(job: Job) = "${job.dimension}|${job.chunk}"
 
     /** True when the road feature laid this chunk's roads while it generated (this session). */
-    fun generatedWithRoad(level: ServerLevel, chunk: Long): Boolean = RoadPlanSnapshot.laid.contains(chunk)
+    fun generatedWithRoad(level: ServerLevel, chunk: Long): Boolean = RoadPlanSnapshot.wasLaid(chunk)
 
     private fun offer(job: Job) {
         if (queued.add(key(job))) queue.addLast(job)
     }
 
     private fun needsWork(storage: RoadPlanStorage, job: Job): Boolean =
-        storage.roadsInChunk(job.dimension, job.chunk).any { !it.builtChunks.contains(job.chunk) } ||
+        storage.roadsInChunk(job.dimension, job.chunk).any { !it.provisional && !it.builtChunks.contains(job.chunk) } ||
             storage.junctions.any { !it.signPlaced && it.dimension == job.dimension && ChunkPos.asLong(it.pos.x shr 4, it.pos.z shr 4) == job.chunk }
 
     /** Queues every already-loaded chunk of [road]; called when a plan lands after the chunks did. */
@@ -164,7 +163,8 @@ object RoadBuilder {
         val roads = storage.roadsInChunk(dim, chunk)
         while (job.roadIndex < roads.size) {
             val road = roads[job.roadIndex]
-            if (road.builtChunks.contains(chunk)) { job.roadIndex++; job.pointIndex = 0; continue }
+            // Provisional roads wait for their replan; they are queued again when they turn final.
+            if (road.provisional || road.builtChunks.contains(chunk)) { job.roadIndex++; job.pointIndex = 0; continue }
             val next = buildRoadInChunk(level, road, chunk, styles, boxes, job, deadline)
             if (next >= 0) { job.pointIndex = next; return false }
             road.builtChunks.add(chunk)
@@ -222,7 +222,7 @@ object RoadBuilder {
             val c = (pt.x shr 4); val d = (pt.z shr 4)
             if (kotlin.math.abs(c - cx) > 1 || kotlin.math.abs(d - cz) > 1) continue
             val style = styles.style(road.families.getOrElse(k) { 0 }.toInt())
-            placed += RoadPieceLayer.layCorner(level, pt.below(), style, styles,
+            placed += RoadPieceLayer.layCorner(level, pt.below(), if (k == 0 || k == points.size - 1) RoadPieces.current.end else RoadPieces.current.corner, style, styles,
                 { x, z -> if (level.hasChunk(x shr 4, z shr 4) && !inBox(x, z, boxes)) groundY(level, x, z, pt.y, styles) else Int.MIN_VALUE },
                 { x, z -> (x shr 4) == cx && (z shr 4) == cz })
         }

@@ -20,8 +20,12 @@ object RoadPlanSnapshot {
     var segments: Map<Long, List<Segment>> = emptyMap()
         private set
 
-    /** Chunks whose roads the feature laid during generation this session (the builder skips them). */
-    val laid: MutableSet<Long> = ConcurrentHashMap.newKeySet()
+    /** Per chunk, the ids of the roads the feature laid there this session; the builder lays the others. */
+    val laid = ConcurrentHashMap<Long, MutableSet<String>>()
+
+    fun markLaid(chunk: Long, roadIds: Collection<String>) { laid.getOrPut(chunk) { ConcurrentHashMap.newKeySet() }.addAll(roadIds) }
+    fun laidRoads(chunk: Long): Set<String> = laid[chunk] ?: emptySet()
+    fun wasLaid(chunk: Long): Boolean = laid.containsKey(chunk)
     val featureRuns = AtomicInteger()
     val piecesPlaced = AtomicInteger()
     /** Segments the feature met that no catalog piece fits; the plan is checked at storage time, so this should stay 0. */
@@ -33,6 +37,9 @@ object RoadPlanSnapshot {
     fun publish(storage: RoadPlanStorage, dimension: ResourceLocation) {
         val map = HashMap<Long, MutableList<Segment>>()
         for (road in storage.roadsIn(dimension)) {
+            // A provisional road's heights are estimates; laying it would fix the wrong road into the
+            // world (and freeze it: a touched road is never replanned). It is laid once it is final.
+            if (road.provisional) continue
             val points = road.points
             for (i in 1 until points.size) {
                 val a = points[i - 1]; val b = points[i]

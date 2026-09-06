@@ -242,17 +242,17 @@ object PostroadCommands {
         var withStart = 0; var without = 0; var absent = 0
         // Planned height against the generated ground, per planned point in generated chunks: how far the plan's
         // idea of the surface is from what the world got (negative = the plan lies under the real ground).
-        val buckets = IntArray(7) // <=-9, -8..-4, -3..-1, 0, 1..3, 4..8, >=9
+        val buckets = IntArray(11) // <=-5, -4, -3, -2, -1, 0, +1, +2, +3, +4, >=5
         var waterPoints = 0
-        val bucketNames = listOf("<=-9", "-8..-4", "-3..-1", "0", "1..3", "4..8", ">=9")
+        val bucketNames = listOf("<=-5", "-4", "-3", "-2", "-1", "0", "+1", "+2", "+3", "+4", ">=5")
         val deep = ArrayList<String>()
-        fun bucket(d: Int): Int = when { d <= -9 -> 0; d <= -4 -> 1; d <= -1 -> 2; d == 0 -> 3; d <= 3 -> 4; d <= 8 -> 5; else -> 6 }
+        fun bucket(d: Int): Int = (d + 5).coerceIn(0, 10)
         for ((key, runs) in snapshot) {
             val cx = net.minecraft.world.level.ChunkPos.getX(key); val cz = net.minecraft.world.level.ChunkPos.getZ(key)
             if (maxOf(kotlin.math.abs(cx * 16 + 8 - centre.x), kotlin.math.abs(cz * 16 + 8 - centre.z)) > radius) continue
             val chunk = level.chunkSource.getChunk(cx, cz, net.minecraft.world.level.chunk.status.ChunkStatus.EMPTY, true)
             if (chunk == null || !chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.STRUCTURE_STARTS)) { absent++; continue }
-            val start = if (io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.laid.contains(key)) Unit else null
+            val start = if (io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.wasLaid(key)) Unit else null
             if (chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.SURFACE)) {
                 val seen = HashSet<Long>()
                 for (run in runs) for (p in listOf(run.a, run.b)) {
@@ -310,7 +310,7 @@ object PostroadCommands {
         val runs = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.segmentsAt(pos.x shr 4, pos.z shr 4).size
         val known = io.github.veelume.postroad.roads.gen.KnownTerrain.column(level.dimension().location(), pos.x, pos.z)?.let { "${it.top}${if (it.water) " (water)" else ""}" } ?: "none"
         val tagged = level.chunkSource.generator.biomeSource.getNoiseBiome(pos.x shr 2, base shr 2, pos.z shr 2, level.chunkSource.randomState().sampler()).`is`(net.minecraft.tags.BiomeTags.IS_OVERWORLD)
-        val laid = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.laid.contains(chunkKey)
+        val laid = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.laidRoads(chunkKey)
         // Every structure whose start reaches this column: what the planner may have run into.
         val others = if (loaded) {
             val registry = level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE)

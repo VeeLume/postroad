@@ -2,6 +2,14 @@
   "shape": "straight",
   "rise": 0,
   "cost": 0.0,
+  "entry": {
+    "along": 0,
+    "level": 0
+  },
+  "exit": {
+    "along": 3,
+    "level": 0
+  },
   "rows": [
     {
       "level": 0,

@@ -31,6 +31,10 @@ data class RoadPiece(val id: ResourceLocation, val shape: String, val rise: Int,
     companion object {
         const val SHAPE_STRAIGHT = "straight"
         const val SHAPE_DIAGONAL = "diagonal"
+        /** The square at an anchor where the facing changes: entry and exit connectors on the same anchor. */
+        const val SHAPE_CORNER = "corner"
+        /** The square at a road's first and last anchor. */
+        const val SHAPE_END = "end"
         const val ROLE_SURFACE = "surface"
         const val ROLE_STAIR = "stair"
         const val ROLE_SLAB = "slab"
@@ -55,8 +59,15 @@ class PiecePlacement(val piece: RoadPiece, val entry: BlockPos, val exit: BlockP
     fun rowCentre(k: Int): BlockPos = BlockPos(entry.x + dx * k, entry.y + piece.rows[k - 1].level, entry.z + dz * k)
 }
 
-/** The catalog: straight pieces and diagonal pieces, each by rise. */
-class PieceCatalog(val straights: Map<Int, RoadPiece>, val diagonals: Map<Int, RoadPiece>) {
+/**
+ * The catalog: straight and diagonal pieces by rise, the corner square and the end square. Every
+ * piece has an entry connector (the anchor it starts from, level 0) and an exit connector (the
+ * anchor it ends on, at its rise); the assembler puts each piece's entry on the previous piece's
+ * exit, so a road is a chain of connectors and every block between two anchors has exactly one owner.
+ */
+class PieceCatalog(val straights: Map<Int, RoadPiece>, val diagonals: Map<Int, RoadPiece>, corner: RoadPiece? = null, end: RoadPiece? = null) {
+    val corner: RoadPiece = corner ?: SQUARE.copy(id = Postroad.id("corner"), shape = RoadPiece.SHAPE_CORNER)
+    val end: RoadPiece = end ?: corner ?: SQUARE.copy(id = Postroad.id("end"), shape = RoadPiece.SHAPE_END)
     val maxRise: Int get() = straights.keys.maxOrNull() ?: 0
 
     /** The planner's step classes: one per straight rise, in the catalog's costs. */
@@ -103,6 +114,7 @@ class PieceCatalog(val straights: Map<Int, RoadPiece>, val diagonals: Map<Int, R
         }
 
         private val LAMPS = listOf(PieceDecor(3, 2, 1, RoadPiece.ROLE_POST, 8), PieceDecor(3, 2, 2, RoadPiece.ROLE_LAMP, 8))
+        private val SQUARE = RoadPiece(Postroad.id("corner"), RoadPiece.SHAPE_CORNER, 0, 0.0, listOf(PieceRow(0, RoadPiece.ROLE_SURFACE)), emptyList(), PieceFit())
     }
 }
 
@@ -116,6 +128,8 @@ object RoadPieces : SimpleJsonResourceReloadListener(Gson(), "roads/pieces") {
         if (objects.isEmpty()) { current = PieceCatalog.builtIn(); return }
         val straights = HashMap<Int, RoadPiece>()
         val diagonals = HashMap<Int, RoadPiece>()
+        var corner: RoadPiece? = null
+        var end: RoadPiece? = null
         for ((id, json) in objects) {
             try {
                 val o = GsonHelper.convertToJsonObject(json, "road piece")
@@ -127,6 +141,8 @@ object RoadPieces : SimpleJsonResourceReloadListener(Gson(), "roads/pieces") {
                     PieceDecor(GsonHelper.getAsInt(d, "along", RoadPiece.LENGTH), GsonHelper.getAsInt(d, "side", 2), GsonHelper.getAsInt(d, "up", 1), GsonHelper.getAsString(d, "role", "post") ?: "post", GsonHelper.getAsInt(d, "every", 6)) } else emptyList()
                 val fit = if (o.has("fit")) { val f = o.getAsJsonObject("fit"); PieceFit(GsonHelper.getAsInt(f, "cut", 4), GsonHelper.getAsInt(f, "fill", 3), GsonHelper.getAsBoolean(f, "deck", true)) } else PieceFit()
                 val piece = RoadPiece(id, shape, rise, cost, rows, decor, fit)
+                // Connectors, when declared: the exit must sit at the piece's rise.
+                if (o.has("exit")) { val ex = o.getAsJsonObject("exit"); val lvl = GsonHelper.getAsInt(ex, "level", rise); if (lvl != rise) { Postroad.LOGGER.warn("Road piece {}: exit connector level {} is not its rise {}; skipped", id, lvl, rise); continue } }
                 when (shape) {
                     RoadPiece.SHAPE_STRAIGHT -> {
                         if (rows.size != RoadPiece.LENGTH) { Postroad.LOGGER.warn("Road piece {} needs {} rows, has {}; skipped", id, RoadPiece.LENGTH, rows.size); continue }
@@ -138,6 +154,8 @@ object RoadPieces : SimpleJsonResourceReloadListener(Gson(), "roads/pieces") {
                         if (rows.last().level != rise) { Postroad.LOGGER.warn("Road piece {}: last row level {} is not its rise {}; skipped", id, rows.last().level, rise); continue }
                         diagonals[rise] = piece
                     }
+                    RoadPiece.SHAPE_CORNER -> corner = piece
+                    RoadPiece.SHAPE_END -> end = piece
                     else -> Postroad.LOGGER.warn("Road piece {}: unknown shape {}; skipped", id, shape)
                 }
             } catch (e: Exception) {
@@ -145,7 +163,7 @@ object RoadPieces : SimpleJsonResourceReloadListener(Gson(), "roads/pieces") {
             }
         }
         if (straights[0] == null) { Postroad.LOGGER.error("Road pieces: no flat straight piece; using the built-in catalog"); current = PieceCatalog.builtIn(); return }
-        current = PieceCatalog(straights, diagonals)
-        Postroad.LOGGER.info("Loaded road pieces: straights for rises {}, diagonals for rises {}", straights.keys.sorted(), diagonals.keys.sorted())
+        current = PieceCatalog(straights, diagonals, corner, end)
+        Postroad.LOGGER.info("Loaded road pieces: straights for rises {}, diagonals for rises {}, corner {}, end {}", straights.keys.sorted(), diagonals.keys.sorted(), corner != null, end != null)
     }
 }

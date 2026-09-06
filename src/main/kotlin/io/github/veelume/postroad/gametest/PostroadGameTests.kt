@@ -798,7 +798,7 @@ class PostroadGameTests {
         val floorY = shapeFloor(helper) { _, _ -> 0 }
         val level = helper.level
         val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
-        io.github.veelume.postroad.roads.gen.RoadPieceLayer.layCorner(level, helper.absolutePos(BlockPos(3, F, 3)), styles.style(0), styles, groundAt = { x, z -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 1, styles) })
+        io.github.veelume.postroad.roads.gen.RoadPieceLayer.layCorner(level, helper.absolutePos(BlockPos(3, F, 3)), io.github.veelume.postroad.roads.gen.RoadPieces.current.corner, styles.style(0), styles, groundAt = { x, z -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 1, styles) })
         for (x in 2..4) for (z in 2..4) helper.assertTrue(blockAt(helper, x, F, z) != Blocks.STONE && blockAt(helper, x, F + 1, z) == Blocks.AIR, "the square at ($x, $z) is flat road")
         helper.assertTrue(blockAt(helper, 1, F, 3) == Blocks.STONE && blockAt(helper, 3, F, 5) == Blocks.STONE, "nothing beyond the square")
         val pts = listOf(BlockPos(0, 0, 0), BlockPos(3, 0, 0), BlockPos(3, 0, 3), BlockPos(6, 0, 3))
@@ -848,11 +848,34 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
-    fun pieces_flat_piece_steps_over_a_bump(helper: GameTestHelper) {
+    fun pieces_flat_piece_cuts_a_bump_to_its_level(helper: GameTestHelper) {
+        // Anchors at one level, a one-block bump between them: the road stays level and the bump is cut.
         val floorY = shapeFloor(helper) { x, _ -> if (x == 3) 1 else 0 }
         layPiece(helper, floorY, BlockPos(1, F + 1, 3), BlockPos(4, F + 1, 3))
-        helper.assertTrue(blockAt(helper, 3, F + 1, 3) != Blocks.AIR && blockAt(helper, 3, F + 1, 3) != Blocks.STONE, "the bump keeps its top as road at (3, 3): ${blockAt(helper, 3, F + 1, 3)}")
-        helper.assertTrue(blockAt(helper, 2, F, 3) != Blocks.STONE && blockAt(helper, 4, F, 3) != Blocks.STONE, "the rows either side stay at the piece's level")
+        for (x in 2..4) helper.assertTrue(blockAt(helper, x, F + 1, 3) == Blocks.AIR && blockAt(helper, x, F, 3) != Blocks.STONE, "road at the anchors' level at ($x, 3)")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun snapshot_skips_provisional_roads(helper: GameTestHelper) {
+        val server = helper.level.server
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(server)
+        val dim = helper.level.dimension().location()
+        val tag = java.util.UUID.randomUUID().toString().take(6)
+        val points = listOf(BlockPos(300000, 64, 300000), BlockPos(300003, 64, 300000), BlockPos(300006, 64, 300000))
+        val road = io.github.veelume.postroad.roads.gen.PlannedRoad("test/$tag", dim, "a", "b", points, ByteArray(points.size))
+        road.provisional = true
+        storage.addRoad(road)
+        try {
+            io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.publish(storage, dim)
+            helper.assertTrue(io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.segmentsAt(300000 shr 4, 300000 shr 4).none { it.roadId == road.id }, "a provisional road is not in the snapshot")
+            road.provisional = false
+            io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.publish(storage, dim)
+            helper.assertTrue(io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.segmentsAt(300000 shr 4, 300000 shr 4).any { it.roadId == road.id }, "a final road is")
+        } finally {
+            storage.removeRoad(road.id)
+            io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.publish(storage, dim)
+        }
         helper.succeed()
     }
 

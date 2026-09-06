@@ -46,11 +46,11 @@ class RoadFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<NoneFeatureC
         // Anchor squares after the pieces: ends, turns and dips (see RoadPieceLayer.needsSquare).
         for (seg in segments) {
             val style = styles.style(seg.family)
-            if (RoadPieceLayer.needsSquare(seg.prev, seg.a, seg.b)) placed += RoadPieceLayer.layCorner(level, seg.a.below(), style, styles, ::ground, ::inChunk)
-            if (seg.next == null) placed += RoadPieceLayer.layCorner(level, seg.b.below(), style, styles, ::ground, ::inChunk)
+            if (RoadPieceLayer.needsSquare(seg.prev, seg.a, seg.b)) placed += RoadPieceLayer.layCorner(level, seg.a.below(), if (seg.prev == null) catalog.end else catalog.corner, style, styles, ::ground, ::inChunk)
+            if (seg.next == null) placed += RoadPieceLayer.layCorner(level, seg.b.below(), catalog.end, style, styles, ::ground, ::inChunk)
         }
         RoadPlanSnapshot.piecesPlaced.addAndGet(segments.size)
-        RoadPlanSnapshot.laid.add(chunk.toLong())
+        RoadPlanSnapshot.markLaid(chunk.toLong(), segments.mapTo(HashSet()) { it.roadId })
         return placed > 0
     }
 }

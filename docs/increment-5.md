@@ -26,6 +26,19 @@ top block level, i.e. the planned point's `y - 1`).
   piece (rise 0 only); a change of facing is two straight pieces meeting on
   a shared anchor row.
 
+## Connectors (decided with Valerie, 2026-09-06 late evening)
+
+Every piece declares an **entry connector** and an **exit connector**: `along`
+(blocks from the entry anchor along the facing) and `level` (blocks above the
+entry anchor). The entry is always `{0, 0}`; a straight piece's exit is `{3,
+rise}`, a diagonal's `{3, rise}` on both axes. The assembler places each
+piece's entry on the previous piece's exit, so a road is a chain of connectors
+and every block between two anchors has exactly one owner: the piece whose
+exit it is. Two shapes have both connectors on the same anchor: `corner` (the
+square where the facing changes, and at a dip nobody else lays) and `end`
+(the road's first and last anchor). They are catalog pieces like the others,
+so a tier can give them their own look.
+
 ## The catalog (`data/postroad/roads/pieces/<name>.json`)
 
 ```json
@@ -67,11 +80,22 @@ top block level, i.e. the planned point's `y - 1`).
   is cut down to it up to `cut` blocks (three of headroom kept above), below
   it is filled solid up to `fill` blocks, and past that the piece stands on
   a deck (surface plus one support block, air beneath) when `deck` is true,
-  else the column is left out. A flat piece takes the ground's own top where
-  it is one higher, so a bump between equal anchors is stepped over, not dug.
+  else the column is left out. A piece never follows the ground on its own:
+  its levels come from its anchors, and the anchors from the plan.
 - `cost`: what the planner pays to move through this piece, on top of the
   base cost per cell. The step classes of increment 4 are gone; the catalog
   is the list.
+
+## Provisional roads are not laid
+
+A road planned over estimated terrain is provisional until its corridor is
+generated and it is planned again on the real heights. Until then it is in no
+snapshot and the builder skips it: laying it would fix the estimate's wrong
+level into the world, and a touched road is never replanned. Its cells lend
+no heights to other roads either — a replanned road takes the stored heights
+of the roads it shares cells with, and an estimate handed on that way would
+never be corrected. When a road turns final the snapshot is published again
+and its loaded chunks are queued for the builder.
 
 ## Materials
 

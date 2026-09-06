@@ -65,8 +65,11 @@ live in `docs/` (one per increment). This file is about the code.
   (`PieceCatalog.stepClasses` / `diagonalStepClasses`). `PieceCatalog.placement(a, b)` turns two consecutive
   planned points into a `PiecePlacement` (descents = the rise piece reversed); `RoadPieceLayer.lay` writes its
   blocks with the ground fitted per column (a flat piece steps over a one-block bump instead of cutting it);
-  `layCorner` lays the anchor's flat 3×3 square after the pieces wherever the facing changes and at road ends
-  (`turnsAt`). Same code for the road feature at generation time and the chunk-load builder.
+  every piece declares entry/exit connectors in its json and the assembler chains them; `corner` and `end` are
+  catalog pieces laid at the anchors `needsSquare` names (turns, ends, dips nobody else lays). Same code for the
+  road feature at generation time and the chunk-load builder. **Provisional roads** (planned over estimates) are
+  in no snapshot, skipped by the builder and lend no heights to other roads until replanned on real terrain;
+  `RoadPlanSnapshot.laid` is per chunk *and road*.
   **Roads generate as a placed feature** (`worldgen/RoadFeature`, data `worldgen/configured_feature/road.json`,
   `placed_feature/road.json`, biome modifier `neoforge/biome_modifier/road.json` on every overworld biome at
   `surface_structures`): once per chunk it asks `RoadPlanSnapshot` (segments whose piece footprints touch the

@@ -316,9 +316,11 @@ object RoadGen {
                         reach = (maxOf(it.box.xSpan, it.box.zSpan) / 2 + req.margin) / CELL_SIZE + 1).also { t -> townById[t.id] = t } }
         // An existing road's cells are at its stored heights now (built, or about to be), so the search
         // judges steps onto and along it by those, not by the terrain of its day.
+        // A provisional road's heights are estimates; lending them would pass a wrong level from
+        // road to road for ever (a replanned road takes the shared cells' heights, and so on).
         val existing = req.knownRoads.map { road ->
             val cells = road.points.map { terrain.blockToCell(it.x, it.z) }
-            for ((i, c) in cells.withIndex()) terrain.setHeight(c.x, c.z, road.points[i].y)
+            if (!road.provisional) for ((i, c) in cells.withIndex()) terrain.setHeight(c.x, c.z, road.points[i].y)
             PlannedRoute(road.id, townById[road.from] ?: Town(road.from, cells.first()), townById[road.to] ?: Town(road.to, cells.last()), cells)
         }
         val plan = RoadPlanner.planNetwork(terrain, towns, req.costs, req.neighbours, req.maxLink.toDouble() / CELL_SIZE, existing, coarse, COARSE_CELL / CELL_SIZE, req.dropped)
@@ -329,7 +331,7 @@ object RoadGen {
         // Cells an existing road already occupies keep that road's stored height: two roads through one
         // cell must lay the same blocks, and the built one is the ground there now.
         val existingY = HashMap<Long, Int>()
-        for (road in req.knownRoads) for (p in road.points) { val c = terrain.blockToCell(p.x, p.z); existingY.putIfAbsent(Terrain.key(c.x, c.z), p.y) }
+        for (road in req.knownRoads) { if (road.provisional) continue; for (p in road.points) { val c = terrain.blockToCell(p.x, p.z); existingY.putIfAbsent(Terrain.key(c.x, c.z), p.y) } }
         val catalog = RoadPieces.current
         val newRoads = plan.routes.mapNotNull { route ->
             val points = route.cells.map { c -> val b = terrain.cellToBlock(c.x, c.z); existingY[Terrain.key(c.x, c.z)]?.let { BlockPos(b.x, it, b.z) } ?: b }
@@ -460,10 +462,13 @@ object RoadGen {
         val road = storage.roads[roadId] ?: return
         if (!road.provisional) return
         val level = server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, dimension)) ?: return
-        val touched = road.builtChunks.isNotEmpty() || road.chunks().any { RoadPlanSnapshot.laid.contains(it) }
+        val touched = road.builtChunks.isNotEmpty() || road.chunks().any { road.id in RoadPlanSnapshot.laidRoads(it) }
         if (touched || road.replans >= MAX_REPLANS) {
+            // Final as it is: from now on the feature and the builder lay it.
             road.provisional = false
             storage.setDirty()
+            RoadPlanSnapshot.publish(storage, dimension)
+            RoadBuilder.enqueueLoaded(level, road)
             return
         }
         // The pass plans this pair again without the old road in the way; apply swaps the two.
