@@ -43,6 +43,13 @@ class RoadFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<NoneFeatureC
             val footprint = RoadPieceLayer.footprintOf(around)
             placed += RoadPieceLayer.lay(level, p, styles.style(seg.family), styles, ::ground, ::inChunk) { x, z -> footprint.contains(RoadPieceLayer.key(x, z)) }
         }
+        // Corner squares and road ends, after the pieces so they win where a stair row met a turn.
+        for (seg in segments) {
+            val style = styles.style(seg.family)
+            if (seg.prev == null || Integer.signum(seg.a.x - seg.prev.x) != Integer.signum(seg.b.x - seg.a.x) || Integer.signum(seg.a.z - seg.prev.z) != Integer.signum(seg.b.z - seg.a.z))
+                placed += RoadPieceLayer.layCorner(level, seg.a.below(), style, styles, ::ground, ::inChunk)
+            if (seg.next == null) placed += RoadPieceLayer.layCorner(level, seg.b.below(), style, styles, ::ground, ::inChunk)
+        }
         RoadPlanSnapshot.piecesPlaced.addAndGet(segments.size)
         RoadPlanSnapshot.laid.add(chunk.toLong())
         return placed > 0

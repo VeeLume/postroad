@@ -1,0 +1,36 @@
+{
+  "shape": "diagonal",
+  "rise": 2,
+  "cost": 6.0,
+  "rows": [
+    {
+      "level": 0,
+      "role": "surface"
+    },
+    {
+      "level": 1,
+      "role": "slab"
+    },
+    {
+      "level": 1,
+      "role": "surface"
+    },
+    {
+      "level": 1,
+      "role": "surface"
+    },
+    {
+      "level": 2,
+      "role": "slab"
+    },
+    {
+      "level": 2,
+      "role": "surface"
+    }
+  ],
+  "fit": {
+    "cut": 4,
+    "fill": 3,
+    "deck": true
+  }
+}

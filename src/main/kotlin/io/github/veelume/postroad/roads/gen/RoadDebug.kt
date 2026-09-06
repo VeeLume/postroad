@@ -169,7 +169,7 @@ object RoadDebug {
             RoadGen.prefetch(level, terrain, missing.values)
             return DebugGrid(terrain.cellSize, min.x, min.z, w, h, heights, flags)
         }
-        return TerrainDebugState(listOf(grid(worker.terrain, TERRAIN_RADIUS), grid(worker.coarse, TERRAIN_RADIUS * 4)))
+        return TerrainDebugState(listOf(grid(worker.terrain, TERRAIN_RADIUS), grid(worker.coarse, TERRAIN_RADIUS * (RoadGen.COARSE_CELL / RoadGen.CELL_SIZE))))
     }
 
     /** Returns the new state. */

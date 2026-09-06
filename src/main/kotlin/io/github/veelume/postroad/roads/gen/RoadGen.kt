@@ -35,9 +35,9 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object RoadGen {
     const val GENERATED_BY = "postroad"
-    const val CELL_SIZE = 4
+    const val CELL_SIZE = 3
     /** The corridor map's cell; must be a multiple of [CELL_SIZE]. */
-    const val COARSE_CELL = 16
+    const val COARSE_CELL = 12
     /** Chunks either side of a provisional road that are generated before it is planned again. */
     const val CORRIDOR_CHUNKS = 1
     const val MAX_REPLANS = 2
@@ -207,7 +207,7 @@ object RoadGen {
             maxLink = PostroadConfig.planMaxLink,
             neighbours = PostroadConfig.planNeighbours,
             margin = PostroadConfig.planStructureMargin,
-            costs = PlannerRules.current.copy(steps = RoadPieces.current.stepClasses(), diagonal = RoadPieces.current.diagonalCost),
+            costs = PlannerRules.current.copy(steps = RoadPieces.current.stepClasses(), diagonalSteps = RoadPieces.current.diagonalStepClasses()),
             knownTowns = storage.townsIn(dimension),
             knownRoads = storage.roadsIn(dimension).filter { it.id !in replace },
             knownObstacles = storage.obstaclesIn(dimension),
@@ -221,7 +221,7 @@ object RoadGen {
 
     fun workerFor(level: ServerLevel): Worker = workers.getOrPut(level.dimension().location()) {
         // "known" caches hold only tiles of generated terrain (Distant Horizons); estimates are never persisted.
-        val cache = level.server.getWorldPath(LevelResource("postroad")).resolve("known")
+        val cache = level.server.getWorldPath(LevelResource("postroad")).resolve("known$CELL_SIZE")
         val sampler = WorldTerrainSampler(level, cache, CELL_SIZE)
         val coarseSampler = WorldTerrainSampler(level, level.server.getWorldPath(LevelResource("postroad")).resolve("known$COARSE_CELL"), COARSE_CELL)
         Worker(TiledTerrain(CELL_SIZE, sampler), sampler, TiledTerrain(COARSE_CELL, coarseSampler), coarseSampler, TownFinder(level, sampler::surface))

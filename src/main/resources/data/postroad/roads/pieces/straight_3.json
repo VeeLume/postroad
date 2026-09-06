@@ -14,26 +14,22 @@
     {
       "level": 3,
       "role": "stair"
-    },
-    {
-      "level": 3,
-      "role": "surface"
     }
   ],
   "decor": [
     {
-      "along": 4,
+      "along": 3,
       "side": 2,
       "up": 1,
       "role": "post",
-      "every": 6
+      "every": 8
     },
     {
-      "along": 4,
+      "along": 3,
       "side": 2,
       "up": 2,
       "role": "lamp",
-      "every": 6
+      "every": 8
     }
   ],
   "fit": {

@@ -21,9 +21,9 @@ data class PieceDecor(val along: Int, val side: Int, val up: Int, val role: Stri
 data class PieceFit(val cut: Int = 4, val fill: Int = 3, val deck: Boolean = true)
 
 /**
- * A catalog piece: what lies between two consecutive planned points. `straight` pieces have four
- * rows along the facing and a [rise] of 0…4; the `diagonal` piece is a flat band between anchors
- * four blocks apart on both axes. Descents use a straight piece reversed.
+ * A catalog piece: what lies between two consecutive planned points. `straight` pieces have three
+ * rows along the facing and a [rise] of 0…3; `diagonal` pieces are the zigzag band between anchors
+ * three blocks apart on both axes, six stamps long, rising by slab steps. Descents use a piece reversed.
  */
 data class RoadPiece(val id: ResourceLocation, val shape: String, val rise: Int, val cost: Double, val rows: List<PieceRow>, val decor: List<PieceDecor>, val fit: PieceFit) {
     val isDiagonal: Boolean get() = shape == SHAPE_DIAGONAL
@@ -36,8 +36,10 @@ data class RoadPiece(val id: ResourceLocation, val shape: String, val rise: Int,
         const val ROLE_SLAB = "slab"
         const val ROLE_POST = "post"
         const val ROLE_LAMP = "lamp"
-        /** Rows per straight piece: the anchors are four blocks apart and the entry row belongs to the previous piece. */
-        const val LENGTH = 4
+        /** Rows per straight piece: the anchors are three blocks apart and the entry row belongs to the previous piece. */
+        const val LENGTH = 3
+        /** Stamps along a diagonal piece's zigzag: two per block of offset. */
+        const val DIAGONAL_LENGTH = 6
         const val HALF_WIDTH = 1
     }
 }
@@ -53,27 +55,22 @@ class PiecePlacement(val piece: RoadPiece, val entry: BlockPos, val exit: BlockP
     fun rowCentre(k: Int): BlockPos = BlockPos(entry.x + dx * k, entry.y + piece.rows[k - 1].level, entry.z + dz * k)
 }
 
-/** The catalog: straight pieces by rise, and the diagonal piece. */
-class PieceCatalog(val straights: Map<Int, RoadPiece>, val diagonal: RoadPiece?) {
+/** The catalog: straight pieces and diagonal pieces, each by rise. */
+class PieceCatalog(val straights: Map<Int, RoadPiece>, val diagonals: Map<Int, RoadPiece>) {
     val maxRise: Int get() = straights.keys.maxOrNull() ?: 0
 
     /** The planner's step classes: one per straight rise, in the catalog's costs. */
     fun stepClasses(): List<StepClass> = straights.entries.sortedBy { it.key }.map { StepClass("rise${it.key}", it.key.toDouble(), it.value.cost) }
 
-    /** Extra cost of a diagonal move (flat by construction), or null when the catalog has no diagonal piece. */
-    val diagonalCost: Double? get() = diagonal?.cost
+    /** The planner's diagonal classes: one per diagonal rise; empty means no diagonal moves. */
+    fun diagonalStepClasses(): List<StepClass> = diagonals.entries.sortedBy { it.key }.map { StepClass("diagonal${it.key}", it.key.toDouble(), it.value.cost) }
 
     /** The placement for the segment from [a] to [b] (planned points), or null when no piece fits it. */
     fun placement(a: BlockPos, b: BlockPos, index: Int): PiecePlacement? {
         val ddx = Integer.signum(b.x - a.x); val ddz = Integer.signum(b.z - a.z)
         val rise = b.y - a.y
-        if (ddx != 0 && ddz != 0) {
-            val d = diagonal ?: return null
-            if (rise != 0) return null
-            return PiecePlacement(d, a.below(), b.below(), ddx, ddz, false, index)
-        }
         if (ddx == 0 && ddz == 0) return null
-        val piece = straights[abs(rise)] ?: return null
+        val piece = (if (ddx != 0 && ddz != 0) diagonals else straights)[abs(rise)] ?: return null
         return if (rise >= 0) PiecePlacement(piece, a.below(), b.below(), ddx, ddz, false, index)
         else PiecePlacement(piece, b.below(), a.below(), -ddx, -ddz, true, index)
     }
@@ -89,19 +86,23 @@ class PieceCatalog(val straights: Map<Int, RoadPiece>, val diagonal: RoadPiece?)
         /** The catalog the data files describe; used until they load and when they are missing. */
         fun builtIn(): PieceCatalog {
             fun s(rise: Int, cost: Double, vararg rows: PieceRow) = RoadPiece(Postroad.id("straight_$rise"), RoadPiece.SHAPE_STRAIGHT, rise, cost, rows.toList(), LAMPS, PieceFit())
+            fun d(rise: Int, cost: Double, vararg rows: PieceRow) = RoadPiece(Postroad.id("diagonal_$rise"), RoadPiece.SHAPE_DIAGONAL, rise, cost, rows.toList(), emptyList(), PieceFit())
             val r = ::PieceRow
             val straights = listOf(
-                s(0, 0.0, r(0, "surface"), r(0, "surface"), r(0, "surface"), r(0, "surface")),
-                s(1, 1.0, r(0, "surface"), r(0, "surface"), r(1, "slab"), r(1, "surface")),
-                s(2, 4.0, r(1, "stair"), r(1, "surface"), r(2, "stair"), r(2, "surface")),
-                s(3, 9.0, r(1, "stair"), r(2, "stair"), r(3, "stair"), r(3, "surface")),
-                s(4, 14.0, r(1, "stair"), r(2, "stair"), r(3, "stair"), r(4, "stair")),
+                s(0, 0.0, r(0, "surface"), r(0, "surface"), r(0, "surface")),
+                s(1, 1.0, r(1, "slab"), r(1, "surface"), r(1, "surface")),
+                s(2, 4.0, r(1, "stair"), r(2, "stair"), r(2, "surface")),
+                s(3, 9.0, r(1, "stair"), r(2, "stair"), r(3, "stair")),
             ).associateBy { it.rise }
-            val diagonal = RoadPiece(Postroad.id("diagonal"), RoadPiece.SHAPE_DIAGONAL, 0, 0.5, emptyList(), emptyList(), PieceFit())
-            return PieceCatalog(straights, diagonal)
+            val diagonals = listOf(
+                d(0, 0.5, r(0, "surface"), r(0, "surface"), r(0, "surface"), r(0, "surface"), r(0, "surface"), r(0, "surface")),
+                d(1, 2.0, r(0, "surface"), r(0, "surface"), r(1, "slab"), r(1, "surface"), r(1, "surface"), r(1, "surface")),
+                d(2, 6.0, r(0, "surface"), r(1, "slab"), r(1, "surface"), r(1, "surface"), r(2, "slab"), r(2, "surface")),
+            ).associateBy { it.rise }
+            return PieceCatalog(straights, diagonals)
         }
 
-        private val LAMPS = listOf(PieceDecor(4, 2, 1, RoadPiece.ROLE_POST, 6), PieceDecor(4, 2, 2, RoadPiece.ROLE_LAMP, 6))
+        private val LAMPS = listOf(PieceDecor(3, 2, 1, RoadPiece.ROLE_POST, 8), PieceDecor(3, 2, 2, RoadPiece.ROLE_LAMP, 8))
     }
 }
 
@@ -114,7 +115,7 @@ object RoadPieces : SimpleJsonResourceReloadListener(Gson(), "roads/pieces") {
     override fun apply(objects: Map<ResourceLocation, JsonElement>, manager: ResourceManager, profiler: ProfilerFiller) {
         if (objects.isEmpty()) { current = PieceCatalog.builtIn(); return }
         val straights = HashMap<Int, RoadPiece>()
-        var diagonal: RoadPiece? = null
+        val diagonals = HashMap<Int, RoadPiece>()
         for ((id, json) in objects) {
             try {
                 val o = GsonHelper.convertToJsonObject(json, "road piece")
@@ -132,7 +133,11 @@ object RoadPieces : SimpleJsonResourceReloadListener(Gson(), "roads/pieces") {
                         if (rows.last().level != rise) { Postroad.LOGGER.warn("Road piece {}: last row level {} is not its rise {}; skipped", id, rows.last().level, rise); continue }
                         straights[rise] = piece
                     }
-                    RoadPiece.SHAPE_DIAGONAL -> diagonal = piece
+                    RoadPiece.SHAPE_DIAGONAL -> {
+                        if (rows.size != RoadPiece.DIAGONAL_LENGTH) { Postroad.LOGGER.warn("Road piece {} needs {} rows, has {}; skipped", id, RoadPiece.DIAGONAL_LENGTH, rows.size); continue }
+                        if (rows.last().level != rise) { Postroad.LOGGER.warn("Road piece {}: last row level {} is not its rise {}; skipped", id, rows.last().level, rise); continue }
+                        diagonals[rise] = piece
+                    }
                     else -> Postroad.LOGGER.warn("Road piece {}: unknown shape {}; skipped", id, shape)
                 }
             } catch (e: Exception) {
@@ -140,7 +145,7 @@ object RoadPieces : SimpleJsonResourceReloadListener(Gson(), "roads/pieces") {
             }
         }
         if (straights[0] == null) { Postroad.LOGGER.error("Road pieces: no flat straight piece; using the built-in catalog"); current = PieceCatalog.builtIn(); return }
-        current = PieceCatalog(straights, diagonal)
-        Postroad.LOGGER.info("Loaded road pieces: straights for rises {}, diagonal {}", straights.keys.sorted(), diagonal != null)
+        current = PieceCatalog(straights, diagonals)
+        Postroad.LOGGER.info("Loaded road pieces: straights for rises {}, diagonals for rises {}", straights.keys.sorted(), diagonals.keys.sorted())
     }
 }

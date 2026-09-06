@@ -46,7 +46,7 @@ object RoadPieceLayer {
                         RoadPiece.ROLE_SLAB -> style.slab
                         else -> (if (s == 0) style.surface else style.edge).pick(Random(Mth.getSeed(x, 0, z) xor seed))
                     }
-                    placed += column(level, x, z, centre.y, state, p.piece.fit, style, styles, groundAt(x, z))
+                    placed += column(level, x, z, centre.y, state, p.piece.fit, style, styles, groundAt(x, z), stepOver = p.piece.rise == 0 && row.role == RoadPiece.ROLE_SURFACE)
                 }
             }
             placed += decorate(level, p, style, styles, groundAt, inArea, footprint)
@@ -59,8 +59,10 @@ object RoadPieceLayer {
      * [PieceFit.cut], three of headroom kept clear), filled up to it (up to [PieceFit.fill]), or a
      * deck on one support over a deeper drop — then [state] at [top]. Returns blocks changed.
      */
-    fun column(level: LevelAccessor, x: Int, z: Int, top: Int, state: BlockState, fit: PieceFit, style: RoadStyle, styles: RoadStyleSet, ground: Int): Int {
-        if (ground == Int.MIN_VALUE || ground <= level.minBuildHeight || top <= level.minBuildHeight) return 0
+    fun column(level: LevelAccessor, x: Int, z: Int, top0: Int, state: BlockState, fit: PieceFit, style: RoadStyle, styles: RoadStyleSet, ground: Int, stepOver: Boolean = false): Int {
+        if (ground == Int.MIN_VALUE || ground <= level.minBuildHeight || top0 <= level.minBuildHeight) return 0
+        // A flat road takes the ground's own top where it is one higher, instead of trenching a bump.
+        val top = if (stepOver && ground == top0 + 1) ground else top0
         val groundState = level.getBlockState(BlockPos(x, ground, z))
         if (!groundState.fluidState.isEmpty || !level.getFluidState(BlockPos(x, ground + 1, z)).isEmpty) return 0
         if (ground >= top && !styles.isReplaceable(groundState)) return 0
@@ -106,26 +108,55 @@ object RoadPieceLayer {
         return changed
     }
 
-    /** The flat band between two anchors four apart on both axes: a zigzag of 3×3 stamps, x first. */
+    /**
+     * The band between two anchors three apart on both axes: a zigzag of six 3×3 stamps, x first,
+     * each stamp at its row's level — a slab row is the step up. Stamps own their centre; a ring
+     * block belongs to the first stamp that reaches it.
+     */
     private fun layDiagonal(level: LevelAccessor, p: PiecePlacement, style: RoadStyle, styles: RoadStyleSet, groundAt: (Int, Int) -> Int, inArea: (Int, Int) -> Boolean, seed: Long): Int {
         var placed = 0
-        val done = HashSet<Long>()
+        val owner = HashMap<Long, Int>()
         var cx = p.entry.x; var cz = p.entry.z
         val centres = ArrayList<IntArray>()
         for (k in 1..RoadPiece.LENGTH) { cx += p.dx; centres.add(intArrayOf(cx, cz)); cz += p.dz; centres.add(intArrayOf(cx, cz)) }
-        val top = p.entry.y
-        // Centres first so they own their block, then the rings.
-        for (c in centres) done.add(key(c[0], c[1]))
-        for (c in centres) {
-            if (inArea(c[0], c[1])) placed += column(level, c[0], c[1], top, style.surface.pick(Random(Mth.getSeed(c[0], 0, c[1]) xor seed)), p.piece.fit, style, styles, groundAt(c[0], c[1]))
-        }
-        for (c in centres) for (oz in -1..1) for (ox in -1..1) {
-            if (ox == 0 && oz == 0) continue
-            val x = c[0] + ox; val z = c[1] + oz
-            if (!done.add(key(x, z)) || !inArea(x, z)) continue
-            placed += column(level, x, z, top, style.edge.pick(Random(Mth.getSeed(x, 0, z) xor seed)), p.piece.fit, style, styles, groundAt(x, z))
+        for ((i, c) in centres.withIndex()) owner[key(c[0], c[1])] = i
+        for ((i, c) in centres.withIndex()) for (oz in -1..1) for (ox in -1..1) owner.putIfAbsent(key(c[0] + ox, c[1] + oz), i)
+        for ((i, c) in centres.withIndex()) {
+            val row = p.piece.rows.getOrElse(i) { PieceRow(p.piece.rise, RoadPiece.ROLE_SURFACE) }
+            val top = p.entry.y + row.level
+            for (oz in -1..1) for (ox in -1..1) {
+                val x = c[0] + ox; val z = c[1] + oz
+                if (owner[key(x, z)] != i || !inArea(x, z)) continue
+                val centreBlock = ox == 0 && oz == 0
+                val state = if (row.role == RoadPiece.ROLE_SLAB) style.slab else (if (centreBlock) style.surface else style.edge).pick(Random(Mth.getSeed(x, 0, z) xor seed))
+                placed += column(level, x, z, top, state, p.piece.fit, style, styles, groundAt(x, z), stepOver = p.piece.rise == 0)
+            }
         }
         return placed
+    }
+
+    /**
+     * A corner or an end: the anchor's own 3×3 square, flat at the anchor's level, laid after the
+     * pieces so a rise ending on a corner ends on a landing. Called for every planned point where
+     * the facing changes and for a road's two ends.
+     */
+    fun layCorner(level: LevelAccessor, anchor: BlockPos, style: RoadStyle, styles: RoadStyleSet, groundAt: (Int, Int) -> Int, inArea: (Int, Int) -> Boolean = { _, _ -> true }): Int {
+        var placed = 0
+        val seed = if (level is WorldGenLevel) level.seed else 0L
+        for (oz in -1..1) for (ox in -1..1) {
+            val x = anchor.x + ox; val z = anchor.z + oz
+            if (!inArea(x, z)) continue
+            val state = (if (ox == 0 && oz == 0) style.surface else style.edge).pick(Random(Mth.getSeed(x, 0, z) xor seed))
+            placed += column(level, x, z, anchor.y, state, PieceFit(), style, styles, groundAt(x, z))
+        }
+        return placed
+    }
+
+    /** True when the road turns at point [i] of [points]: the facing into it differs from the facing out of it. */
+    fun turnsAt(points: List<BlockPos>, i: Int): Boolean {
+        if (i <= 0 || i >= points.size - 1) return true // the ends get a square too
+        val a = points[i - 1]; val b = points[i]; val c = points[i + 1]
+        return Integer.signum(b.x - a.x) != Integer.signum(c.x - b.x) || Integer.signum(b.z - a.z) != Integer.signum(c.z - b.z)
     }
 
     /** Decoration of a straight piece: posts and lamps off the side, only on solid ground and off every footprint. */

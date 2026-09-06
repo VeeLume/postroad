@@ -8,10 +8,6 @@
       "role": "stair"
     },
     {
-      "level": 1,
-      "role": "surface"
-    },
-    {
       "level": 2,
       "role": "stair"
     },
@@ -22,18 +18,18 @@
   ],
   "decor": [
     {
-      "along": 4,
+      "along": 3,
       "side": 2,
       "up": 1,
       "role": "post",
-      "every": 6
+      "every": 8
     },
     {
-      "along": 4,
+      "along": 3,
       "side": 2,
       "up": 2,
       "role": "lamp",
-      "every": 6
+      "every": 8
     }
   ],
   "fit": {

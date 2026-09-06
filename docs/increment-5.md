@@ -11,12 +11,12 @@ cannot be planned.
 ## The grid
 
 The planner's cell grid is the piece grid. A planned road is a polyline of
-points 4 blocks apart, each with a height. A **piece** is what lies between
+points 3 blocks apart, each with a height. A **piece** is what lies between
 two consecutive points: the **entry anchor** and the **exit anchor**, each a
 block position on the grid with a facing and a height (the road surface's
 top block level, i.e. the planned point's `y - 1`).
 
-- Base footprint 4 long × 3 wide. The anchor's own 3×3 (its row) belongs to
+- Base footprint 3 long × 3 wide (the 3×3 grid, decided 2026-09-06 evening). The anchor's own 3×3 (its row) belongs to
   the piece that *ends* there; the next piece starts on the row after it.
 - Anything larger than the base footprint is decoration and may not lie on
   any piece's footprint, its own or another road's. Decoration is placed
@@ -47,12 +47,12 @@ top block level, i.e. the planned point's `y - 1`).
 }
 ```
 
-- `shape`: `straight` (4 rows along the facing) or `diagonal` (a 3-wide
-  zigzag band between two anchors 4 apart on both axes; flat).
-- `rise`: exit level minus entry level, 0…4 for straights, 0 for diagonals.
+- `shape`: `straight` (3 rows along the facing) or `diagonal` (a 3-wide
+  zigzag band of six stamps between two anchors 3 apart on both axes; rises by slabs).
+- `rise`: exit level minus entry level, 0…3 for straights, 0…2 for diagonals.
   Descents use the same piece reversed (entry and exit swapped, stairs face
   the ascent). One definition per rise.
-- `rows`: the piece's own four rows from the entry side, each three blocks
+- `rows`: the piece's own three rows from the entry side (six stamps for a diagonal), each three blocks
   wide. `level` is the block level relative to the entry anchor; `role` is
   the material role of the row's blocks: `surface` (full block), `stair`
   (stairs facing the ascent, occupying the level), `slab` (bottom slab at
@@ -67,7 +67,8 @@ top block level, i.e. the planned point's `y - 1`).
   is cut down to it up to `cut` blocks (three of headroom kept above), below
   it is filled solid up to `fill` blocks, and past that the piece stands on
   a deck (surface plus one support block, air beneath) when `deck` is true,
-  else the column is left out.
+  else the column is left out. A flat piece takes the ground's own top where
+  it is one higher, so a bump between equal anchors is stepped over, not dug.
 - `cost`: what the planner pays to move through this piece, on top of the
   base cost per cell. The step classes of increment 4 are gone; the catalog
   is the list.

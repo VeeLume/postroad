@@ -224,7 +224,7 @@ object PostroadCommands {
 
     private fun samplerFor(level: ServerLevel): io.github.veelume.postroad.roads.gen.WorldTerrainSampler {
         probeSampler?.let { if (it.first === level) return it.second }
-        return io.github.veelume.postroad.roads.gen.WorldTerrainSampler(level, null, 4).also { probeSampler = level to it }
+        return io.github.veelume.postroad.roads.gen.WorldTerrainSampler(level, null, io.github.veelume.postroad.roads.gen.RoadGen.CELL_SIZE).also { probeSampler = level to it }
     }
 
     /**

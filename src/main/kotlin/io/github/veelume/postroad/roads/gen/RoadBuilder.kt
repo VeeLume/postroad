@@ -215,6 +215,17 @@ object RoadBuilder {
             }
             i++
         }
+        // Corner squares and road ends, after the pieces.
+        val points = road.points
+        for ((k, pt) in points.withIndex()) {
+            if (!RoadPieceLayer.turnsAt(points, k)) continue
+            val c = (pt.x shr 4); val d = (pt.z shr 4)
+            if (kotlin.math.abs(c - cx) > 1 || kotlin.math.abs(d - cz) > 1) continue
+            val style = styles.style(road.families.getOrElse(k) { 0 }.toInt())
+            placed += RoadPieceLayer.layCorner(level, pt.below(), style, styles,
+                { x, z -> if (level.hasChunk(x shr 4, z shr 4) && !inBox(x, z, boxes)) groundY(level, x, z, pt.y, styles) else Int.MIN_VALUE },
+                { x, z -> (x shr 4) == cx && (z shr 4) == cz })
+        }
         job.blocks += placed
         return -1
     }

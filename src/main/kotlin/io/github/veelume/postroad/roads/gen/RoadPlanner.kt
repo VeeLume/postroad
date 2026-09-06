@@ -19,8 +19,8 @@ data class PlannerCosts(
      * Existing road cells carry no step cost, so a second route rides an existing stair section.
      */
     val steps: List<StepClass> = listOf(StepClass("flat", 0.0, 0.0), StepClass("slabs", 1.0, 1.0), StepClass("stairs", 2.0, 6.0), StepClass("steep", 4.0, 12.0)),
-    /** Extra cost of a diagonal move; diagonals are flat by construction (no diagonal piece rises). Null: no diagonal moves. */
-    val diagonal: Double? = 0.5,
+    /** Diagonal moves: one class per diagonal piece rise (slab steps), in the catalog's costs. Empty: no diagonal moves. */
+    val diagonalSteps: List<StepClass> = listOf(StepClass("diagonal0", 0.0, 0.5), StepClass("diagonal1", 1.0, 2.0), StepClass("diagonal2", 2.0, 6.0)),
     /** Per block a cell sits above the higher town or below the lower one (beyond [bandMargin]), per cell. */
     val bandPenalty: Double = 0.08,
     val bandMargin: Double = 6.0,
@@ -92,10 +92,10 @@ object RoadPlanner {
         val onRoad = terrain.has(x, z, Terrain.ROAD)
         var cost = costs.base * (if (diagonal) SQRT2 else 1.0)
         if (diagonal && slopeDivisor == 1.0) {
-            // On the piece grid a diagonal move is the flat diagonal piece: no height change, or no move.
-            if (h != fromHeight) return null
-            cost += costs.diagonal ?: return null
-            if (onRoad) cost *= costs.reuseFactor
+            // On the piece grid a diagonal move is a diagonal piece: slab steps up to the catalog's largest rise.
+            val dh = abs(h - fromHeight).toDouble()
+            val cls = costs.diagonalSteps.firstOrNull { dh <= it.upTo } ?: return null
+            if (onRoad) cost = (cost + cls.cost) * costs.reuseFactor else cost += cls.cost
         } else {
             val dh = abs(h - fromHeight).toDouble() / (slopeDivisor * (if (diagonal) SQRT2 else 1.0))
             // The step class of this change, or impassable beyond the last class — on new ground and on an
@@ -346,12 +346,12 @@ object RoadPlanner {
     /** True when every step between consecutive [cells] is within the last step class on [terrain]. */
     fun stepsFeasible(terrain: Terrain, cells: List<Cell>, costs: PlannerCosts): Boolean {
         val limit = costs.steps.maxOfOrNull { it.upTo } ?: return true
+        val diagonalLimit = costs.diagonalSteps.maxOfOrNull { it.upTo } ?: -1.0
         for (k in 1 until cells.size) {
             val a = cells[k - 1]; val b = cells[k]
             val diagonal = a.x != b.x && a.z != b.z
             val dh = abs(terrain.heightAt(b.x, b.z) - terrain.heightAt(a.x, a.z)).toDouble()
-            if (diagonal && dh != 0.0) return false
-            if (dh > limit) return false
+            if (dh > (if (diagonal) diagonalLimit else limit)) return false
         }
         return true
     }

@@ -1,7 +1,7 @@
 {
-  "shape": "straight",
+  "shape": "diagonal",
   "rise": 0,
-  "cost": 0.0,
+  "cost": 0.5,
   "rows": [
     {
       "level": 0,
@@ -14,22 +14,18 @@
     {
       "level": 0,
       "role": "surface"
-    }
-  ],
-  "decor": [
-    {
-      "along": 3,
-      "side": 2,
-      "up": 1,
-      "role": "post",
-      "every": 8
     },
     {
-      "along": 3,
-      "side": 2,
-      "up": 2,
-      "role": "lamp",
-      "every": 8
+      "level": 0,
+      "role": "surface"
+    },
+    {
+      "level": 0,
+      "role": "surface"
+    },
+    {
+      "level": 0,
+      "role": "surface"
     }
   ],
   "fit": {
