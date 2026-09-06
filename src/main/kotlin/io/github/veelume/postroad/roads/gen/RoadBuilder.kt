@@ -203,7 +203,7 @@ object RoadBuilder {
         if (job.run == null) {
             // The block path for this run, once per job: refined around obstacles, else the straight line.
             val waypoints = points.subList(first, exit + 1)
-            val path = RoadRefiner.refine(level, waypoints, styles, boxes) ?: straight(waypoints)
+            val path = RoadRefiner.refine(level, waypoints, styles, boxes)?.let { manhattan(it) } ?: straight(waypoints)
             val hint = waypoints.first().y
             fun ground(c: IntArray): Int = if (level.hasChunk(c[0] shr 4, c[1] shr 4)) groundY(level, c[0], c[1], hint, styles) else Int.MIN_VALUE
             val terrain = path.map(::ground)
@@ -281,6 +281,23 @@ object RoadBuilder {
             }
         }
         out.add(intArrayOf(waypoints.last().x, waypoints.last().z))
+        return manhattan(out)
+    }
+
+    /**
+     * The same path with every diagonal step split into two cardinal ones (x first). Stairs and
+     * slabs only work between columns that share a row or a column, so the road never rises across a
+     * corner; the strip's round stamp hides the zigzag.
+     */
+    fun manhattan(path: List<IntArray>): List<IntArray> {
+        val out = ArrayList<IntArray>(path.size * 2)
+        for ((i, c) in path.withIndex()) {
+            if (i > 0) {
+                val p = path[i - 1]
+                if (p[0] != c[0] && p[1] != c[1]) out.add(intArrayOf(c[0], p[1]))
+            }
+            out.add(c)
+        }
         return out
     }
 
@@ -302,8 +319,8 @@ object RoadBuilder {
         for (i in 1 until t.size) {
             if (t[i] == Int.MIN_VALUE || t[i - 1] == Int.MIN_VALUE) continue
             var dh = (t[i] - t[i - 1]).coerceIn(-1, 1)
-            val turn = i + 1 < path.size &&
-                (path[i][0] - path[i - 1][0]) * (path[i + 1][0] - path[i][0]) + (path[i][1] - path[i - 1][1]) * (path[i + 1][1] - path[i][1]) <= 0
+            val turn = i >= 2 && i + 2 < path.size &&
+                (path[i][0] - path[i - 2][0]) * (path[i + 2][0] - path[i][0]) + (path[i][1] - path[i - 2][1]) * (path[i + 2][1] - path[i][1]) <= 0
             if (dh != 0 && turn) dh = 0
             t[i] = t[i - 1] + dh
         }

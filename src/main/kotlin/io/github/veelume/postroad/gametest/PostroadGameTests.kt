@@ -779,6 +779,22 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun layer_climbs_a_diagonal_with_cardinal_steps(helper: GameTestHelper) {
+        val path = io.github.veelume.postroad.roads.gen.RoadBuilder.straight(listOf(BlockPos(0, 0, 0), BlockPos(4, 0, 4), BlockPos(8, 0, 5)))
+        for (k in 1 until path.size) {
+            val a = path[k - 1]; val b = path[k]
+            helper.assertTrue((a[0] == b[0]) != (a[1] == b[1]), "block path steps along one axis at a time: ${a.toList()} -> ${b.toList()}")
+        }
+        // A one-block terrace crossed diagonally: the rise sits on a cardinal step and carries a slab.
+        val floorY = shapeFloor(helper) { x, z -> if (x + z >= 7) 1 else 0 }
+        layRoad(helper, floorY, listOf(helper.absolutePos(BlockPos(1, F + 1, 1)), helper.absolutePos(BlockPos(5, F + 2, 5))))
+        var slabs = 0
+        for (x in 1..5) for (z in 1..5) if (blockAt(helper, x, F + 1, z) is net.minecraft.world.level.block.SlabBlock) slabs++
+        helper.assertTrue(slabs >= 3, "the diagonal climb carries slabs on its cardinal step ($slabs)")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun layer_side_slope_fills_the_low_edge_without_a_pile(helper: GameTestHelper) {
         val floorY = shapeFloor(helper) { _, z -> if (z <= 3) 1 else 0 }
         layRoad(helper, floorY, listOf(helper.absolutePos(BlockPos(1, F + 2, 3)), helper.absolutePos(BlockPos(5, F + 2, 3))))
