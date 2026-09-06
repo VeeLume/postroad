@@ -253,8 +253,9 @@ object PostroadCommands {
             if (chunk == null || !chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.STRUCTURE_STARTS)) { absent++; continue }
             val start = if (io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.laid.contains(key)) Unit else null
             if (chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.SURFACE)) {
-                for (run in runs) for (p in run.points) {
-                    if ((p.x shr 4) != cx || (p.z shr 4) != cz) continue
+                val seen = HashSet<Long>()
+                for (run in runs) for (p in listOf(run.a, run.b)) {
+                    if ((p.x shr 4) != cx || (p.z shr 4) != cz || !seen.add(p.asLong())) continue
                     // Ground as the planner means it: below trees, and the water surface where there is water.
                     val surface = chunk.getHeight(if (chunk.hasPrimedHeightmap(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG)) net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG else net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE, p.x and 15, p.z and 15)
                     var ground = chunk.getHeight(if (chunk.hasPrimedHeightmap(net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR_WG)) net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR_WG else net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR, p.x and 15, p.z and 15)

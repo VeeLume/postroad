@@ -1,0 +1,44 @@
+{
+  "shape": "straight",
+  "rise": 2,
+  "cost": 4.0,
+  "rows": [
+    {
+      "level": 1,
+      "role": "stair"
+    },
+    {
+      "level": 1,
+      "role": "surface"
+    },
+    {
+      "level": 2,
+      "role": "stair"
+    },
+    {
+      "level": 2,
+      "role": "surface"
+    }
+  ],
+  "decor": [
+    {
+      "along": 4,
+      "side": 2,
+      "up": 1,
+      "role": "post",
+      "every": 6
+    },
+    {
+      "along": 4,
+      "side": 2,
+      "up": 2,
+      "role": "lamp",
+      "every": 6
+    }
+  ],
+  "fit": {
+    "cut": 4,
+    "fill": 3,
+    "deck": true
+  }
+}

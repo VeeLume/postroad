@@ -1,0 +1,10 @@
+{
+  "shape": "diagonal",
+  "rise": 0,
+  "cost": 0.5,
+  "fit": {
+    "cut": 4,
+    "fill": 3,
+    "deck": true
+  }
+}

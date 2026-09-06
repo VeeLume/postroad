@@ -73,7 +73,7 @@ object Postroad {
 
         ModLoadingContext.get().activeContainer.registerConfig(ModConfig.Type.COMMON, PostroadConfig.SPEC)
 
-        FORGE_BUS.addListener(AddReloadListenerEvent::class.java, Consumer { it.addListener(CultureRegistry); it.addListener(RoadRules); it.addListener(PlannerRules); it.addListener(RoadStyles) })
+        FORGE_BUS.addListener(AddReloadListenerEvent::class.java, Consumer { it.addListener(CultureRegistry); it.addListener(RoadRules); it.addListener(PlannerRules); it.addListener(RoadStyles); it.addListener(io.github.veelume.postroad.roads.gen.RoadPieces) })
         FORGE_BUS.addListener(PlayerTickEvent.Post::class.java, Consumer(RoadBuff::onPlayerTick))
         FORGE_BUS.addListener(PlayerTickEvent.Post::class.java, Consumer(Charting::onPlayerTick))
         FORGE_BUS.addListener(LivingDeathEvent::class.java, Consumer(Charting::onDeath))

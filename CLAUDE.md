@@ -54,12 +54,18 @@ live in `docs/` (one per increment). This file is about the code.
   `/postroad roads probe <x> <z>` compares the sampler's surface with the generator and the real heightmap and
   says whether the chunk has its own road structure start; `/postroad roads audit <radius> [fix]` counts generated
   road chunks with and without their own start (`fix` hands the start-less ones back to the chunk-load builder).
+  **Roads are built from a catalog of pieces** (`docs/increment-5.md`): `RoadPieces` loads
+  `data/postroad/roads/pieces/*.json` — straight pieces per rise 0…4 (four rows of `surface`/`stair`/`slab` at
+  levels relative to the entry anchor, decoration, a `fit` of cut/fill/deck) and one flat `diagonal` piece; the
+  planner's move set and step costs come from the catalog (`PieceCatalog.stepClasses`, diagonal moves only
+  flat). `PieceCatalog.placement(a, b)` turns two consecutive planned points into a `PiecePlacement` (descents =
+  the rise piece reversed); `RoadPieceLayer.lay` writes its blocks with the ground fitted per column. Same code
+  for the road feature at generation time and the chunk-load builder.
   **Roads generate as a placed feature** (`worldgen/RoadFeature`, data `worldgen/configured_feature/road.json`,
   `placed_feature/road.json`, biome modifier `neoforge/biome_modifier/road.json` on every overworld biome at
-  `surface_structures`): once per chunk it asks `RoadPlanSnapshot` (an immutable per-chunk copy of the plan
-  published by the server thread) for the runs through the chunk and `RoadLayer` lays them with the builder's
-  flatten/smooth/shape code before vegetation. The chunk-load builder is the fallback for chunks finished before
-  the plan covered them (`generatedWithRoad` = the feature laid it this session); junction signs stay with it.
+  `surface_structures`): once per chunk it asks `RoadPlanSnapshot` (segments whose piece footprints touch the
+  chunk, published by the server thread) and lays each piece's blocks inside the chunk. The chunk-load builder
+  is the fallback for chunks finished before the plan covered them; junction signs stay with it.
   **Pre-generation:** `ChunkPregen` requests corridor chunks at `CARVERS` through the chunk system — from its own
   thread, because `getChunkFuture` joins when called on the server thread — holding each with its own ticket type
   (the chunk source's one-tick ticket cancels an off-thread request); `KnownTerrain` copies heightmaps on the

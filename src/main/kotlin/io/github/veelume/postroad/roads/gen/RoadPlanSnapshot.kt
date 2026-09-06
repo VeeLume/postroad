@@ -13,8 +13,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * road laid while it generates; a chunk without one gets nothing.
  */
 object RoadPlanSnapshot {
-    /** A road's run through one chunk, with a few planned points either side as context for the flattening. */
-    class Segment(val roadId: String, val points: List<BlockPos>, val before: List<BlockPos>, val after: List<BlockPos>, val family: Int)
+    /** One planned segment (a piece): its road, index along it, the two planned points, and their neighbours for decoration checks. */
+    class Segment(val roadId: String, val index: Int, val a: BlockPos, val b: BlockPos, val prev: BlockPos?, val next: BlockPos?, val family: Int)
 
     @Volatile
     var segments: Map<Long, List<Segment>> = emptyMap()
@@ -27,30 +27,25 @@ object RoadPlanSnapshot {
 
     fun segmentsAt(chunkX: Int, chunkZ: Int): List<Segment> = segments[ChunkPos.asLong(chunkX, chunkZ)] ?: emptyList()
 
-    /** Rebuilds the snapshot from the plan: for every road, each chunk's run from its first point in the chunk to the exit point. */
+    /** Rebuilds the snapshot from the plan: every segment, in every chunk its footprint (two blocks either side) touches. */
     fun publish(storage: RoadPlanStorage, dimension: ResourceLocation) {
         val map = HashMap<Long, MutableList<Segment>>()
         for (road in storage.roadsIn(dimension)) {
             val points = road.points
-            var i = 0
-            while (i < points.size) {
-                val chunk = ChunkPos.asLong(points[i].x shr 4, points[i].z shr 4)
-                var last = i
-                while (last + 1 < points.size && ChunkPos.asLong(points[last + 1].x shr 4, points[last + 1].z shr 4) == chunk) last++
-                val exit = minOf(last + 1, points.size - 1)
-                // The run reaches one point beyond the chunk at both ends: the entry segment from the previous
-                // chunk and the exit segment into the next. Each chunk lays only its own blocks of them, so the
-                // stretch between a chunk border and the nearest planned point is laid by whichever chunk owns it.
-                val entry = maxOf(0, i - 1)
-                val before = points.subList(maxOf(0, entry - RoadBuilder.CONTEXT_POINTS), entry)
-                val after = points.subList(minOf(points.size, exit + 1), minOf(points.size, exit + 1 + RoadBuilder.CONTEXT_POINTS))
-                map.getOrPut(chunk) { ArrayList() }.add(Segment(road.id, points.subList(entry, exit + 1), before, after, road.families.getOrElse(i) { 0 }.toInt()))
-                i = last + 1
+            for (i in 1 until points.size) {
+                val a = points[i - 1]; val b = points[i]
+                val seg = Segment(road.id, i - 1, a, b, points.getOrNull(i - 2), points.getOrNull(i + 1), road.families.getOrElse(i - 1) { 0 }.toInt())
+                val minX = (minOf(a.x, b.x) - FOOTPRINT) shr 4; val maxX = (maxOf(a.x, b.x) + FOOTPRINT) shr 4
+                val minZ = (minOf(a.z, b.z) - FOOTPRINT) shr 4; val maxZ = (maxOf(a.z, b.z) + FOOTPRINT) shr 4
+                for (cz in minZ..maxZ) for (cx in minX..maxX) map.getOrPut(ChunkPos.asLong(cx, cz)) { ArrayList() }.add(seg)
             }
         }
         segments = map
         Postroad.LOGGER.info("Road plan snapshot: {} chunk(s) with runs", map.size)
     }
+
+    /** Blocks a piece may reach beyond its anchors: the half width plus decoration. */
+    private const val FOOTPRINT = 3
 
     fun clear() {
         segments = emptyMap()

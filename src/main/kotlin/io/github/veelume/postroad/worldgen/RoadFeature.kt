@@ -1,9 +1,13 @@
 package io.github.veelume.postroad.worldgen
 
 import com.mojang.serialization.Codec
-import io.github.veelume.postroad.roads.gen.RoadLayer
+import io.github.veelume.postroad.roads.gen.RoadPieceLayer
+import io.github.veelume.postroad.roads.gen.RoadPieces
 import io.github.veelume.postroad.roads.gen.RoadPlanSnapshot
+import io.github.veelume.postroad.roads.gen.RoadStyles
+import net.minecraft.core.BlockPos
 import net.minecraft.world.level.ChunkPos
+import net.minecraft.world.level.levelgen.Heightmap
 import net.minecraft.world.level.levelgen.feature.Feature
 import net.minecraft.world.level.levelgen.feature.FeaturePlaceContext
 import net.minecraft.world.level.levelgen.feature.configurations.NoneFeatureConfiguration
@@ -11,19 +15,35 @@ import net.minecraft.world.level.levelgen.feature.configurations.NoneFeatureConf
 /**
  * Planned roads laid while a chunk generates: a placed feature at the `surface_structures` step
  * (after the surface, before vegetation) in every overworld biome, placed once per chunk at the
- * chunk's origin. It asks the plan snapshot for the runs through this chunk and lays them; a chunk
- * without runs is untouched. Unlike a structure start this needs the plan only when the chunk
- * reaches its features step, so chunks pre-generated to the carvers step still get their road.
+ * chunk's origin. It asks the plan snapshot for the segments whose pieces reach into this chunk
+ * and lays each piece's blocks inside it; a chunk without segments is untouched.
  */
 class RoadFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<NoneFeatureConfiguration>(codec) {
     override fun place(ctx: FeaturePlaceContext<NoneFeatureConfiguration>): Boolean {
         val chunk = ChunkPos(ctx.origin())
-        val runs = RoadPlanSnapshot.segmentsAt(chunk.x, chunk.z)
-        if (runs.isEmpty()) return false
+        val segments = RoadPlanSnapshot.segmentsAt(chunk.x, chunk.z)
+        if (segments.isEmpty()) return false
+        val level = ctx.level()
+        val catalog = RoadPieces.current
+        val styles = RoadStyles.current
         RoadPlanSnapshot.featureRuns.incrementAndGet()
+        fun ground(x: Int, z: Int): Int {
+            if (!level.hasChunk(x shr 4, z shr 4)) return Int.MIN_VALUE
+            val y = level.getHeight(Heightmap.Types.OCEAN_FLOOR_WG, x, z) - 1
+            if (y <= level.minBuildHeight) return Int.MIN_VALUE
+            if (!level.getFluidState(BlockPos(x, y + 1, z)).isEmpty) return Int.MIN_VALUE
+            return y
+        }
+        fun inChunk(x: Int, z: Int): Boolean = (x shr 4) == chunk.x && (z shr 4) == chunk.z
         var placed = 0
-        for (run in runs) placed += RoadLayer.lay(ctx.level(), run, chunk)
-        RoadPlanSnapshot.piecesPlaced.addAndGet(runs.size)
+        for (seg in segments) {
+            val p = catalog.placement(seg.a, seg.b, seg.index) ?: continue
+            // The neighbouring pieces' footprints keep this piece's decoration off them.
+            val around = listOfNotNull(seg.prev?.let { catalog.placement(it, seg.a, seg.index - 1) }, p, seg.next?.let { catalog.placement(seg.b, it, seg.index + 1) })
+            val footprint = RoadPieceLayer.footprintOf(around)
+            placed += RoadPieceLayer.lay(level, p, styles.style(seg.family), styles, ::ground, ::inChunk) { x, z -> footprint.contains(RoadPieceLayer.key(x, z)) }
+        }
+        RoadPlanSnapshot.piecesPlaced.addAndGet(segments.size)
         RoadPlanSnapshot.laid.add(chunk.toLong())
         return placed > 0
     }

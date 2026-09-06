@@ -546,24 +546,6 @@ class PostroadGameTests {
         val town = io.github.veelume.postroad.roads.gen.Town("t", cell(25, 20), listOf(cell(21, 20), cell(29, 20), cell(25, 11)))
         helper.assertTrue(town.exitToward(cell(55, 20)) == cell(29, 20), "east street exit toward an eastern neighbour (${town.exitToward(cell(55, 20))})")
         helper.assertTrue(town.exitToward(cell(25, 0)) == cell(25, 11), "north street exit toward a northern neighbour")
-        // The builder's profile flattening: a short bump is cut, a short dip filled, a long hill kept.
-        val bumpy = (0 until 40).map { x -> 64 + (if (x in 10..15) 2 else 0) - (if (x in 22..25) 2 else 0) }
-        val levelled = io.github.veelume.postroad.roads.gen.RoadBuilder.flatten(bumpy)
-        helper.assertTrue(levelled.all { it == 64 }, "a 6-block bump and a 4-block dip are levelled (${levelled.toList()})")
-        val longHill = (0 until 40).map { x -> 64 + (if (x in 10..30) 3 else 0) }
-        val kept = io.github.veelume.postroad.roads.gen.RoadBuilder.flatten(longHill)
-        helper.assertTrue(kept[20] == 67, "a 21-block hill stays (${kept.toList()})")
-        // The shape table: stairs inside a run of rises, a slab on a lone rise, a slab on a diagonal step.
-        val shapes = io.github.veelume.postroad.roads.gen.RoadShapes
-        val line = (0 until 8).map { intArrayOf(it, 0) }
-        val climb = intArrayOf(64, 64, 65, 66, 67, 67, 67, 67)
-        helper.assertTrue(shapes.at(line, climb, 1).kind == shapes.STAIRS && shapes.at(line, climb, 3).kind == shapes.STAIRS, "a three-block climb carries stairs")
-        helper.assertTrue(shapes.at(line, climb, 5).kind == shapes.FLAT, "the flat after the climb carries nothing")
-        val lone = intArrayOf(64, 64, 65, 65, 65, 65, 65, 65)
-        helper.assertTrue(shapes.at(line, lone, 1).kind == shapes.SLAB, "a lone rise carries a slab")
-        val diagonal = listOf(intArrayOf(0, 0), intArrayOf(1, 1), intArrayOf(2, 2), intArrayOf(3, 3))
-        helper.assertTrue(shapes.at(diagonal, intArrayOf(64, 65, 66, 67), 1).kind == shapes.SLAB, "a diagonal climb carries slabs, never stairs")
-
         // A structure box between two towns: the route goes around it.
         val box = g.flat(40, 40, 64)
         box.fill(15, 10, 25, 30, g.BLOCKED)
@@ -701,7 +683,7 @@ class PostroadGameTests {
         helper.succeed()
     }
 
-    // ---- the road structure, laid by the feature's layer on shaped arena floors ----------------------
+    // ---- road pieces: the catalog laid on shaped arena floors -----------------------------------------
 
     /** The arena floor's top is stone at relative y [F]; [extra] stone is stacked on it. Returns the absolute y of that top. */
     private val F = 1
@@ -710,115 +692,143 @@ class PostroadGameTests {
         return helper.absolutePos(BlockPos(0, F, 0)).y
     }
 
-    private fun layRoad(helper: GameTestHelper, floorY: Int, points: List<BlockPos>): Int {
+    private fun blockAt(helper: GameTestHelper, x: Int, y: Int, z: Int): net.minecraft.world.level.block.Block = helper.level.getBlockState(helper.absolutePos(BlockPos(x, y, z))).block
+    private fun stateAt(helper: GameTestHelper, x: Int, y: Int, z: Int): net.minecraft.world.level.block.state.BlockState = helper.level.getBlockState(helper.absolutePos(BlockPos(x, y, z)))
+
+    /** Lays the piece between planned points [a] and [b] (relative arena positions, y = planned first-air height). */
+    private fun layPiece(helper: GameTestHelper, floorY: Int, a: BlockPos, b: BlockPos, inArea: (Int, Int) -> Boolean = { _, _ -> true }): Int {
         val level = helper.level
         val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
-        val run = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.Segment("t", points, emptyList(), emptyList(), 0)
-        return io.github.veelume.postroad.roads.gen.RoadLayer.lay(level, run, null) { x, z -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 1, styles) }
+        val catalog = io.github.veelume.postroad.roads.gen.RoadPieces.current
+        val p = catalog.placement(helper.absolutePos(a), helper.absolutePos(b), 1) ?: run { helper.fail("no piece for ${a.toShortString()} -> ${b.toShortString()}"); return 0 }
+        return io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, p, styles.style(0), styles, { x, z -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 1, styles) }, inArea)
     }
 
-    private fun blockAt(helper: GameTestHelper, x: Int, y: Int, z: Int): net.minecraft.world.level.block.Block = helper.level.getBlockState(helper.absolutePos(BlockPos(x, y, z))).block
+    /** Rows of a straight piece from (1, 3) east to (5, 3): row k sits at x = 1 + k on rows z 2..4. */
+    private fun assertStraightRows(helper: GameTestHelper, rise: Int) {
+        val piece = io.github.veelume.postroad.roads.gen.RoadPieces.current.straights[rise]!!
+        for (k in 1..4) {
+            val row = piece.rows[k - 1]
+            for (z in 2..4) {
+                val s = stateAt(helper, 1 + k, F + row.level, z)
+                val ok = when (row.role) {
+                    "stair" -> s.block is net.minecraft.world.level.block.StairBlock && s.getValue(net.minecraft.world.level.block.StairBlock.FACING) == net.minecraft.core.Direction.EAST
+                    "slab" -> s.block is net.minecraft.world.level.block.SlabBlock
+                    else -> !s.isAir && s.block != Blocks.STONE && s.block !is net.minecraft.world.level.block.StairBlock && s.block !is net.minecraft.world.level.block.SlabBlock
+                }
+                helper.assertTrue(ok, "rise $rise row $k (${row.role} at level ${row.level}) at (${1 + k}, $z): ${s.block}")
+                if (F + row.level + 1 <= 5) helper.assertTrue(blockAt(helper, 1 + k, F + row.level + 1, z) == Blocks.AIR, "rise $rise row $k clear above at (${1 + k}, $z)")
+            }
+            for (z in listOf(1, 5)) helper.assertTrue(blockAt(helper, 1 + k, F + row.level, z) == Blocks.STONE || blockAt(helper, 1 + k, F + row.level, z) == Blocks.AIR, "rise $rise: nothing beside row $k at (${1 + k}, $z): ${blockAt(helper, 1 + k, F + row.level, z)}")
+        }
+    }
 
     @GameTest(template = ARENA)
-    fun layer_on_flat_ground_lays_only_the_strip(helper: GameTestHelper) {
+    fun pieces_flat_straight_lays_four_surface_rows(helper: GameTestHelper) {
         val floorY = shapeFloor(helper) { _, _ -> 0 }
-        val a = helper.absolutePos(BlockPos(1, F + 1, 3)); val b = helper.absolutePos(BlockPos(5, F + 1, 3))
-        layRoad(helper, floorY, listOf(a, b))
-        for (x in 1..5) for (z in 2..4) helper.assertTrue(blockAt(helper, x, F, z) != Blocks.STONE, "strip column ($x, $z) is road")
-        for (x in 1..5) for (z in listOf(1, 5)) {
-            helper.assertTrue(blockAt(helper, x, F, z) == Blocks.STONE, "ground beside the road untouched at ($x, $z): ${blockAt(helper, x, F, z)}")
-            helper.assertTrue(blockAt(helper, x, F + 1, z) == Blocks.AIR, "nothing built beside the road at ($x, $z): ${blockAt(helper, x, F + 1, z)}")
-        }
-        for (x in 1..5) for (z in 2..4) helper.assertTrue(blockAt(helper, x, F + 1, z) == Blocks.AIR, "a flat road carries nothing above it at ($x, $z)")
+        layPiece(helper, floorY, BlockPos(1, F + 1, 3), BlockPos(5, F + 1, 3))
+        assertStraightRows(helper, 0)
+        helper.assertTrue(blockAt(helper, 1, F, 3) == Blocks.STONE, "the entry anchor row belongs to the previous piece")
         helper.succeed()
     }
 
     @GameTest(template = ARENA)
-    fun layer_one_step_up_carries_a_slab(helper: GameTestHelper) {
+    fun pieces_rise_one_carries_a_slab(helper: GameTestHelper) {
         val floorY = shapeFloor(helper) { x, _ -> if (x >= 4) 1 else 0 }
-        layRoad(helper, floorY, listOf(helper.absolutePos(BlockPos(1, F + 1, 3)), helper.absolutePos(BlockPos(5, F + 2, 3))))
-        for (z in 2..4) helper.assertTrue(blockAt(helper, 3, F + 1, z) is net.minecraft.world.level.block.SlabBlock, "a slab on the lower column at (3, $z): ${blockAt(helper, 3, F + 1, z)}")
-        for (z in 2..4) helper.assertTrue(blockAt(helper, 4, F + 1, z) != Blocks.STONE && blockAt(helper, 4, F + 1, z) != Blocks.AIR, "the upper column keeps its level at (4, $z): ${blockAt(helper, 4, F + 1, z)}")
+        layPiece(helper, floorY, BlockPos(1, F + 1, 3), BlockPos(5, F + 2, 3))
+        assertStraightRows(helper, 1)
         helper.succeed()
     }
 
     @GameTest(template = ARENA)
-    fun layer_repeated_steps_carry_stairs(helper: GameTestHelper) {
+    fun pieces_rise_two_is_stair_landing_stair(helper: GameTestHelper) {
         val floorY = shapeFloor(helper) { x, _ -> when { x >= 5 -> 2; x >= 3 -> 1; else -> 0 } }
-        layRoad(helper, floorY, listOf(helper.absolutePos(BlockPos(1, F + 1, 3)), helper.absolutePos(BlockPos(5, F + 3, 3))))
-        helper.assertTrue(blockAt(helper, 2, F + 1, 3) is net.minecraft.world.level.block.StairBlock, "stairs before the first step at (2, 3): ${blockAt(helper, 2, F + 1, 3)}")
-        helper.assertTrue(blockAt(helper, 4, F + 2, 3) is net.minecraft.world.level.block.StairBlock, "stairs before the second step at (4, 3): ${blockAt(helper, 4, F + 2, 3)}")
-        for (z in 2..4) helper.assertTrue(blockAt(helper, 2, F + 1, z) is net.minecraft.world.level.block.StairBlock, "stairs across the whole width at (2, $z): ${blockAt(helper, 2, F + 1, z)}")
+        layPiece(helper, floorY, BlockPos(1, F + 1, 3), BlockPos(5, F + 3, 3))
+        assertStraightRows(helper, 2)
         helper.succeed()
     }
 
     @GameTest(template = ARENA)
-    fun layer_follows_a_gentle_slope_without_a_trench(helper: GameTestHelper) {
-        val floorY = shapeFloor(helper) { x, _ -> when { x >= 5 -> 2; x >= 3 -> 1; else -> 0 } }
-        layRoad(helper, floorY, listOf(helper.absolutePos(BlockPos(1, F + 1, 3)), helper.absolutePos(BlockPos(5, F + 3, 3))))
-        // The ground's own top block becomes the road's: nothing dug below it anywhere along the slope.
-        for (x in 1..5) {
-            val top = F + when { x >= 5 -> 2; x >= 3 -> 1; else -> 0 }
-            helper.assertTrue(blockAt(helper, x, top, 3) != Blocks.AIR, "no trench at ($x, 3): the ground top is gone")
-            helper.assertTrue(blockAt(helper, x, top, 3) != Blocks.STONE, "the road surface replaces the ground top at ($x, 3)")
+    fun pieces_rise_four_is_all_stairs_on_fill(helper: GameTestHelper) {
+        val floorY = shapeFloor(helper) { _, _ -> 0 }
+        layPiece(helper, floorY, BlockPos(1, F + 1, 3), BlockPos(5, F + 5, 3))
+        assertStraightRows(helper, 4)
+        helper.assertTrue(blockAt(helper, 5, F + 3, 3) != Blocks.AIR && blockAt(helper, 5, F + 1, 3) != Blocks.AIR, "the last stair stands on solid fill")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun pieces_descent_is_the_rise_reversed(helper: GameTestHelper) {
+        val floorY = shapeFloor(helper) { x, _ -> when { x <= 2 -> 2; x <= 4 -> 1; else -> 0 } }
+        // Planned downhill from x 5 to x 1; the piece is the rise-2 piece entered at x 1, stairs facing east.
+        layPiece(helper, floorY, BlockPos(5, F + 3, 3), BlockPos(1, F + 1, 3))
+        val s = stateAt(helper, 2, F + 1, 3)
+        helper.assertTrue(s.block is net.minecraft.world.level.block.StairBlock && s.getValue(net.minecraft.world.level.block.StairBlock.FACING) == net.minecraft.core.Direction.EAST, "stairs face the ascent at (2, 3): $s")
+        helper.assertTrue(stateAt(helper, 3, F + 1, 3).block !is net.minecraft.world.level.block.StairBlock, "a landing at (3, 3)")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun pieces_diagonal_is_a_flat_band(helper: GameTestHelper) {
+        val floorY = shapeFloor(helper) { _, _ -> 0 }
+        layPiece(helper, floorY, BlockPos(1, F + 1, 1), BlockPos(5, F + 1, 5))
+        for ((x, z) in listOf(2 to 1, 2 to 2, 3 to 2, 3 to 3, 4 to 3, 4 to 4, 5 to 4, 5 to 5)) {
+            helper.assertTrue(blockAt(helper, x, F, z) != Blocks.STONE, "band centre at ($x, $z) is road")
+            helper.assertTrue(blockAt(helper, x, F + 1, z) == Blocks.AIR, "nothing above the band at ($x, $z)")
         }
+        helper.assertTrue(blockAt(helper, 5, F, 1) == Blocks.STONE && blockAt(helper, 1, F, 5) == Blocks.STONE, "the corners off the band are untouched")
         helper.succeed()
     }
 
     @GameTest(template = ARENA)
-    fun layer_bridges_a_deep_dip_on_a_deck(helper: GameTestHelper) {
-        // Four blocks of ground everywhere but a two-wide gully at x 3..4: the road crosses on a deck, not a fill.
+    fun pieces_deck_over_a_gully(helper: GameTestHelper) {
+        // Four blocks of ground with a two-wide gully at x 3..4; a piece that fills at most two carries the road on a deck there.
         val floorY = shapeFloor(helper) { x, _ -> if (x in 3..4) 0 else 4 }
-        layRoad(helper, floorY, listOf(helper.absolutePos(BlockPos(1, F + 5, 3)), helper.absolutePos(BlockPos(5, F + 5, 3))))
+        val level = helper.level
+        val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
+        val flat = io.github.veelume.postroad.roads.gen.RoadPieces.current.straights[0]!!.copy(fit = io.github.veelume.postroad.roads.gen.PieceFit(cut = 4, fill = 2, deck = true))
+        val p = io.github.veelume.postroad.roads.gen.PiecePlacement(flat, helper.absolutePos(BlockPos(1, F + 4, 3)), helper.absolutePos(BlockPos(5, F + 4, 3)), 1, 0, false, 1)
+        io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, p, styles.style(0), styles, { x, z -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 1, styles) })
         for (x in 3..4) {
-            helper.assertTrue(blockAt(helper, x, F + 4, 3) != Blocks.AIR, "the deck surface spans the gully at ($x, 3): ${blockAt(helper, x, F + 4, 3)}")
-            helper.assertTrue(blockAt(helper, x, F + 3, 3) != Blocks.AIR, "one support block under the deck at ($x, 3)")
-            helper.assertTrue(blockAt(helper, x, F + 2, 3) == Blocks.AIR && blockAt(helper, x, F + 1, 3) == Blocks.AIR, "air under the deck at ($x, 3), no pile: ${blockAt(helper, x, F + 2, 3)} / ${blockAt(helper, x, F + 1, 3)}")
+            helper.assertTrue(blockAt(helper, x, F + 4, 3) != Blocks.AIR, "deck surface at ($x, 3)")
+            helper.assertTrue(blockAt(helper, x, F + 3, 3) != Blocks.AIR, "one support under the deck at ($x, 3)")
+            helper.assertTrue(blockAt(helper, x, F + 2, 3) == Blocks.AIR && blockAt(helper, x, F + 1, 3) == Blocks.AIR, "air under the deck at ($x, 3)")
         }
         helper.succeed()
     }
 
     @GameTest(template = ARENA)
-    fun layer_climbs_a_diagonal_with_cardinal_steps(helper: GameTestHelper) {
-        val path = io.github.veelume.postroad.roads.gen.RoadBuilder.straight(listOf(BlockPos(0, 0, 0), BlockPos(4, 0, 4), BlockPos(8, 0, 5)))
-        for (k in 1 until path.size) {
-            val a = path[k - 1]; val b = path[k]
-            helper.assertTrue((a[0] == b[0]) != (a[1] == b[1]), "block path steps along one axis at a time: ${a.toList()} -> ${b.toList()}")
-        }
-        // A one-block terrace crossed diagonally: the rise sits on a cardinal step and carries a slab.
-        val floorY = shapeFloor(helper) { x, z -> if (x + z >= 7) 1 else 0 }
-        layRoad(helper, floorY, listOf(helper.absolutePos(BlockPos(1, F + 1, 1)), helper.absolutePos(BlockPos(5, F + 2, 5))))
-        var slabs = 0
-        for (x in 1..5) for (z in 1..5) if (blockAt(helper, x, F + 1, z) is net.minecraft.world.level.block.SlabBlock) slabs++
-        helper.assertTrue(slabs >= 3, "the diagonal climb carries slabs on its cardinal step ($slabs)")
+    fun pieces_clipped_halves_equal_the_whole(helper: GameTestHelper) {
+        val floorY = shapeFloor(helper) { x, _ -> when { x >= 5 -> 2; x >= 3 -> 1; else -> 0 } }
+        val split = helper.absolutePos(BlockPos(4, 0, 0)).x
+        layPiece(helper, floorY, BlockPos(1, F + 1, 3), BlockPos(5, F + 3, 3)) { x, _ -> x < split }
+        layPiece(helper, floorY, BlockPos(1, F + 1, 3), BlockPos(5, F + 3, 3)) { x, _ -> x >= split }
+        assertStraightRows(helper, 2)
         helper.succeed()
     }
 
     @GameTest(template = ARENA)
-    fun layer_side_slope_fills_the_low_edge_without_a_pile(helper: GameTestHelper) {
-        val floorY = shapeFloor(helper) { _, z -> if (z <= 3) 1 else 0 }
-        layRoad(helper, floorY, listOf(helper.absolutePos(BlockPos(1, F + 2, 3)), helper.absolutePos(BlockPos(5, F + 2, 3))))
-        for (x in 1..5) helper.assertTrue(blockAt(helper, x, F + 1, 4) != Blocks.AIR, "the low edge is filled to road level at ($x, 4)")
-        for (x in 1..5) helper.assertTrue(blockAt(helper, x, F + 1, 5) == Blocks.AIR && blockAt(helper, x, F, 5) == Blocks.STONE, "no embankment beyond the strip for a one-block drop at ($x, 5): ${blockAt(helper, x, F + 1, 5)}")
+    fun pieces_catalog_is_the_move_set(helper: GameTestHelper) {
+        val catalog = io.github.veelume.postroad.roads.gen.RoadPieces.current
+        for (rise in 0..4) helper.assertTrue(catalog.placement(BlockPos(0, 64, 0), BlockPos(4, 64 + rise, 0), 0) != null, "a straight piece for rise $rise")
+        helper.assertTrue(catalog.placement(BlockPos(0, 64, 0), BlockPos(4, 69, 0), 0) == null, "no straight piece for rise 5")
+        helper.assertTrue(catalog.placement(BlockPos(0, 64, 0), BlockPos(4, 64, 4), 0) != null, "a flat diagonal piece")
+        helper.assertTrue(catalog.placement(BlockPos(0, 64, 0), BlockPos(4, 65, 4), 0) == null, "no diagonal piece with a rise")
+        val down = catalog.placement(BlockPos(0, 66, 0), BlockPos(4, 64, 0), 0)!!
+        helper.assertTrue(down.reversed && down.dx == -1 && down.piece.rise == 2, "a descent is the rise piece reversed")
+        helper.assertValueEqual(catalog.stepClasses().size, 5, "one step class per straight rise")
         helper.succeed()
     }
 
     @GameTest(template = ARENA)
-    fun builder_lays_a_strip_once_and_charting_marks_it(helper: GameTestHelper) {
+    fun builder_lays_pieces_once_and_charting_marks_it(helper: GameTestHelper) {
         val level = helper.level
         val server = level.server
         val tag = java.util.UUID.randomUUID().toString().take(6)
         val dim = level.dimension().location()
-        // The arena is 7×7 with a barrier floor around it (the harness's doing), so the road stays inside:
-        // two points four blocks apart, and a two-block plateau across the whole width from x = 3 to the edge
-        // (a bump narrower than the flattening window would simply be cut; a plateau must be climbed).
-        val start = helper.absolutePos(BlockPos(1, 1, 3))
-        val floorY = io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, start.x, start.z, start.y)
-        val points = listOf(BlockPos(start.x, floorY + 1, start.z), BlockPos(start.x + 4, floorY + 1, start.z))
-        for (z in 0..6) for (sx in 3..6) {
-            helper.setBlock(BlockPos(sx, 1, z), Blocks.STONE)
-            helper.setBlock(BlockPos(sx, 2, z), Blocks.STONE)
-        }
+        val floorY = shapeFloor(helper) { _, _ -> 0 }
+        val start = helper.absolutePos(BlockPos(1, F + 1, 3))
+        val points = listOf(start, BlockPos(start.x + 4, start.y, start.z))
         val road = io.github.veelume.postroad.roads.gen.PlannedRoad("t$tag", dim, "test/$tag/a", "test/$tag/b", points, ByteArray(points.size))
         val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(server)
         val network = Network.get(server)
@@ -827,31 +837,10 @@ class PostroadGameTests {
             io.github.veelume.postroad.roads.gen.RoadGen.GENERATED_BY, 0, charted = false))
         val chunk = net.minecraft.world.level.ChunkPos.asLong(start.x shr 4, start.z shr 4)
         val placed = io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk)
-        val floorState = level.getBlockState(BlockPos(start.x, floorY, start.z))
-        val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
-        val refined = io.github.veelume.postroad.roads.gen.RoadRefiner.refine(level, points, styles, storage.townsIn(dim).map { it.box })
-        helper.assertTrue(placed > 0, "the builder placed road blocks ($placed); floor ${floorState.block} replaceable=${styles.isReplaceable(floorState)} floorY=$floorY min=${level.minBuildHeight}, refined=${refined?.joinToString { "(${it[0] - start.x},${it[1] - start.z})" }}, towns=${storage.towns.size}, chunkOf(p1)==chunk: ${net.minecraft.world.level.ChunkPos.asLong(points[1].x shr 4, points[1].z shr 4) == chunk}")
+        helper.assertTrue(placed > 0, "the builder placed road blocks ($placed)")
         helper.assertTrue(road.builtChunks.contains(chunk), "the chunk is marked built")
-        val centre = level.getBlockState(BlockPos(start.x + 1, floorY, start.z))
-        val strip = (0..6).joinToString(" ") { z -> (0..6).joinToString("") { x -> val b = level.getBlockState(BlockPos(helper.absolutePos(BlockPos(x, 0, z)).x, floorY, helper.absolutePos(BlockPos(x, 0, z)).z)).block; when { b == Blocks.STONE -> "S"; b == Blocks.BARRIER -> "B"; b == Blocks.AIR -> "."; else -> "r" } } }
-        val above = (0..6).joinToString(" ") { z -> (0..6).joinToString("") { x -> val b = level.getBlockState(BlockPos(helper.absolutePos(BlockPos(x, 0, z)).x, floorY + 1, helper.absolutePos(BlockPos(x, 0, z)).z)).block; when { b == Blocks.STONE -> "S"; b == Blocks.AIR -> "."; else -> "r" } } }
-        helper.assertTrue(!centre.`is`(Blocks.STONE) && !centre.`is`(Blocks.POLISHED_ANDESITE) && !centre.`is`(Blocks.BARRIER), "the road centre is a palette block (${centre.block}); floor rows z0..6: $strip | above: $above | placed $placed | refined ${io.github.veelume.postroad.roads.gen.RoadRefiner.refine(level, points, io.github.veelume.postroad.roads.gen.RoadStyles.current, emptyList())?.joinToString { "(${it[0] - start.x},${it[1] - start.z})" }}")
+        assertStraightRows(helper, 0)
         helper.assertValueEqual(io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk), 0, "a second build places nothing")
-        // Walkable: along the centre line no two neighbouring columns differ by more than one block, and a rise carries stairs or a slab.
-        var maxJump = 0
-        var shaped = 0
-        var prevTop = Int.MIN_VALUE
-        val profile = StringBuilder()
-        for (x in start.x..(start.x + 4)) {
-            val top = io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, start.z, floorY + 1)
-            val s = level.getBlockState(BlockPos(x, top, start.z))
-            profile.append("${top - floorY}:${s.block.descriptionId.substringAfterLast('.')} ")
-            if (s.block is net.minecraft.world.level.block.StairBlock || s.block is net.minecraft.world.level.block.SlabBlock) shaped++
-            if (prevTop != Int.MIN_VALUE) maxJump = maxOf(maxJump, kotlin.math.abs(top - prevTop))
-            prevTop = top
-        }
-        helper.assertTrue(maxJump <= 1, "the road climbs the step one block at a time (max jump $maxJump): $profile")
-        helper.assertTrue(shaped >= 1, "the rise carries stairs or a slab ($shaped shaped columns): $profile")
 
         // Walking the road charts it instead of recording a duplicate.
         val player = helper.makeMockServerPlayerInLevel()
