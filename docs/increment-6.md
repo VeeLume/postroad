@@ -109,6 +109,19 @@ point (that anchor sits above its terrain by the rise, the least bad choice).
 Road ends get a virtual side in the road's direction, so an end is a plain
 straight (or diagonal) piece rather than a special one.
 
+## What the grid cannot do (found on the first worlds)
+
+- A **bend** (cardinal side to diagonal side) is the one shape whose two
+  connectors are of different kinds, so no rotation or mirror swaps them; it
+  is authored in both directions (`bend_r`, `bendd_r`). Straights, diagonals,
+  corners and diagonal corners are symmetric under the eight transforms.
+- A **turn sharper than 90°** (a cardinal move followed by the diagonal that
+  points back) has no piece: the diagonal's bridge blocks would land inside
+  the neighbour's core. The planner no longer makes them — a cell cannot be
+  left in a direction behind the line of travel — and `stepsFeasible`
+  rejects them in snapped routes. On hills the planner had used them as a
+  serpentine of sorts; the serpentine piece is the proper answer later.
+
 ## Order
 
 1. Format, loader, assembler, layer; convert the current nine files; the

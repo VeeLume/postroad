@@ -118,6 +118,25 @@ def diagonal(rise):
             "blocks": blocks, "fit": FIT}
 
 
+def diagonal_corner(rise):
+    """In from the south-west corner, out to the north-west corner: a 90° turn between two diagonals.
+    Owns its in-side bridge (-2,-1) and (-1,-2); the next piece owns the bridge on the out side."""
+    stages = {0: [(0, "surface")] * 4, 1: [(1, "slab"), (1, "surface"), (1, "surface"), (1, "surface")],
+              2: [(1, "slab"), (1, "surface"), (2, "slab"), (2, "surface")],
+              3: [(1, "stair"), (2, "stair"), (3, "stair"), (3, "surface")]}[rise]
+    (la, ra), (lb, rb), (lc, rc), (ld, rd) = stages
+    def cell(x, z, lvl, role, centre=False, facing=None):
+        return block(x, lvl, z, ("surface" if centre else "edge") if role == "surface" else role, facing if role == "stair" else None)
+    blocks = [cell(-2, -1, la, ra, facing=(1, 1)), cell(-1, -2, la, ra, facing=(1, 1)),   # bridge from the south-west
+              cell(-1, -1, lb, rb, True, facing=(1, 1)),                                   # core corner
+              cell(0, -1, lc, rc, facing=(0, 1)), cell(-1, 0, lc, rc, facing=(0, 1)), cell(0, 0, lc, rc, True, facing=(0, 1)),
+              cell(1, -1, ld, rd), cell(1, 0, ld, rd), cell(0, 1, ld, rd), cell(-1, 1, ld, rd, True), cell(1, 1, ld, rd)]
+    return {"id": f"dcorner_{rise}", "cost": CORNER_COST[rise],
+            "connectors": [{"at": [-1, la, -1], "facing": [-1, -1], "level": 0},
+                           {"at": [-1, rise, 1], "facing": [-1, 1], "level": rise}],
+            "blocks": blocks, "fit": FIT}
+
+
 def square(name, connectors, cost=0.0):
     blocks = [block(x, 0, z, "surface" if (x, z) == (0, 0) else "edge") for z in (-1, 0, 1) for x in (-1, 0, 1)]
     return {"id": name, "cost": cost, "connectors": connectors, "blocks": blocks, "fit": FIT}
@@ -129,7 +148,7 @@ ALL_FACINGS = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     for f in OUT.glob("*.json"): f.unlink()
-    pieces = [straight(r) for r in range(4)] + [diagonal(r) for r in range(3)] + [corner(r) for r in range(4)] + [bend(r) for r in range(4)] + [bend_from_diagonal(r) for r in range(1, 4)]
+    pieces = [straight(r) for r in range(4)] + [diagonal(r) for r in range(3)] + [corner(r) for r in range(4)] + [bend(r) for r in range(4)] + [bend_from_diagonal(r) for r in range(1, 4)] + [diagonal_corner(r) for r in range(4)]
     # The flat square with a connector on every side: the fallback for any flat point — sharp turns, junctions.
     pieces.append(square("square", [{"at": [max(-1, min(1, dx)), 0, max(-1, min(1, dz))], "facing": [dx, dz], "level": 0} for (dx, dz) in ALL_FACINGS]))
     for p in pieces:

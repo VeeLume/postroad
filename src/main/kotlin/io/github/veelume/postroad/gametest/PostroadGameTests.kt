@@ -853,9 +853,28 @@ class PostroadGameTests {
         helper.assertTrue(hill[0].base == 63 && hill[1].base == 63, "both rise pieces are based on the low level and meet at the top")
         helper.assertTrue(catalog.assemble(listOf(BlockPos(0, 64, 0), BlockPos(3, 68, 0))) == null, "no straight piece for rise 4")
         helper.assertTrue(catalog.assemble(listOf(BlockPos(0, 64, 0), BlockPos(3, 67, 3))) == null, "no diagonal piece for rise 3")
+        // A 90° turn between two diagonals has its own piece, rising or flat.
+        val dc = catalog.assemble(listOf(BlockPos(0, 64, 0), BlockPos(3, 64, 3), BlockPos(6, 66, 6), BlockPos(3, 66, 9)))!!
+        helper.assertValueEqual(dc.map { it.piece.id.path }, listOf("diagonal_0", "diagonal_0", "dcorner_2", "diagonal_0"), "a rising diagonal corner")
         // A sharp turn on flat ground falls back to the square with a connector on every side.
         val sharp = catalog.assemble(listOf(BlockPos(0, 64, 0), BlockPos(3, 64, 0), BlockPos(0, 64, 3)))!!
         helper.assertValueEqual(sharp[1].piece.id.path, "square", "the sharp turn is the flat square")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun planner_never_turns_back_on_itself(helper: GameTestHelper) {
+        // A wall with a gap that a sharp turn would shortcut: the route around it may not turn more than 90°.
+        val T = io.github.veelume.postroad.roads.gen.TerrainGrid(0, 0, 3, 30, 30)
+        for (z in 0 until 30) for (x in 0 until 30) T.setHeight(x, z, 64)
+        for (x in 5..25) T.set(x, 15, io.github.veelume.postroad.roads.gen.Terrain.BLOCKED)
+        val costs = io.github.veelume.postroad.roads.gen.PlannerCosts(steps = io.github.veelume.postroad.roads.gen.RoadPieces.current.stepClasses(), diagonalSteps = io.github.veelume.postroad.roads.gen.RoadPieces.current.diagonalStepClasses())
+        val route = io.github.veelume.postroad.roads.gen.RoadPlanner.route(T, io.github.veelume.postroad.roads.gen.Cell(15, 12), io.github.veelume.postroad.roads.gen.Cell(15, 18), costs)!!
+        for (k in 2 until route.size) {
+            val p = route[k - 2]; val a = route[k - 1]; val b = route[k]
+            helper.assertTrue((a.x - p.x) * (b.x - a.x) + (a.z - p.z) * (b.z - a.z) >= 0, "no turn sharper than 90° at $a")
+        }
+        helper.assertTrue(io.github.veelume.postroad.roads.gen.RoadPlanner.stepsFeasible(T, listOf(io.github.veelume.postroad.roads.gen.Cell(0, 0), io.github.veelume.postroad.roads.gen.Cell(1, 0), io.github.veelume.postroad.roads.gen.Cell(0, 1)), costs) == false, "a 135° turn is not feasible")
         helper.succeed()
     }
 

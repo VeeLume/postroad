@@ -220,7 +220,13 @@ object RoadPlanner {
             val cz = Terrain.keyZ(i)
             val h = terrain.heightAt(cx, cz)
             val gi = g.get(i)
+            // The direction this cell was reached from: a road cannot turn back on itself (pieces turn at
+            // most 90°), so neighbours behind the line of travel are not moves.
+            val pi = parent.get(i)
+            val inDx = if (pi == Long.MIN_VALUE) 0 else Integer.signum(cx - Terrain.keyX(pi))
+            val inDz = if (pi == Long.MIN_VALUE) 0 else Integer.signum(cz - Terrain.keyZ(pi))
             for ((k, d) in NEIGHBOURS.withIndex()) {
+                if (inDx * d[0] + inDz * d[1] < 0) continue
                 val nx = cx + d[0]
                 val nz = cz + d[1]
                 val step = stepCost(terrain, nx, nz, h, k >= 4, costs, slopeDivisor, band) ?: continue
@@ -398,6 +404,8 @@ object RoadPlanner {
             val diagonal = a.x != b.x && a.z != b.z
             val dh = abs(terrain.heightAt(b.x, b.z) - terrain.heightAt(a.x, a.z)).toDouble()
             if (dh > (if (diagonal) diagonalLimit else limit)) return false
+            // No turn sharper than 90°: the piece grid has no such piece.
+            if (k >= 2) { val p = cells[k - 2]; if ((a.x - p.x) * (b.x - a.x) + (a.z - p.z) * (b.z - a.z) < 0) return false }
         }
         return true
     }
