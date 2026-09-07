@@ -84,6 +84,22 @@ def bend(rise):
             "blocks": blocks, "fit": FIT}
 
 
+def bend_from_diagonal(rise):
+    """The bend the other way round: in from the north-east corner at level 0, out to the west at the rise.
+    A bend's connectors are of different kinds, so no transform of `bend` gives this; it is its own piece."""
+    rows = rows_for(rise)
+    (l1, r1), (l2, r2), (l3, r3) = rows
+    blocks = []
+    # Stage 1: the north-east group (the diagonal side), stage 2: the centre, stage 3: the west column.
+    blocks += [block(x, l1, z, ("surface" if (x, z) == (1, 1) else "edge") if r1 == "surface" else r1, (-1, -1) if r1 == "stair" else None) for (x, z) in ((0, 1), (1, 0), (1, 1), (1, -1), (-1, 1))]
+    blocks += [block(0, l2, z, ("surface" if z == 0 else "edge") if r2 == "surface" else r2, (-1, 0) if r2 == "stair" else None) for z in (-1, 0)]
+    blocks += row_blocks(-1, l3, r3, (-1, 0), zs=(-1, 0))
+    return {"id": f"bendd_{rise}", "cost": CORNER_COST[rise],
+            "connectors": [{"at": [1, l1, 1], "facing": [1, 1], "level": 0},
+                           {"at": [-1, rise, 0], "facing": [-1, 0], "level": rise}],
+            "blocks": blocks, "fit": FIT}
+
+
 def diagonal(rise):
     """In from the south-west corner, out to the north-east. Owns its in-side bridge (-2,-1) and (-1,-2)."""
     stages = {0: [(0, "surface")] * 4, 1: [(1, "slab"), (1, "surface"), (1, "surface"), (1, "surface")],
@@ -113,7 +129,7 @@ ALL_FACINGS = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     for f in OUT.glob("*.json"): f.unlink()
-    pieces = [straight(r) for r in range(4)] + [diagonal(r) for r in range(3)] + [corner(r) for r in range(4)] + [bend(r) for r in range(4)]
+    pieces = [straight(r) for r in range(4)] + [diagonal(r) for r in range(3)] + [corner(r) for r in range(4)] + [bend(r) for r in range(4)] + [bend_from_diagonal(r) for r in range(1, 4)]
     # The flat square with a connector on every side: the fallback for any flat point — sharp turns, junctions.
     pieces.append(square("square", [{"at": [max(-1, min(1, dx)), 0, max(-1, min(1, dz))], "facing": [dx, dz], "level": 0} for (dx, dz) in ALL_FACINGS]))
     for p in pieces:

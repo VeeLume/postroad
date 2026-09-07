@@ -844,6 +844,9 @@ class PostroadGameTests {
         val ok = catalog.assemble(listOf(BlockPos(0, 64, 0), BlockPos(3, 64, 0), BlockPos(6, 67, 0), BlockPos(6, 68, 3), BlockPos(9, 70, 6)))
         helper.assertTrue(ok != null, "straights, a rising corner, a rising bend and a rising diagonal assemble")
         helper.assertValueEqual(ok!!.map { it.piece.id.path }, listOf("straight_0", "straight_0", "corner_3", "bend_1", "diagonal_2"), "pieces per point: the higher point hosts the rise")
+        // Rises through turns in both directions: a corner mirrors, a bend needs its own reversed piece.
+        val turns = catalog.assemble(listOf(BlockPos(0, 66, 0), BlockPos(3, 66, 0), BlockPos(3, 64, 3), BlockPos(6, 66, 6), BlockPos(9, 66, 6), BlockPos(12, 66, 6)))!!
+        helper.assertValueEqual(turns.map { it.piece.id.path }, listOf("straight_0", "corner_2", "bend_0", "bendd_2", "straight_0", "straight_0"), "a descending corner, a flat bend, then an ascent from the diagonal side onto a cardinal run")
         // A hilltop: the ascent is hosted at the top, the descent moves to the lower point.
         val hill = catalog.assemble(listOf(BlockPos(0, 64, 0), BlockPos(3, 66, 0), BlockPos(6, 64, 0), BlockPos(9, 64, 0)))!!
         helper.assertValueEqual(hill.map { it.piece.id.path }, listOf("straight_2", "straight_2", "straight_0", "straight_0"), "a hilltop's two rises on two different pieces")
@@ -920,7 +923,7 @@ class PostroadGameTests {
         network.addPath(io.github.veelume.postroad.roads.RoadPath(road.id, dim, points.toMutableList(), MutableList(points.size) { io.github.veelume.postroad.roads.Tier.PAVED },
             io.github.veelume.postroad.roads.gen.RoadGen.GENERATED_BY, 0, charted = false))
         // The arena may straddle a chunk border (its position depends on the test count): build every chunk the road's width touches.
-        val chunks = (-2..2).flatMap { dz -> (-2..4).map { dx -> net.minecraft.world.level.ChunkPos.asLong((start.x + dx) shr 4, (start.z + dz) shr 4) } }.distinct()
+        val chunks = (-3..3).flatMap { dz -> (-3..6).map { dx -> net.minecraft.world.level.ChunkPos.asLong((start.x + dx) shr 4, (start.z + dz) shr 4) } }.distinct()
         val placed = chunks.sumOf { io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, it) }
         helper.assertTrue(placed > 0, "the builder placed road blocks ($placed)")
         helper.assertTrue(road.chunks().all { road.builtChunks.contains(it) }, "the road's chunks are marked built")
