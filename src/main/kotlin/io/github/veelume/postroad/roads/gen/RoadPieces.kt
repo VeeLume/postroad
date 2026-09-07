@@ -57,12 +57,14 @@ data class RoadPiece(
         const val ROLE_STAIR = "stair"
         const val ROLE_SLAB = "slab"
         const val ROLE_FILL = "fill"
+        /** The fill block used as the walking surface (a cobblestone landing): a road role, so the column fit applies. */
+        const val ROLE_PAVED = "paved"
         const val ROLE_WALL = "wall"
         const val ROLE_AIR = "air"
         const val ROLE_POST = "post"
         const val ROLE_LAMP = "lamp"
         /** Roles that are the road itself: their columns get the piece's fit. */
-        val ROAD_ROLES = setOf(ROLE_SURFACE, ROLE_EDGE, ROLE_STAIR, ROLE_SLAB)
+        val ROAD_ROLES = setOf(ROLE_SURFACE, ROLE_EDGE, ROLE_STAIR, ROLE_SLAB, ROLE_PAVED)
     }
 }
 
@@ -120,6 +122,40 @@ class PieceCatalog(val pieces: List<RoadPiece>) {
         .map { (r, ps) -> StepClass("diagonal$r", r.toDouble(), ps.minOf { it.cost }) }
 
     val maxRise: Int get() = pieces.filter { it.isStraight }.maxOfOrNull { it.rise } ?: 0
+
+    /**
+     * The largest rise the catalog has per turn kind: key "<low side kind>-<high side kind>-<angle>"
+     * with kinds `c` (cardinal) / `d` (diagonal) and the angle 0, 45 or 90 between the two sides'
+     * lines of travel. The planner refuses a hosted rise its key cannot carry. Two-connector pieces
+     * without a terrain condition only.
+     */
+    fun turnLimits(): Map<String, Int> {
+        val out = HashMap<String, Int>()
+        for (p in pieces) {
+            if (p.connectors.size != 2 || p.terrain != null) continue
+            val (a, b) = p.connectors
+            val (low, high) = if (a.level <= b.level) a to b else b to a
+            val k = turnKey(low.facing, high.facing)
+            out[k] = maxOf(out[k] ?: -1, high.level - low.level)
+            if (a.level == b.level) { val k2 = turnKey(b.facing, a.facing); out[k2] = maxOf(out[k2] ?: -1, 0) }
+        }
+        return out
+    }
+
+    companion object Turns {
+        val EMPTY = PieceCatalog(emptyList())
+
+        /** The turn key for a tile whose two connectors face [low] (the lower side) and [high]. */
+        fun turnKey(low: Facing, high: Facing): String {
+            val dot = -low.dx * high.dx - low.dz * high.dz // between the line of travel in (−low) and out (high)
+            val angle = when {
+                dot > 0 && (low.isDiagonal == high.isDiagonal) -> 0
+                dot == 0 -> 90
+                else -> 45
+            }
+            return "${if (low.isDiagonal) "d" else "c"}-${if (high.isDiagonal) "d" else "c"}-$angle"
+        }
+    }
 
     /**
      * The piece and transform for a point with [needs]; null when the catalog has none. Pieces
@@ -230,9 +266,6 @@ class PieceCatalog(val pieces: List<RoadPiece>) {
         return best ?: piece
     }
 
-    companion object {
-        val EMPTY = PieceCatalog(emptyList())
-    }
 }
 
 /** The catalog from the json files under `data/postroad/roads/pieces`. */

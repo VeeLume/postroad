@@ -55,6 +55,8 @@ object PostroadCommands {
                         .then(Commands.literal("rebuild").requires { it.hasPermission(2) }.executes { roadsRebuild(it) })
                         .then(Commands.literal("export").requires { it.hasPermission(2) }.executes { roadsExport(it) })
                         .then(Commands.literal("showcase").requires { it.hasPermission(2) }.executes { roadsShowcase(it) })
+                        .then(Commands.literal("capture").requires { it.hasPermission(2) }.then(Commands.argument("piece", com.mojang.brigadier.arguments.StringArgumentType.word()).executes { ctx ->
+                            ctx.source.sendSuccess({ Component.literal(io.github.veelume.postroad.roads.gen.RoadBuilder.capture(ctx.source.level, com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "piece"), BlockPos.containing(ctx.source.position))) }, false); 1 }))
                         .then(Commands.literal("known").requires { it.hasPermission(2) }.then(Commands.argument("x", IntegerArgumentType.integer()).then(Commands.argument("z", IntegerArgumentType.integer()).executes { roadsKnown(it, IntegerArgumentType.getInteger(it, "x"), IntegerArgumentType.getInteger(it, "z")) })))
                         .then(Commands.literal("trace").requires { it.hasPermission(2) }.then(Commands.argument("pair", com.mojang.brigadier.arguments.StringArgumentType.word()).executes { roadsTrace(it) }))
                         .then(

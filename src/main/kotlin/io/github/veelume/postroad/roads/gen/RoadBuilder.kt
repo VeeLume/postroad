@@ -163,6 +163,73 @@ object RoadBuilder {
         return n
     }
 
+    /**
+     * `/postroad roads capture <id>`: reads the showcase piece [id] back out of the world — every block on
+     * its platform above the platform's top, mapped to a role by the temperate palette (dirt path →
+     * surface, coarse dirt and gravel → edge, stairs with their facing, slabs, cobblestone → fill unless a
+     * road block stands above it, fence → post, lantern → lamp) — and writes it as the piece's json to
+     * `<world>/postroad/pieces/<id>.json`, keeping the current piece's connectors, cost and fit. So a piece
+     * can be adjusted by hand in the showcase and captured, instead of transcribed. Returns a summary.
+     */
+    fun capture(level: ServerLevel, id: String, near: BlockPos): String {
+        val piece = RoadPieces.current.pieces.firstOrNull { it.id.path == id } ?: return "No catalog piece '$id'."
+        // The platform is found by its lime marker (one beyond the first connector), nearest to [near]: the
+        // showcase list does not survive a restart, and re-laying the showcase would erase the adjustments.
+        var lime: BlockPos? = null
+        for (dz in -20..20) for (dx in -20..20) for (dy in -10..10) {
+            val pos = near.offset(dx, dy, dz)
+            if (level.getBlockState(pos).block == Blocks.LIME_CONCRETE && (lime == null || pos.distSqr(near) < lime.distSqr(near))) lime = pos
+        }
+        val marker = lime ?: return "No lime marker block within 20 blocks of ${near.toShortString()}; stand next to the piece."
+        val c0 = piece.connectors.first()
+        val p = PiecePlacement(piece, Transform(0, false), marker.x - c0.x - c0.facing.dx, marker.y - c0.level, marker.z - c0.z - c0.facing.dz, 0, "capture")
+        val blocks = ArrayList<Map<String, Any>>()
+        val decor = ArrayList<Map<String, Any>>()
+        var skipped = 0
+        val roadBlocks = HashSet<Long>()
+        fun key(x: Int, z: Int) = RoadPieceLayer.key(x, z)
+        // First pass: which columns hold a road block at which level (to drop the fill the layer puts under them).
+        val roadTop = HashMap<Long, Int>()
+        for (dz in -4..4) for (dx in -4..4) for (dy in 0..8) {
+            val s = level.getBlockState(BlockPos(p.x + dx, p.base + dy, p.z + dz))
+            val b = s.block
+            if (b == Blocks.DIRT_PATH || b == Blocks.COARSE_DIRT || b == Blocks.GRAVEL || b is net.minecraft.world.level.block.StairBlock || b is net.minecraft.world.level.block.SlabBlock) roadTop[key(dx, dz)] = maxOf(roadTop[key(dx, dz)] ?: Int.MIN_VALUE, dy)
+        }
+        for (dz in -4..4) for (dx in -4..4) for (dy in 0..8) {
+            val pos = BlockPos(p.x + dx, p.base + dy, p.z + dz)
+            val s = level.getBlockState(pos)
+            val b = s.block
+            if (s.isAir || b == Blocks.STONE || b == Blocks.LIME_CONCRETE || b == Blocks.RED_CONCRETE) continue
+            val at = listOf(dx, dy, dz)
+            when {
+                b == Blocks.DIRT_PATH -> blocks.add(mapOf("at" to at, "role" to "surface"))
+                b == Blocks.COARSE_DIRT || b == Blocks.GRAVEL -> blocks.add(mapOf("at" to at, "role" to "edge"))
+                b is net.minecraft.world.level.block.StairBlock -> { val f = s.getValue(net.minecraft.world.level.block.StairBlock.FACING); blocks.add(mapOf("at" to at, "role" to "stair", "facing" to listOf(f.stepX, f.stepZ))) }
+                b is net.minecraft.world.level.block.SlabBlock -> blocks.add(mapOf("at" to at, "role" to "slab"))
+                // Cobblestone: fill under a road block is the layer's own work; exposed at the top of its column it is a landing (`paved`); with structure above it, structure (`fill`).
+                b == Blocks.COBBLESTONE -> {
+                    if ((roadTop[key(dx, dz)] ?: Int.MIN_VALUE) > dy) skipped++
+                    else blocks.add(mapOf("at" to at, "role" to (if (level.getBlockState(pos.above()).isAir) "paved" else "fill")))
+                }
+                b is net.minecraft.world.level.block.FenceBlock -> decor.add(mapOf("at" to at, "role" to "post", "every" to 8))
+                b is net.minecraft.world.level.block.LanternBlock -> decor.add(mapOf("at" to at, "role" to "lamp", "every" to 8))
+                else -> { skipped++; Postroad.LOGGER.warn("capture {}: unknown block {} at {}; skipped", id, b, pos.toShortString()) }
+            }
+        }
+        val json = com.google.gson.GsonBuilder().setPrettyPrinting().create()
+        val out = linkedMapOf<String, Any>(
+            "id" to id, "cost" to piece.cost,
+            "connectors" to piece.connectors.map { c -> mapOf("at" to listOf(c.x, c.y, c.z), "facing" to listOf(c.facing.dx, c.facing.dz), "level" to c.level) },
+            "blocks" to blocks,
+        )
+        if (decor.isNotEmpty()) out["decor"] = decor
+        out["fit"] = if (piece.fit.none) "none" else mapOf("cut" to piece.fit.cut, "fill" to piece.fit.fill, "deck" to piece.fit.deck)
+        val file = level.server.getWorldPath(net.minecraft.world.level.storage.LevelResource("postroad")).resolve("pieces").resolve("$id.json")
+        java.nio.file.Files.createDirectories(file.parent)
+        java.nio.file.Files.writeString(file, json.toJson(out) + "\n")
+        return "Captured $id at anchor (${p.x}, ${p.base}, ${p.z}): ${blocks.size} block(s), ${decor.size} decoration(s), $skipped skipped (fill under road blocks, unknown) → $file"
+    }
+
     /** `/postroad roads rebuild`: re-queues every loaded, unbuilt road chunk. Returns how many. */
     fun requeueLoaded(server: MinecraftServer): Int {
         val storage = RoadPlanStorage.get(server)

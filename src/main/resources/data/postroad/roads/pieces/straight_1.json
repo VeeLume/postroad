@@ -108,13 +108,22 @@
         1,
         2
       ],
-      "role": "post",
+      "role": "fill",
       "every": 8
     },
     {
       "at": [
         0,
         2,
+        2
+      ],
+      "role": "post",
+      "every": 8
+    },
+    {
+      "at": [
+        0,
+        3,
         2
       ],
       "role": "lamp",

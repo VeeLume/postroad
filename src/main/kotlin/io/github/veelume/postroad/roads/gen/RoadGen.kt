@@ -207,7 +207,7 @@ object RoadGen {
             maxLink = PostroadConfig.planMaxLink,
             neighbours = PostroadConfig.planNeighbours,
             margin = PostroadConfig.planStructureMargin,
-            costs = PlannerRules.current.copy(steps = RoadPieces.current.stepClasses(), diagonalSteps = RoadPieces.current.diagonalStepClasses()),
+            costs = PlannerRules.current.copy(steps = RoadPieces.current.stepClasses(), diagonalSteps = RoadPieces.current.diagonalStepClasses(), turnLimits = RoadPieces.current.turnLimits()),
             knownTowns = storage.townsIn(dimension),
             knownRoads = storage.roadsIn(dimension).filter { it.id !in replace },
             knownObstacles = storage.obstaclesIn(dimension),

@@ -122,6 +122,32 @@ straight (or diagonal) piece rather than a special one.
   rejects them in snapped routes. On hills the planner had used them as a
   serpentine of sorts; the serpentine piece is the proper answer later.
 
+## Authoring in the world (Valerie's review of 2026-09-07)
+
+`/postroad roads showcase` lays every piece on a platform; a piece adjusted
+there by hand is read back with `/postroad roads capture <id>` into
+`<world>/postroad/pieces/<id>.json` (blocks mapped to roles by the temperate
+palette; exposed cobblestone is a `paved` landing, cobblestone under road
+blocks is left to the layer's fit). Captured files are copied into the
+resources and listed in the generator's `HAND_AUTHORED` set, which then
+neither writes nor deletes them but adds what a showcase build cannot show:
+the joint blocks on each diagonal side. From the review: bend_3, bendd_2,
+bendd_3, corner_2 and corner_3 are hand-authored (narrow stairs cost more:
+14 / 8 / 15), dcorner_3 is gone, the lamppost stands on a paved footing at
+the anchor row's level.
+
+**Joints.** A diagonal contact between two tiles is only a corner; every
+diagonal connector side now owns the four blocks outside the core that make
+the joint a full 3-wide band, whichever way the road runs. Two tiles sharing a
+joint lay the same blocks at the same levels, so the double ownership is
+harmless. This was the gap seen wherever a bend or diagonal met.
+
+**Turns are moves.** The planner takes per turn kind (cardinal/diagonal in,
+cardinal/diagonal out, 0/45/90°) the largest rise the catalog has, and refuses
+a hosted rise its kind cannot carry: with dcorner_3 gone no route climbs 3
+through a diagonal corner, and the catalog check at storage time no longer
+has to drop it.
+
 ## Order
 
 1. Format, loader, assembler, layer; convert the current nine files; the

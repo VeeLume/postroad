@@ -706,7 +706,10 @@ class PostroadGameTests {
         val catalog = io.github.veelume.postroad.roads.gen.RoadPieces.current
         val abs = points.map { helper.absolutePos(it) }
         val placements = catalog.assemble(abs) ?: run { helper.fail("no piece for ${points.map { it.toShortString() }}: ${abs.indices.map { catalog.needsAt(abs, it) }}"); return emptyList() }
-        for (p in placements) io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, p, styles.style(0), styles, { x, z -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 1, styles) }, inArea)
+        // Never write outside the arena (a piece's joint blocks can reach past it).
+        val o = helper.absolutePos(BlockPos(0, 0, 0))
+        val inside = { x: Int, z: Int -> x in o.x..o.x + 6 && z in o.z..o.z + 6 && inArea(x, z) }
+        for (p in placements) io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, p, styles.style(0), styles, { x, z -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 1, styles) }, inside)
         return placements
     }
 
@@ -766,7 +769,8 @@ class PostroadGameTests {
         val floorY = shapeFloor(helper) { x, z -> if (x + z >= 6) 1 else 0 }
         val ps = layRoad(helper, floorY, listOf(BlockPos(1, F + 1, 1), BlockPos(4, F + 2, 4)))
         helper.assertValueEqual(ps.map { it.piece.id.path }, listOf("diagonal_0", "diagonal_1"), "a road that starts diagonally starts with a diagonal piece, then the rise-1 diagonal")
-        helper.assertTrue(isSlab(blockAt(helper, 2, F + 1, 3)) && isSlab(blockAt(helper, 3, F + 1, 2)), "the bridge blocks at (2, 3) and (3, 2) are the slab step")
+        helper.assertTrue(isSlab(blockAt(helper, 2, F + 1, 3)) && isSlab(blockAt(helper, 3, F + 1, 2)), "the joint blocks at (2, 3) and (3, 2) are the slab step")
+        helper.assertTrue(isSlab(blockAt(helper, 3, F + 1, 1)) && isSlab(blockAt(helper, 1, F + 1, 3)), "the joint is three wide: slabs at (3, 1) and (1, 3) too")
         helper.assertTrue(blockAt(helper, 3, F + 1, 3) != Blocks.AIR && !isSlab(blockAt(helper, 3, F + 1, 3)), "the core corner (3, 3) is a surface at level 1")
         var stairs = 0
         for (x in 0..6) for (z in 0..6) for (y in F..F + 2) if (isStair(blockAt(helper, x, y, z))) stairs++
@@ -853,9 +857,17 @@ class PostroadGameTests {
         helper.assertTrue(hill[0].base == 63 && hill[1].base == 63, "both rise pieces are based on the low level and meet at the top")
         helper.assertTrue(catalog.assemble(listOf(BlockPos(0, 64, 0), BlockPos(3, 68, 0))) == null, "no straight piece for rise 4")
         helper.assertTrue(catalog.assemble(listOf(BlockPos(0, 64, 0), BlockPos(3, 67, 3))) == null, "no diagonal piece for rise 3")
+        // The turn limits the planner takes from the catalog: what each turn kind can climb.
+        val limits = catalog.turnLimits()
+        helper.assertValueEqual(limits["c-c-0"], 3, "a straight climbs 3")
+        helper.assertValueEqual(limits["d-d-0"], 2, "a diagonal climbs 2")
+        helper.assertValueEqual(limits["c-c-90"], 3, "a corner climbs 3")
+        helper.assertValueEqual(limits["d-d-90"], 2, "a diagonal corner climbs 2 (dcorner_3 is gone)")
+        helper.assertTrue((limits["c-d-45"] ?: 0) >= 2 && (limits["d-c-45"] ?: 0) >= 2, "bends climb both ways: $limits")
         // A 90° turn between two diagonals has its own piece, rising or flat.
         val dc = catalog.assemble(listOf(BlockPos(0, 64, 0), BlockPos(3, 64, 3), BlockPos(6, 66, 6), BlockPos(3, 66, 9)))!!
         helper.assertValueEqual(dc.map { it.piece.id.path }, listOf("diagonal_0", "diagonal_0", "dcorner_2", "diagonal_0"), "a rising diagonal corner")
+        helper.assertTrue(catalog.assemble(listOf(BlockPos(0, 64, 0), BlockPos(3, 64, 3), BlockPos(6, 67, 6), BlockPos(3, 67, 9))) == null, "no diagonal corner climbs 3")
         // A sharp turn on flat ground falls back to the square with a connector on every side.
         val sharp = catalog.assemble(listOf(BlockPos(0, 64, 0), BlockPos(3, 64, 0), BlockPos(0, 64, 3)))!!
         helper.assertValueEqual(sharp[1].piece.id.path, "square", "the sharp turn is the flat square")
@@ -875,6 +887,12 @@ class PostroadGameTests {
             helper.assertTrue((a.x - p.x) * (b.x - a.x) + (a.z - p.z) * (b.z - a.z) >= 0, "no turn sharper than 90° at $a")
         }
         helper.assertTrue(io.github.veelume.postroad.roads.gen.RoadPlanner.stepsFeasible(T, listOf(io.github.veelume.postroad.roads.gen.Cell(0, 0), io.github.veelume.postroad.roads.gen.Cell(1, 0), io.github.veelume.postroad.roads.gen.Cell(0, 1)), costs) == false, "a 135° turn is not feasible")
+        // A climb of 3 through a diagonal corner is a move the catalog cannot build; the planner goes round.
+        val G = io.github.veelume.postroad.roads.gen.TerrainGrid(0, 0, 3, 12, 12)
+        for (z in 0 until 12) for (x in 0 until 12) G.setHeight(x, z, if (x + z >= 10) 67 else 64)
+        val limited = costs.copy(turnLimits = io.github.veelume.postroad.roads.gen.RoadPieces.current.turnLimits())
+        val r2 = io.github.veelume.postroad.roads.gen.RoadPlanner.route(G, io.github.veelume.postroad.roads.gen.Cell(2, 2), io.github.veelume.postroad.roads.gen.Cell(9, 9), limited)
+        helper.assertTrue(r2 == null || io.github.veelume.postroad.roads.gen.RoadPieces.current.assemble(r2.map { G.cellToBlock(it.x, it.z) }) != null, "every planned route assembles")
         helper.succeed()
     }
 

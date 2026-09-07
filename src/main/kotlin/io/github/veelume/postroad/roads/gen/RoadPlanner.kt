@@ -19,6 +19,8 @@ data class PlannerCosts(
      * Existing road cells carry no step cost, so a second route rides an existing stair section.
      */
     val steps: List<StepClass> = listOf(StepClass("flat", 0.0, 0.0), StepClass("slabs", 1.0, 1.0), StepClass("stairs", 2.0, 6.0), StepClass("steep", 4.0, 12.0)),
+    /** Per turn kind, the largest rise the catalog can build (see `PieceCatalog.turnLimits`); empty means no limit. */
+    val turnLimits: Map<String, Int> = emptyMap(),
     /** Diagonal moves: one class per diagonal piece rise (slab steps), in the catalog's costs. Empty: no diagonal moves. */
     val diagonalSteps: List<StepClass> = listOf(StepClass("diagonal0", 0.0, 0.5), StepClass("diagonal1", 1.0, 2.0), StepClass("diagonal2", 2.0, 6.0)),
     /** Per block a cell sits above the higher town or below the lower one (beyond [bandMargin]), per cell. */
@@ -225,10 +227,19 @@ object RoadPlanner {
             val pi = parent.get(i)
             val inDx = if (pi == Long.MIN_VALUE) 0 else Integer.signum(cx - Terrain.keyX(pi))
             val inDz = if (pi == Long.MIN_VALUE) 0 else Integer.signum(cz - Terrain.keyZ(pi))
+            val hParent = if (pi == Long.MIN_VALUE) h else terrain.heightAt(Terrain.keyX(pi), Terrain.keyZ(pi))
             for ((k, d) in NEIGHBOURS.withIndex()) {
                 if (inDx * d[0] + inDz * d[1] < 0) continue
                 val nx = cx + d[0]
                 val nz = cz + d[1]
+                // This cell's piece is known now (in from the parent, out to the neighbour): the rises it hosts —
+                // the climb into it and a descent out of it — must be ones the catalog has for that turn.
+                if (pi != Long.MIN_VALUE && costs.turnLimits.isNotEmpty() && slopeDivisor == 1.0 && terrain.inBounds(nx, nz)) {
+                    val hn = terrain.heightAt(nx, nz)
+                    val inSide = Facing(-inDx, -inDz); val outSide = Facing(d[0], d[1])
+                    if (h > hParent && (costs.turnLimits[PieceCatalog.turnKey(inSide, outSide)] ?: -1) < h - hParent) continue
+                    if (hn < h && (costs.turnLimits[PieceCatalog.turnKey(outSide, inSide)] ?: -1) < h - hn) continue
+                }
                 val step = stepCost(terrain, nx, nz, h, k >= 4, costs, slopeDivisor, band) ?: continue
                 val j = Terrain.key(nx, nz)
                 if (closed.contains(j)) continue

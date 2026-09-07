@@ -12,7 +12,25 @@ import json, pathlib
 
 OUT = pathlib.Path(__file__).resolve().parent.parent / "src/main/resources/data/postroad/roads/pieces"
 FIT = {"cut": 4, "fill": 3, "deck": True}
-LAMPS = [{"at": [0, 1, 2], "role": "post", "every": 8}, {"at": [0, 2, 2], "role": "lamp", "every": 8}]
+def lamps(anchor_level):
+    """A lamppost beside the anchor row: a paved footing at the row's level, the post above it, the lantern on top
+    (Valerie's placement, captured from the showcase on 2026-09-07)."""
+    return [{"at": [0, anchor_level, 2], "role": "fill", "every": 8},
+            {"at": [0, anchor_level + 1, 2], "role": "post", "every": 8},
+            {"at": [0, anchor_level + 2, 2], "role": "lamp", "every": 8}]
+
+
+def bridge(fx, fz, level, role, facing=None):
+    """The joint on a diagonal side: the four blocks outside the core that make the corner contact with the
+    neighbouring tile a full 3-wide band. Every diagonal connector side owns them; two tiles that share a
+    joint lay the same blocks at the same levels, so the double ownership is harmless."""
+    return [block(2 * fx, level, fz, role, facing), block(fx, level, 2 * fz, role, facing),
+            block(fx, level, 3 * fz, role, facing), block(3 * fx, level, fz, role, facing)]
+
+
+# Pieces adjusted by hand in the showcase and captured with `/postroad roads capture`: the generator
+# neither writes nor deletes these files; their json is the source of truth.
+HAND_AUTHORED = {"bend_3", "bendd_2", "bendd_3", "corner_2", "corner_3"}
 COST = {0: 0.0, 1: 1.0, 2: 4.0, 3: 9.0}
 DIAG_COST = {0: 0.5, 1: 2.0, 2: 6.0}
 CORNER_COST = {0: 0.0, 1: 1.5, 2: 5.0, 3: 10.0}
@@ -48,7 +66,7 @@ def straight(rise):
     return {"id": f"straight_{rise}", "cost": COST[rise],
             "connectors": [{"at": [-1, rows[0][0], 0], "facing": [-1, 0], "level": 0},
                            {"at": [1, rise, 0], "facing": [1, 0], "level": rise}],
-            "blocks": blocks, "decor": LAMPS, "fit": FIT}
+            "blocks": blocks, "decor": lamps(rows[1][0]), "fit": FIT}
 
 
 def corner(rise):
@@ -78,6 +96,7 @@ def bend(rise):
     blocks += row_blocks(-1, l1, r1, (1, 0), zs=(-1, 0))
     blocks += [block(0, l2, z, ("surface" if z == 0 else "edge") if r2 == "surface" else r2, (1, 0) if r2 == "stair" else None) for z in (-1, 0)]
     blocks += [block(x, l3, z, ("surface" if (x, z) == (1, 1) else "edge") if r3 == "surface" else r3, (1, 1) if r3 == "stair" else None) for (x, z) in ((0, 1), (1, 0), (1, 1), (1, -1), (-1, 1))]
+    blocks += bridge(1, 1, rise, "edge")
     return {"id": f"bend_{rise}", "cost": CORNER_COST[rise],
             "connectors": [{"at": [-1, l1, 0], "facing": [-1, 0], "level": 0},
                            {"at": [1, rise, 1], "facing": [1, 1], "level": rise}],
@@ -94,6 +113,7 @@ def bend_from_diagonal(rise):
     blocks += [block(x, l1, z, ("surface" if (x, z) == (1, 1) else "edge") if r1 == "surface" else r1, (-1, -1) if r1 == "stair" else None) for (x, z) in ((0, 1), (1, 0), (1, 1), (1, -1), (-1, 1))]
     blocks += [block(0, l2, z, ("surface" if z == 0 else "edge") if r2 == "surface" else r2, (-1, 0) if r2 == "stair" else None) for z in (-1, 0)]
     blocks += row_blocks(-1, l3, r3, (-1, 0), zs=(-1, 0))
+    blocks += bridge(1, 1, 0, "edge")
     return {"id": f"bendd_{rise}", "cost": CORNER_COST[rise],
             "connectors": [{"at": [1, l1, 1], "facing": [1, 1], "level": 0},
                            {"at": [-1, rise, 0], "facing": [-1, 0], "level": rise}],
@@ -107,11 +127,12 @@ def diagonal(rise):
     (la, ra), (lb, rb), (lc, rc), (ld, rd) = stages
     def cell(x, z, lvl, role, centre=False):
         return block(x, lvl, z, ("surface" if centre else "edge") if role == "surface" else role)
-    blocks = [cell(-2, -1, la, ra), cell(-1, -2, la, ra),            # bridge
-              cell(-1, -1, lb, rb, True),                             # core corner
-              cell(0, -1, lc, rc), cell(-1, 0, lc, rc),
-              cell(0, 0, ld, rd, True), cell(1, 0, ld, rd), cell(0, 1, ld, rd), cell(1, 1, ld, rd, True),
-              cell(1, -1, ld, rd), cell(-1, 1, ld, rd)]
+    blocks = bridge(-1, -1, la, "edge" if ra == "surface" else ra)          # the joint on the in side, the slab step
+    blocks += [cell(-1, -1, lb, rb, True),                                  # core corner
+               cell(0, -1, lc, rc), cell(-1, 0, lc, rc),
+               cell(0, 0, ld, rd, True), cell(1, 0, ld, rd), cell(0, 1, ld, rd), cell(1, 1, ld, rd, True),
+               cell(1, -1, ld, rd), cell(-1, 1, ld, rd)]
+    blocks += bridge(1, 1, rise, "edge")                                     # the joint on the out side
     return {"id": f"diagonal_{rise}", "cost": DIAG_COST[rise],
             "connectors": [{"at": [-1, la, -1], "facing": [-1, -1], "level": 0},
                            {"at": [1, rise, 1], "facing": [1, 1], "level": rise}],
@@ -127,10 +148,11 @@ def diagonal_corner(rise):
     (la, ra), (lb, rb), (lc, rc), (ld, rd) = stages
     def cell(x, z, lvl, role, centre=False, facing=None):
         return block(x, lvl, z, ("surface" if centre else "edge") if role == "surface" else role, facing if role == "stair" else None)
-    blocks = [cell(-2, -1, la, ra, facing=(1, 1)), cell(-1, -2, la, ra, facing=(1, 1)),   # bridge from the south-west
-              cell(-1, -1, lb, rb, True, facing=(1, 1)),                                   # core corner
-              cell(0, -1, lc, rc, facing=(0, 1)), cell(-1, 0, lc, rc, facing=(0, 1)), cell(0, 0, lc, rc, True, facing=(0, 1)),
-              cell(1, -1, ld, rd), cell(1, 0, ld, rd), cell(0, 1, ld, rd), cell(-1, 1, ld, rd, True), cell(1, 1, ld, rd)]
+    blocks = bridge(-1, -1, la, "edge" if ra == "surface" else ra, (1, 1) if ra == "stair" else None)   # the joint from the south-west
+    blocks += [cell(-1, -1, lb, rb, True, facing=(1, 1)),                                   # core corner
+               cell(0, -1, lc, rc, facing=(0, 1)), cell(-1, 0, lc, rc, facing=(0, 1)), cell(0, 0, lc, rc, True, facing=(0, 1)),
+               cell(1, -1, ld, rd), cell(1, 0, ld, rd), cell(0, 1, ld, rd), cell(-1, 1, ld, rd, True), cell(1, 1, ld, rd)]
+    blocks += bridge(-1, 1, rise, "edge")                                                    # the joint toward the north-west
     return {"id": f"dcorner_{rise}", "cost": CORNER_COST[rise],
             "connectors": [{"at": [-1, la, -1], "facing": [-1, -1], "level": 0},
                            {"at": [-1, rise, 1], "facing": [-1, 1], "level": rise}],
@@ -145,15 +167,37 @@ def square(name, connectors, cost=0.0):
 ALL_FACINGS = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)]
 
 
+def augment_hand_authored():
+    """Hand-authored pieces get what every piece must have and a showcase build cannot show: the joint
+    blocks on each diagonal side (at the connector's level, if none are there yet)."""
+    for name in sorted(HAND_AUTHORED):
+        f = OUT / f"{name}.json"
+        if not f.exists(): continue
+        o = json.loads(f.read_text(encoding="utf-8"))
+        have = {tuple(b["at"]) for b in o["blocks"]}
+        added = 0
+        for c in o["connectors"]:
+            fx, fz = c["facing"]
+            if fx == 0 or fz == 0: continue
+            for b in bridge(fx, fz, c["level"], "edge"):
+                if tuple(b["at"]) not in have and not any(a[0] == b["at"][0] and a[2] == b["at"][2] for a in have):
+                    o["blocks"].append(b); added += 1
+        f.write_text(json.dumps(o, indent=2) + "\n", encoding="utf-8", newline="\n")
+        print(f"{name}: {added} joint block(s) added")
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    for f in OUT.glob("*.json"): f.unlink()
-    pieces = [straight(r) for r in range(4)] + [diagonal(r) for r in range(3)] + [corner(r) for r in range(4)] + [bend(r) for r in range(4)] + [bend_from_diagonal(r) for r in range(1, 4)] + [diagonal_corner(r) for r in range(4)]
+    for f in OUT.glob("*.json"):
+        if f.stem not in HAND_AUTHORED: f.unlink()
+    pieces = [straight(r) for r in range(4)] + [diagonal(r) for r in range(3)] + [corner(r) for r in range(4)] + [bend(r) for r in range(4)] + [bend_from_diagonal(r) for r in range(1, 4)] + [diagonal_corner(r) for r in range(3)]
+    pieces = [p for p in pieces if p["id"] not in HAND_AUTHORED]
     # The flat square with a connector on every side: the fallback for any flat point — sharp turns, junctions.
     pieces.append(square("square", [{"at": [max(-1, min(1, dx)), 0, max(-1, min(1, dz))], "facing": [dx, dz], "level": 0} for (dx, dz) in ALL_FACINGS]))
     for p in pieces:
         (OUT / f"{p['id']}.json").write_text(json.dumps(p, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(f"{len(pieces)} pieces written to {OUT}")
+    augment_hand_authored()
 
 
 if __name__ == "__main__":

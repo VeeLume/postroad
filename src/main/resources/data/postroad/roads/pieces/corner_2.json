@@ -42,6 +42,22 @@
     },
     {
       "at": [
+        0,
+        1,
+        -1
+      ],
+      "role": "paved"
+    },
+    {
+      "at": [
+        1,
+        1,
+        -1
+      ],
+      "role": "paved"
+    },
+    {
+      "at": [
         -1,
         1,
         0
@@ -55,50 +71,18 @@
     {
       "at": [
         0,
-        2,
-        -1
-      ],
-      "role": "stair",
-      "facing": [
         1,
         0
-      ]
-    },
-    {
-      "at": [
-        0,
-        2,
-        0
       ],
-      "role": "stair",
-      "facing": [
-        0,
-        1
-      ]
+      "role": "paved"
     },
     {
       "at": [
         1,
-        2,
-        -1
-      ],
-      "role": "stair",
-      "facing": [
         1,
-        0
-      ]
-    },
-    {
-      "at": [
-        1,
-        2,
         0
       ],
-      "role": "stair",
-      "facing": [
-        1,
-        0
-      ]
+      "role": "paved"
     },
     {
       "at": [
@@ -114,7 +98,11 @@
         2,
         1
       ],
-      "role": "surface"
+      "role": "stair",
+      "facing": [
+        0,
+        1
+      ]
     },
     {
       "at": [
@@ -122,7 +110,11 @@
         2,
         1
       ],
-      "role": "edge"
+      "role": "stair",
+      "facing": [
+        0,
+        1
+      ]
     }
   ],
   "fit": {
