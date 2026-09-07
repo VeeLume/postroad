@@ -857,6 +857,23 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun pieces_placements_and_bounds_describe_what_is_laid(helper: GameTestHelper) {
+        val L = io.github.veelume.postroad.roads.gen.RoadPieceLayer
+        val catalog = io.github.veelume.postroad.roads.gen.RoadPieces.current
+        // Flat east, climb east, then a turn south and a descent: end, straight_0, straight_2, corner, straight_1 (downhill), end.
+        val pts = listOf(BlockPos(0, 64, 0), BlockPos(3, 64, 0), BlockPos(6, 66, 0), BlockPos(6, 65, 3))
+        val ps = L.placementsOf(pts, catalog)
+        val kinds = ps.map { it.piece.id.path + (if (it.reversed) "-" else "") }
+        helper.assertValueEqual(kinds, listOf("end", "straight_0", "straight_2", "corner", "straight_1-", "end"), "placements in order")
+        val climb = ps[2]
+        helper.assertValueEqual(L.boundsOf(climb).toList(), listOf(4, 64, -1, 6, 65, 1), "the climb's box: rows x 4..6, levels 64..65, width z -1..1")
+        val down = ps[4]
+        helper.assertTrue(down.entry == BlockPos(6, 64, 3) && down.exit == BlockPos(6, 65, 0), "the descent's entry is the low anchor, its exit the high one")
+        helper.assertValueEqual(L.boundsOf(ps[3]).toList(), listOf(5, 65, -1, 7, 65, 1), "the corner square around (6, 0) at level 65")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun snapshot_skips_provisional_roads(helper: GameTestHelper) {
         val server = helper.level.server
         val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(server)
@@ -935,12 +952,13 @@ class PostroadGameTests {
         storage.addRoad(road)
         network.addPath(io.github.veelume.postroad.roads.RoadPath(road.id, dim, points.toMutableList(), MutableList(points.size) { io.github.veelume.postroad.roads.Tier.PAVED },
             io.github.veelume.postroad.roads.gen.RoadGen.GENERATED_BY, 0, charted = false))
-        val chunk = net.minecraft.world.level.ChunkPos.asLong(start.x shr 4, start.z shr 4)
-        val placed = io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk)
+        // The arena may straddle a chunk border (its position depends on the test count): build every chunk the road's width touches.
+        val chunks = (-1..1).flatMap { dz -> (0..3).map { dx -> net.minecraft.world.level.ChunkPos.asLong((start.x + dx) shr 4, (start.z + dz) shr 4) } }.distinct()
+        val placed = chunks.sumOf { io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, it) }
         helper.assertTrue(placed > 0, "the builder placed road blocks ($placed)")
-        helper.assertTrue(road.builtChunks.contains(chunk), "the chunk is marked built")
+        helper.assertTrue(chunks.all { road.builtChunks.contains(it) }, "the chunks are marked built")
         assertStraightRows(helper, 0)
-        helper.assertValueEqual(io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk), 0, "a second build places nothing")
+        helper.assertValueEqual(chunks.sumOf { io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, it) }, 0, "a second build places nothing")
 
         // Walking the road charts it instead of recording a duplicate.
         val player = helper.makeMockServerPlayerInLevel()

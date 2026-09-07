@@ -128,6 +128,70 @@ object RoadBuilder {
         }
     }
 
+    /**
+     * `/postroad roads showcase`: every catalog piece laid on its own stone platform in the air near
+     * [origin], uphill and downhill versions side by side, a lime block beside the entry anchor and a
+     * red one beside the exit; the placements go to the piece debug layer with their names. Returns
+     * how many pieces were laid.
+     */
+    fun showcase(level: ServerLevel, origin: BlockPos): Int {
+        val catalog = RoadPieces.current
+        val styles = RoadStyles.current
+        val style = styles.style(0)
+        val baseY = (level.getHeight(Heightmap.Types.MOTION_BLOCKING, origin.x, origin.z) + 12).coerceAtMost(level.maxBuildHeight - 12)
+        val stone = Blocks.STONE.defaultBlockState()
+        val lime = Blocks.LIME_CONCRETE.defaultBlockState()
+        val red = Blocks.RED_CONCRETE.defaultBlockState()
+        val dim = level.dimension().location()
+        RoadDebug.showcase.removeAll { it.first == dim }
+        var n = 0
+        var x0 = origin.x + 4
+        val z0 = origin.z
+        // (first plan point, second plan point) per item; a single-anchor item has a == b.
+        val items = ArrayList<Pair<BlockPos, BlockPos>>()
+        for (rise in catalog.straights.keys.sorted()) {
+            items.add(BlockPos(0, 0, 0) to BlockPos(3, rise, 0))       // uphill
+            if (rise > 0) items.add(BlockPos(0, rise, 0) to BlockPos(3, 0, 0)) // downhill: the same piece reversed
+        }
+        for (rise in catalog.diagonals.keys.sorted()) {
+            items.add(BlockPos(0, 0, 0) to BlockPos(3, rise, 3))
+            if (rise > 0) items.add(BlockPos(0, rise, 0) to BlockPos(3, 0, 3))
+        }
+        items.add(BlockPos(0, 0, 0) to BlockPos(0, 0, 0)) // corner
+        items.add(BlockPos(1, 0, 0) to BlockPos(1, 0, 0)) // end (marked by the x offset)
+        for ((ra, rb) in items) {
+            val single = ra == rb
+            // Platform: two layers of stone under the whole item, its top at baseY.
+            for (z in z0 - 4..z0 + 8) for (x in x0 - 3..x0 + 7) for (y in baseY - 1..baseY) level.setBlock(BlockPos(x, y, z), stone, 3)
+            for (z in z0 - 4..z0 + 8) for (x in x0 - 3..x0 + 7) for (y in baseY + 1..baseY + 8) level.setBlock(BlockPos(x, y, z), Blocks.AIR.defaultBlockState(), 3)
+            val a = BlockPos(x0 + (if (single) 0 else ra.x), baseY + 1 + ra.y, z0 + ra.z)
+            val b = BlockPos(x0 + (if (single) 0 else rb.x), baseY + 1 + rb.y, z0 + rb.z)
+            val ground = { x: Int, z: Int -> groundY(level, x, z, baseY + 1, styles) }
+            val placement = if (single) {
+                val piece = if (ra.x == 0) catalog.corner else catalog.end
+                RoadPieceLayer.layCorner(level, a.below(), piece, style, styles, ground)
+                PiecePlacement(piece, a.below(), a.below(), 0, 0, false, 0)
+            } else {
+                val p = catalog.placement(a, b, 0) ?: continue
+                RoadPieceLayer.lay(level, p, style, styles, ground)
+                p
+            }
+            // Markers beside the anchors, outside the road's width: lime at the entry, red at the exit.
+            val px = -placement.dz; val pz = placement.dx // perpendicular to the facing; zero for a square
+            if (px == 0 && pz == 0) {
+                level.setBlock(BlockPos(placement.entry.x - 2, placement.entry.y, placement.entry.z), lime, 3)
+                level.setBlock(BlockPos(placement.exit.x + 2, placement.exit.y, placement.exit.z), red, 3)
+            } else {
+                level.setBlock(BlockPos(placement.entry.x + 2 * px, placement.entry.y, placement.entry.z + 2 * pz), lime, 3)
+                level.setBlock(BlockPos(placement.exit.x + 2 * px, placement.exit.y, placement.exit.z + 2 * pz), red, 3)
+            }
+            RoadDebug.showcase.add(dim to placement)
+            n++
+            x0 += 12
+        }
+        return n
+    }
+
     /** `/postroad roads rebuild`: re-queues every loaded, unbuilt road chunk. Returns how many. */
     fun requeueLoaded(server: MinecraftServer): Int {
         val storage = RoadPlanStorage.get(server)

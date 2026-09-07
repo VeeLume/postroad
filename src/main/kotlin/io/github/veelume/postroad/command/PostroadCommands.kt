@@ -54,11 +54,13 @@ object PostroadCommands {
                         .then(Commands.literal("clear").requires { it.hasPermission(2) }.executes { roadsClear(it) })
                         .then(Commands.literal("rebuild").requires { it.hasPermission(2) }.executes { roadsRebuild(it) })
                         .then(Commands.literal("export").requires { it.hasPermission(2) }.executes { roadsExport(it) })
+                        .then(Commands.literal("showcase").requires { it.hasPermission(2) }.executes { roadsShowcase(it) })
                         .then(Commands.literal("known").requires { it.hasPermission(2) }.then(Commands.argument("x", IntegerArgumentType.integer()).then(Commands.argument("z", IntegerArgumentType.integer()).executes { roadsKnown(it, IntegerArgumentType.getInteger(it, "x"), IntegerArgumentType.getInteger(it, "z")) })))
                         .then(Commands.literal("trace").requires { it.hasPermission(2) }.then(Commands.argument("pair", com.mojang.brigadier.arguments.StringArgumentType.word()).executes { roadsTrace(it) }))
                         .then(
                             Commands.literal("debug").requires { it.hasPermission(2) }.executes { roadsDebug(it) }
-                                .then(Commands.literal("terrain").executes { roadsDebugTerrain(it) }),
+                                .then(Commands.literal("terrain").executes { roadsDebugTerrain(it) })
+                                .then(Commands.literal("pieces").executes { roadsDebugPieces(it) }),
                         )
                         .then(
                             Commands.literal("audit").requires { it.hasPermission(2) }
@@ -327,6 +329,19 @@ object PostroadCommands {
         val on = io.github.veelume.postroad.roads.gen.RoadDebug.toggleTerrain(player)
         ctx.source.sendSuccess({ Component.literal(if (on) "Terrain debug layer on: a cross per planner cell at its estimated surface — green flat, yellow slabs (≤1), orange stairs (≤2), red steep (≤4), purple impassable; blue water, magenta blocked, white road. A red tick means the estimate floats above the real ground, a blue tick that it is buried. Faint crosses are estimates, solid ones generated terrain from Distant Horizons." else "Terrain debug layer off.") }, false)
         return 1
+    }
+
+    private fun roadsDebugPieces(ctx: CommandContext<CommandSourceStack>): Int {
+        val player = ctx.source.playerOrException
+        val on = io.github.veelume.postroad.roads.gen.RoadDebug.togglePieces(player)
+        ctx.source.sendSuccess({ Component.literal(if (on) "Piece debug layer on: every placement the plan is laid from within 96 blocks, outlined — cyan straight, magenta diagonal, yellow corner, orange end; darker when the plan runs downhill through it. Green cube = entry anchor, red cube = exit anchor, white line = the connector between them. Labels near you name the piece." else "Piece debug layer off.") }, false)
+        return 1
+    }
+
+    private fun roadsShowcase(ctx: CommandContext<CommandSourceStack>): Int {
+        val n = io.github.veelume.postroad.roads.gen.RoadBuilder.showcase(ctx.source.level, BlockPos.containing(ctx.source.position))
+        ctx.source.sendSuccess({ Component.literal("$n piece(s) laid in the air east of here, 12 blocks apart: straights uphill and downhill, diagonals, corner, end. Lime block = entry anchor, red block = exit anchor; turn on `/postroad roads debug pieces` for outlines and names.") }, true)
+        return n
     }
 
     private fun roadsDebug(ctx: CommandContext<CommandSourceStack>): Int {

@@ -6,6 +6,7 @@ import io.github.veelume.postroad.roads.gen.RoadDebug
 import io.github.veelume.postroad.roads.gen.RoadDebugClient
 import io.github.veelume.postroad.roads.gen.Terrain
 import io.github.veelume.postroad.roads.gen.TerrainDebugClient
+import io.github.veelume.postroad.roads.gen.PieceDebugClient
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.Font
 import net.minecraft.client.renderer.LevelRenderer
@@ -36,7 +37,8 @@ object RoadDebugRenderer {
         if (event.stage != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) return
         val state = RoadDebugClient.state
         val terrain = TerrainDebugClient.state
-        if (state.roads.isEmpty() && state.towns.isEmpty() && state.nodes.isEmpty() && terrain.grids.isEmpty()) return
+        val pieces = PieceDebugClient.state
+        if (state.roads.isEmpty() && state.towns.isEmpty() && state.nodes.isEmpty() && terrain.grids.isEmpty() && pieces.pieces.isEmpty()) return
         val mc = Minecraft.getInstance()
         val level = mc.level ?: return
         val camera = event.camera
@@ -70,6 +72,7 @@ object RoadDebugRenderer {
         // Junctions and nodes as short vertical posts; towns as boxes.
         val lines = buffers.getBuffer(RenderType.lines())
         for (g in terrain.grids) drawGrid(pose, lines, level, g)
+        for (p in pieces.pieces) drawPiece(pose, lines, p)
         for (j in state.junctions) {
             val y = surfaceY(j.pos)
             post(pose, lines, j.pos, y, 4.0, if (j.signPlaced) Triple(255, 230, 0) else Triple(200, 120, 0))
@@ -113,6 +116,13 @@ object RoadDebugRenderer {
             val mid = road.points[road.points.size / 2]
             val y = surfaceY(mid)
             label(pose, buffers, font, camera, mid.x + 0.5, y + 1.5, mid.z + 0.5, road.id, cam.distanceToSqr(mid.x + 0.5, y, mid.z + 0.5), 0xFFFFC060.toInt())
+        }
+        for (p in pieces.pieces) {
+            val b = p.box
+            val cx = (b[0] + b[3]) / 2.0 + 0.5; val cz = (b[2] + b[5]) / 2.0 + 0.5; val cy = b[4] + 2.2
+            val d = cam.distanceToSqr(cx, cy, cz)
+            if (d > PIECE_LABEL_RANGE * PIECE_LABEL_RANGE) continue
+            label(pose, buffers, font, camera, cx, cy, cz, p.piece + (if (p.reversed) " (downhill)" else ""), d, pieceColour(p).let { (r, g, bl) -> (0xFF shl 24) or (r shl 16) or (g shl 8) or bl })
         }
         buffers.endBatch()
         pose.popPose()
@@ -163,6 +173,37 @@ object RoadDebugRenderer {
                 if (h > real + 1) line(cx, real.toFloat(), cz, cx, y, cz, 255, 50, 50, 255)
                 else if (h < real - 1) line(cx, y, cz, cx, real.toFloat(), cz, 50, 90, 255, 255)
             }
+        }
+    }
+
+    private const val PIECE_LABEL_RANGE = 40.0
+
+    private fun pieceColour(p: io.github.veelume.postroad.roads.gen.DebugPiece): Triple<Int, Int, Int> {
+        val base = when (p.shape) {
+            "diagonal" -> Triple(255, 80, 255)
+            "corner" -> Triple(255, 230, 0)
+            "end" -> Triple(255, 150, 30)
+            else -> Triple(80, 220, 255)
+        }
+        return if (p.reversed) Triple(base.first / 2, base.second / 2, base.third / 2 + 60) else base
+    }
+
+    /** A placed piece: its box outlined in the piece's colour, a green cube on the entry anchor, a red one on the exit, a white connector between them. */
+    private fun drawPiece(pose: PoseStack, vc: VertexConsumer, p: io.github.veelume.postroad.roads.gen.DebugPiece) {
+        val b = p.box
+        val (r, g, bl) = pieceColour(p)
+        LevelRenderer.renderLineBox(pose, vc, b[0] + 0.02, b[1] + 0.02, b[2] + 0.02, b[3] + 0.98, b[4] + 0.98, b[5] + 0.98, r / 255f, g / 255f, bl / 255f, 0.9f)
+        fun cube(a: BlockPos, cr: Float, cg: Float, cb: Float) {
+            LevelRenderer.renderLineBox(pose, vc, a.x + 0.3, a.y + 1.0, a.z + 0.3, a.x + 0.7, a.y + 1.4, a.z + 0.7, cr, cg, cb, 1f)
+        }
+        cube(p.entry, 0.2f, 1f, 0.2f)
+        cube(p.exit, 1f, 0.2f, 0.2f)
+        if (p.entry != p.exit) {
+            val m = pose.last()
+            val dx = (p.exit.x - p.entry.x).toFloat(); val dz = (p.exit.z - p.entry.z).toFloat()
+            val len = kotlin.math.sqrt(dx * dx + dz * dz).coerceAtLeast(1f)
+            vc.addVertex(m.pose(), p.entry.x + 0.5f, p.entry.y + 1.2f, p.entry.z + 0.5f).setColor(255, 255, 255, 255).setNormal(m, dx / len, 0f, dz / len)
+            vc.addVertex(m.pose(), p.exit.x + 0.5f, p.exit.y + 1.2f, p.exit.z + 0.5f).setColor(255, 255, 255, 255).setNormal(m, dx / len, 0f, dz / len)
         }
     }
 

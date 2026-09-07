@@ -196,6 +196,47 @@ object RoadPieceLayer {
         return placed
     }
 
+    /**
+     * The blocks a placement owns, as a box: min x, y, z, max x, y, z (inclusive). Rows 1..3 of a straight
+     * piece at their levels, the six stamps of a diagonal, the anchor's square of a corner or end.
+     */
+    fun boundsOf(p: PiecePlacement): IntArray {
+        var minX = Int.MAX_VALUE; var minY = Int.MAX_VALUE; var minZ = Int.MAX_VALUE
+        var maxX = Int.MIN_VALUE; var maxY = Int.MIN_VALUE; var maxZ = Int.MIN_VALUE
+        fun add(x: Int, y: Int, z: Int) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; if (z < minZ) minZ = z; if (z > maxZ) maxZ = z }
+        when {
+            p.piece.shape == RoadPiece.SHAPE_CORNER || p.piece.shape == RoadPiece.SHAPE_END -> {
+                val y = p.entry.y + (p.piece.rows.firstOrNull()?.level ?: 0)
+                for (oz in -1..1) for (ox in -1..1) add(p.entry.x + ox, y, p.entry.z + oz)
+            }
+            p.piece.isDiagonal -> {
+                var cx = p.entry.x; var cz = p.entry.z; var i = 0
+                for (k in 1..RoadPiece.LENGTH) {
+                    cx += p.dx; for (oz in -1..1) for (ox in -1..1) add(cx + ox, p.entry.y + p.piece.rows.getOrElse(i) { PieceRow(p.piece.rise, "") }.level, cz + oz); i++
+                    cz += p.dz; for (oz in -1..1) for (ox in -1..1) add(cx + ox, p.entry.y + p.piece.rows.getOrElse(i) { PieceRow(p.piece.rise, "") }.level, cz + oz); i++
+                }
+            }
+            else -> for (k in 1..RoadPiece.LENGTH) { val c = p.rowCentre(k); for (s in -RoadPiece.HALF_WIDTH..RoadPiece.HALF_WIDTH) add(c.x - p.dz * s, c.y, c.z + p.dx * s) }
+        }
+        return intArrayOf(minX, minY, minZ, maxX, maxY, maxZ)
+    }
+
+    /**
+     * Every placement a road is laid from, in order: the pieces between its points plus the corner
+     * and end squares [needsSquare] names. What the feature and the builder lay, as data.
+     */
+    fun placementsOf(points: List<BlockPos>, catalog: PieceCatalog): List<PiecePlacement> {
+        val out = ArrayList<PiecePlacement>()
+        for (i in 1 until points.size) {
+            val a = points[i - 1]; val b = points[i]
+            val prev = points.getOrNull(i - 2)
+            if (needsSquare(prev, a, b)) { val sq = if (prev == null) catalog.end else catalog.corner; out.add(PiecePlacement(sq, a.below(), a.below(), 0, 0, false, i - 1)) }
+            catalog.placement(a, b, i - 1)?.let { out.add(it) }
+            if (i == points.size - 1) out.add(PiecePlacement(catalog.end, b.below(), b.below(), 0, 0, false, i))
+        }
+        return out
+    }
+
     /** All block columns of the placements of a road, for keeping decoration off them. */
     fun footprintOf(placements: List<PiecePlacement>): it.unimi.dsi.fastutil.longs.LongOpenHashSet {
         val set = it.unimi.dsi.fastutil.longs.LongOpenHashSet()

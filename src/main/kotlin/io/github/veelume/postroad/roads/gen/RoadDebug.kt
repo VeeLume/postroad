@@ -5,6 +5,7 @@ import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.roads.RoadNode
 import net.minecraft.core.BlockPos
 import net.minecraft.network.RegistryFriendlyByteBuf
+import net.minecraft.resources.ResourceLocation
 import net.minecraft.network.codec.StreamCodec
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload
 import net.minecraft.server.MinecraftServer
@@ -103,6 +104,33 @@ data class TerrainDebugPayload(val state: TerrainDebugState) : CustomPacketPaylo
     }
 }
 
+/** One placed piece as the client debug view draws it: its box, anchors, facing and kind. */
+class DebugPiece(val piece: String, val shape: String, val reversed: Boolean, val entry: BlockPos, val exit: BlockPos, val box: IntArray, val roadId: String)
+
+class PieceDebugState(val pieces: List<DebugPiece>) {
+    companion object {
+        val EMPTY = PieceDebugState(emptyList())
+        val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, PieceDebugState> = StreamCodec.of(
+            { buf, s -> buf.writeCollection(s.pieces) { b, p -> b.writeUtf(p.piece); b.writeUtf(p.shape); b.writeBoolean(p.reversed); b.writeLong(p.entry.asLong()); b.writeLong(p.exit.asLong()); b.writeVarIntArray(p.box); b.writeUtf(p.roadId) } },
+            { buf -> PieceDebugState(buf.readList { b -> DebugPiece(b.readUtf(), b.readUtf(), b.readBoolean(), BlockPos.of(b.readLong()), BlockPos.of(b.readLong()), b.readVarIntArray(), b.readUtf()) }) },
+        )
+    }
+}
+
+data class PieceDebugPayload(val state: PieceDebugState) : CustomPacketPayload {
+    override fun type(): CustomPacketPayload.Type<PieceDebugPayload> = TYPE
+
+    companion object {
+        val TYPE: CustomPacketPayload.Type<PieceDebugPayload> = CustomPacketPayload.Type(Postroad.id("piece_debug"))
+        val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, PieceDebugPayload> = PieceDebugState.STREAM_CODEC.map(::PieceDebugPayload, PieceDebugPayload::state)
+    }
+}
+
+object PieceDebugClient {
+    @Volatile
+    var state: PieceDebugState = PieceDebugState.EMPTY
+}
+
 object TerrainDebugClient {
     @Volatile
     var state: TerrainDebugState = TerrainDebugState.EMPTY
@@ -124,6 +152,50 @@ object RoadDebug {
 
     private val enabled = HashSet<UUID>()
     private val terrainEnabled = HashSet<UUID>()
+    private val piecesEnabled = HashSet<UUID>()
+
+    /** Pieces this far around the player are outlined; they are dense, so a smaller radius than the roads. */
+    private const val PIECE_RADIUS = 96
+
+    /** Placements laid by `/postroad roads showcase`, drawn in the piece layer with their names. */
+    val showcase = ArrayList<Pair<ResourceLocation, PiecePlacement>>()
+
+    /** The piece layer: every placement the plan is laid from, outlined with its anchors. Returns the new state. */
+    fun togglePieces(player: ServerPlayer): Boolean {
+        return if (piecesEnabled.remove(player.uuid)) {
+            PacketDistributor.sendToPlayer(player, PieceDebugPayload(PieceDebugState.EMPTY))
+            false
+        } else {
+            piecesEnabled.add(player.uuid)
+            sendPieces(player)
+            true
+        }
+    }
+
+    private fun sendPieces(player: ServerPlayer) {
+        PacketDistributor.sendToPlayer(player, PieceDebugPayload(collectPieces(player)))
+    }
+
+    /** The placements of every road near the player, plus the showcase, as the data says they are laid. */
+    fun collectPieces(player: ServerPlayer): PieceDebugState {
+        val storage = RoadPlanStorage.get(player.server)
+        val dim = player.serverLevel().dimension().location()
+        val centre = player.blockPosition()
+        val r2 = PIECE_RADIUS.toDouble() * PIECE_RADIUS
+        fun near(p: BlockPos): Boolean { val dx = (p.x - centre.x).toDouble(); val dz = (p.z - centre.z).toDouble(); return dx * dx + dz * dz <= r2 }
+        val catalog = RoadPieces.current
+        val out = ArrayList<DebugPiece>()
+        fun add(p: PiecePlacement, roadId: String) {
+            if (!near(p.entry) && !near(p.exit)) return
+            out.add(DebugPiece(p.piece.id.path, p.piece.shape, p.reversed, p.entry, p.exit, RoadPieceLayer.boundsOf(p), roadId))
+        }
+        for (road in storage.roadsIn(dim)) {
+            if (road.points.none(::near)) continue
+            for (p in RoadPieceLayer.placementsOf(road.points, catalog)) add(p, road.id + (if (road.provisional) " (provisional)" else ""))
+        }
+        for ((d, p) in showcase) if (d == dim) add(p, "showcase")
+        return PieceDebugState(out)
+    }
 
     /** Fine cells (4 blocks) this far around the player, coarse cells (16 blocks) four times as far. */
     private const val TERRAIN_RADIUS = 64
@@ -185,10 +257,11 @@ object RoadDebug {
     }
 
     fun onServerTick(event: ServerTickEvent.Post) {
-        if ((enabled.isEmpty() && terrainEnabled.isEmpty()) || event.server.tickCount % INTERVAL_TICKS != 0) return
+        if ((enabled.isEmpty() && terrainEnabled.isEmpty() && piecesEnabled.isEmpty()) || event.server.tickCount % INTERVAL_TICKS != 0) return
         for (player in event.server.playerList.players) {
             if (player.uuid in enabled) send(player)
             if (player.uuid in terrainEnabled) sendTerrain(player)
+            if (player.uuid in piecesEnabled) sendPieces(player)
         }
     }
 
@@ -198,6 +271,9 @@ object RoadDebug {
         }
         registrar.playToClient(TerrainDebugPayload.TYPE, TerrainDebugPayload.STREAM_CODEC) { payload, _ ->
             TerrainDebugClient.state = payload.state
+        }
+        registrar.playToClient(PieceDebugPayload.TYPE, PieceDebugPayload.STREAM_CODEC) { payload, _ ->
+            PieceDebugClient.state = payload.state
         }
     }
 
