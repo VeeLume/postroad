@@ -93,8 +93,11 @@ are dropped *before* it starts, never during).
    rings.
 5. **Coarse route.** A* on the coarse grid from the town's coarse cell to the
    other's, with a weak heuristic (0.15) so it prefers riding existing roads.
-   Height differences are divided by 4 (the cell ratio) before the step
-   classes apply.
+   The step classes are defined per fine cell (3 blocks); a coarse move spans
+   12, so its height difference is divided by the grid ratio 12 / 3 = 4 (and
+   by √2 on a diagonal) before the same classes apply. The coarse search only
+   rejects corridors across slopes no fine route could climb; nothing here is
+   the old 4-block cell.
 6. **Corridor.** Every coarse cell of that path ± 2 cells (`CORRIDOR_HALF` =
    24 blocks each side), plus a disc over each town's whole box. Fine tiles
    are sampled only inside it.

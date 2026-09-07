@@ -173,7 +173,7 @@ object RoadPlanner {
 
     /**
      * A* from [fromTown] to [toTown]. Null if unreachable or the search blew its budget.
-     * [slopeDivisor] scales height differences to the cell size the costs were tuned for (4 blocks).
+     * [slopeDivisor] scales height differences to fine-cell units: the coarse grid passes its cell ratio (12 / 3 = 4).
      */
     fun route(terrain: Terrain, fromTown: Cell, toTown: Cell, costs: PlannerCosts = PlannerCosts(), slopeDivisor: Double = 1.0): List<Cell>? {
         // Towns sit inside their structure boxes; the road ends where the line to the other town leaves the box.
