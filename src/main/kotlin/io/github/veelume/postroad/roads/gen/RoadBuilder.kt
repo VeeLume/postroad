@@ -333,7 +333,7 @@ object RoadBuilder {
      * a plant, leaves or a barrier. The heightmap would do, but it counts leaves' logs, barriers
      * (the game-test harness encases tests in them) and anything odd above the road.
      */
-    fun groundY(level: ServerLevel, x: Int, z: Int, hint: Int, styles: RoadStyleSet = RoadStyles.current): Int {
+    fun groundY(level: net.minecraft.world.level.LevelAccessor, x: Int, z: Int, hint: Int, styles: RoadStyleSet = RoadStyles.current): Int {
         val cursor = BlockPos.MutableBlockPos(x, 0, z)
         var y = minOf(hint + SCAN, level.maxBuildHeight - 1)
         val floor = maxOf(hint - SCAN, level.minBuildHeight)

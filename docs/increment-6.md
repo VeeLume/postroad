@@ -164,6 +164,12 @@ has to drop it.
   blocks above it cleared: a rough passage through the hill, until tunnels.
 - **Joint shape** (Valerie's): the 2×2 contact plus one block beside each
   core edge, `(2f, 1), (1, 2f), (0, 2f), (2f, 0)` for a corner facing `f`.
+- **The worldgen heightmap lies during the features step.** `OCEAN_FLOOR_WG`
+  is not maintained past the surface step, so blocks earlier pieces placed or
+  cut in the same chunk run are invisible to it: the second diagonal found air
+  where the heightmap promised grass and skipped its slab. The feature now
+  scans the live blocks from the heightmap's hint (`RoadBuilder.groundY`),
+  as the builder always did.
 
 ## Order
 

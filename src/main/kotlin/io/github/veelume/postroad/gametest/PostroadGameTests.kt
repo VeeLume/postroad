@@ -814,6 +814,30 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun pieces_two_diagonals_keep_the_joint_slabs_in_either_order(helper: GameTestHelper) {
+        // diagonal_0 then diagonal_1: the two joint columns both own — surface at 0 under the next piece's slab at 1.
+        val level = helper.level
+        val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
+        val catalog = io.github.veelume.postroad.roads.gen.RoadPieces.current
+        val floorY = shapeFloor(helper) { x, z -> if (x + z >= 9) 1 else 0 }
+        val abs = listOf(BlockPos(0, F + 1, 0), BlockPos(3, F + 1, 3), BlockPos(6, F + 2, 6)).map { helper.absolutePos(it) }
+        val ps = catalog.assemble(abs)!!
+        helper.assertValueEqual(ps.map { it.piece.id.path }, listOf("diagonal_0", "diagonal_0", "diagonal_1"), "two flat diagonals then the rise")
+        val o = helper.absolutePos(BlockPos(0, 0, 0))
+        val inside = { x: Int, z: Int -> x in o.x..o.x + 6 && z in o.z..o.z + 6 }
+        val ground = { x: Int, z: Int -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 1, styles) }
+        for (order in listOf(listOf(2, 1, 0), listOf(0, 1, 2))) {
+            shapeFloor(helper) { x, z -> if (x + z >= 9) 1 else 0 }
+            for (x in 0..6) for (z in 0..6) for (y in F + 1..F + 3) if (helper.level.getBlockState(helper.absolutePos(BlockPos(x, y, z))).block != Blocks.STONE) helper.setBlock(BlockPos(x, y, z), Blocks.AIR)
+            val protect = HashSet<Long>()
+            for (i in order) io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, ps[i], styles.style(0), styles, ground, inside, null, null, protect)
+            // The rise piece at (6, 6) has its joint slabs at (4, 5), (5, 4), (6, 4), (4, 6) — level F+1.
+            for ((x, z) in listOf(4 to 5, 5 to 4, 6 to 4, 4 to 6)) helper.assertTrue(isSlab(blockAt(helper, x, F + 1, z)), "order $order: slab at ($x, $z): ${blockAt(helper, x, F + 1, z)}")
+        }
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun pieces_cut_past_the_cap_leaves_a_passage(helper: GameTestHelper) {
         // A hill 6 above the road: the cap of 4 no longer skips the column; the road block is placed and 3 blocks cleared above it.
         val floorY = shapeFloor(helper) { x, _ -> if (x == 3) 5 else 0 }

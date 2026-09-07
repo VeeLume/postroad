@@ -1,6 +1,7 @@
 package io.github.veelume.postroad.worldgen
 
 import com.mojang.serialization.Codec
+import io.github.veelume.postroad.roads.gen.RoadBuilder
 import io.github.veelume.postroad.roads.gen.RoadPieceLayer
 import io.github.veelume.postroad.roads.gen.RoadPieces
 import io.github.veelume.postroad.roads.gen.RoadPlanSnapshot
@@ -29,9 +30,12 @@ class RoadFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<NoneFeatureC
         RoadPlanSnapshot.featureRuns.incrementAndGet()
         fun ground(x: Int, z: Int): Int {
             if (!level.hasChunk(x shr 4, z shr 4)) return Int.MIN_VALUE
-            val y = level.getHeight(Heightmap.Types.OCEAN_FLOOR_WG, x, z) - 1
+            // The worldgen heightmap is not maintained past the surface step, so blocks the pieces before this
+            // one placed or cut are invisible to it; scan the live blocks from its hint instead.
+            val hint = level.getHeight(Heightmap.Types.OCEAN_FLOOR_WG, x, z)
+            val y = RoadBuilder.groundY(level, x, z, hint, styles)
             if (y <= level.minBuildHeight) return Int.MIN_VALUE
-            if (!level.getFluidState(BlockPos(x, y + 1, z)).isEmpty) return Int.MIN_VALUE
+            if (!level.getFluidState(BlockPos(x, y + 1, z)).isEmpty || !level.getFluidState(BlockPos(x, y, z)).isEmpty) return Int.MIN_VALUE
             return y
         }
         fun inChunk(x: Int, z: Int): Boolean = (x shr 4) == chunk.x && (z shr 4) == chunk.z
