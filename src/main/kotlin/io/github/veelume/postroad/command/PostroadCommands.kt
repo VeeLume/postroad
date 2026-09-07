@@ -54,6 +54,7 @@ object PostroadCommands {
                         .then(Commands.literal("clear").requires { it.hasPermission(2) }.executes { roadsClear(it) })
                         .then(Commands.literal("rebuild").requires { it.hasPermission(2) }.executes { roadsRebuild(it) })
                         .then(Commands.literal("export").requires { it.hasPermission(2) }.executes { roadsExport(it) })
+                        .then(Commands.literal("known").requires { it.hasPermission(2) }.then(Commands.argument("x", IntegerArgumentType.integer()).then(Commands.argument("z", IntegerArgumentType.integer()).executes { roadsKnown(it, IntegerArgumentType.getInteger(it, "x"), IntegerArgumentType.getInteger(it, "z")) })))
                         .then(Commands.literal("trace").requires { it.hasPermission(2) }.then(Commands.argument("pair", com.mojang.brigadier.arguments.StringArgumentType.word()).executes { roadsTrace(it) }))
                         .then(
                             Commands.literal("debug").requires { it.hasPermission(2) }.executes { roadsDebug(it) }
@@ -341,6 +342,36 @@ object PostroadCommands {
         val file = io.github.veelume.postroad.roads.gen.RoadGen.exportImage(level, pos, io.github.veelume.postroad.PostroadConfig.planRadius + io.github.veelume.postroad.PostroadConfig.planMaxLink)
         ctx.source.sendSuccess({ Component.literal(if (file != null) "Plan drawn to $file" else "Nothing to draw: no planner data for this dimension, or a pass is running.") }, true)
         return if (file != null) 1 else 0
+    }
+
+    /**
+     * Measurement: generates the chunk at (x, z) to the carvers step, records its column tops the way
+     * the corridor pre-generation does, finishes the chunk, records again, and reports the difference
+     * per column. Says whether the planner's own-chunk heights are the finished world's.
+     */
+    private fun roadsKnown(ctx: CommandContext<CommandSourceStack>, x: Int, z: Int): Int {
+        val level = ctx.source.level
+        val cx = x shr 4; val cz = z shr 4
+        val before = level.chunkSource.getChunk(cx, cz, net.minecraft.world.level.chunk.status.ChunkStatus.EMPTY, true)?.persistedStatus
+        val carved = level.chunkSource.getChunk(cx, cz, net.minecraft.world.level.chunk.status.ChunkStatus.CARVERS, true) ?: run { ctx.source.sendFailure(Component.literal("no chunk")); return 0 }
+        val a = io.github.veelume.postroad.roads.gen.KnownTerrain.tops(carved)
+        val full = level.chunkSource.getChunk(cx, cz, net.minecraft.world.level.chunk.status.ChunkStatus.FULL, true) ?: run { ctx.source.sendFailure(Component.literal("no full chunk")); return 0 }
+        val b = io.github.veelume.postroad.roads.gen.KnownTerrain.tops(full)
+        val hist = java.util.TreeMap<Int, Int>()
+        val examples = ArrayList<String>()
+        for (lz in 0 until 16) for (lx in 0 until 16) {
+            val i = (lz shl 4) or lx
+            val d = b.top[i] - a.top[i]
+            hist.merge(d, 1, Int::plus)
+            if (d != 0 && examples.size < 6) {
+                val bx = cx * 16 + lx; val bz = cz * 16 + lz
+                val topA = level.getBlockState(BlockPos(bx, a.top[i] - 1, bz)).block
+                val topB = level.getBlockState(BlockPos(bx, b.top[i] - 1, bz)).block
+                examples.add("($bx, $bz) carvers ${a.top[i]} full ${b.top[i]}; block under the full top: ${net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(topB).path}, under the carvers top now: ${net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(topA).path}")
+            }
+        }
+        ctx.source.sendSuccess({ Component.literal("Chunk ($cx, $cz) was $before; full top minus carvers top over 256 columns: " + hist.entries.joinToString(", ") { "${it.key}: ${it.value}" } + (if (examples.isEmpty()) "" else "; e.g. " + examples.joinToString("; "))) }, false)
+        return 1
     }
 
     private fun roadsTrace(ctx: CommandContext<CommandSourceStack>): Int {

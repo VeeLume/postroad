@@ -38,6 +38,13 @@ object KnownTerrain {
      * past logs and leaves so the road's ground is what the planner sees.
      */
     fun record(dimension: ResourceLocation, chunk: ChunkAccess, level: net.minecraft.server.level.ServerLevel? = null) {
+        val tops = tops(chunk)
+        if (level != null) markStructures(level, chunk, tops)
+        chunks.getOrPut(dimension) { ConcurrentHashMap() }[chunk.pos.toLong()] = tops
+    }
+
+    /** The column tops of [chunk] as [record] sees them, without storing them (for measurement). */
+    fun tops(chunk: ChunkAccess): ChunkTops {
         val worldSurface = if (chunk.hasPrimedHeightmap(Heightmap.Types.WORLD_SURFACE_WG)) Heightmap.Types.WORLD_SURFACE_WG else Heightmap.Types.WORLD_SURFACE
         val oceanFloor = if (chunk.hasPrimedHeightmap(Heightmap.Types.OCEAN_FLOOR_WG)) Heightmap.Types.OCEAN_FLOOR_WG else Heightmap.Types.OCEAN_FLOOR
         val tops = ChunkTops(ShortArray(256), ByteArray(256), ByteArray(256))
@@ -68,8 +75,7 @@ object KnownTerrain {
             }
             tops.top[i] = floor.toShort()
         }
-        if (level != null) markStructures(level, chunk, tops)
-        chunks.getOrPut(dimension) { ConcurrentHashMap() }[pos.toLong()] = tops
+        return tops
     }
 
     /**
