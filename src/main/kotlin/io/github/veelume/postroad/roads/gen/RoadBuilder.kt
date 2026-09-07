@@ -129,16 +129,15 @@ object RoadBuilder {
     }
 
     /**
-     * `/postroad roads showcase`: every catalog piece laid on its own stone platform in the air near
-     * [origin], uphill and downhill versions side by side, a lime block beside the entry anchor and a
-     * red one beside the exit; the placements go to the piece debug layer with their names. Returns
-     * how many pieces were laid.
+     * `/postroad roads showcase`: every catalog piece laid as authored on its own stone platform in
+     * the air near [origin], a lime block one beyond its first connector and red ones beyond the
+     * others; the placements go to the piece debug layer with their names. Returns how many.
      */
     fun showcase(level: ServerLevel, origin: BlockPos): Int {
         val catalog = RoadPieces.current
         val styles = RoadStyles.current
         val style = styles.style(0)
-        val baseY = (level.getHeight(Heightmap.Types.MOTION_BLOCKING, origin.x, origin.z) + 12).coerceAtMost(level.maxBuildHeight - 12)
+        val baseY = (level.getHeight(Heightmap.Types.MOTION_BLOCKING, origin.x, origin.z) + 12).coerceAtMost(level.maxBuildHeight - 16)
         val stone = Blocks.STONE.defaultBlockState()
         val lime = Blocks.LIME_CONCRETE.defaultBlockState()
         val red = Blocks.RED_CONCRETE.defaultBlockState()
@@ -147,45 +146,17 @@ object RoadBuilder {
         var n = 0
         var x0 = origin.x + 4
         val z0 = origin.z
-        // (first plan point, second plan point) per item; a single-anchor item has a == b.
-        val items = ArrayList<Pair<BlockPos, BlockPos>>()
-        for (rise in catalog.straights.keys.sorted()) {
-            items.add(BlockPos(0, 0, 0) to BlockPos(3, rise, 0))       // uphill
-            if (rise > 0) items.add(BlockPos(0, rise, 0) to BlockPos(3, 0, 0)) // downhill: the same piece reversed
-        }
-        for (rise in catalog.diagonals.keys.sorted()) {
-            items.add(BlockPos(0, 0, 0) to BlockPos(3, rise, 3))
-            if (rise > 0) items.add(BlockPos(0, rise, 0) to BlockPos(3, 0, 3))
-        }
-        items.add(BlockPos(0, 0, 0) to BlockPos(0, 0, 0)) // corner
-        items.add(BlockPos(1, 0, 0) to BlockPos(1, 0, 0)) // end (marked by the x offset)
-        for ((ra, rb) in items) {
-            val single = ra == rb
-            // Platform: two layers of stone under the whole item, its top at baseY.
-            for (z in z0 - 4..z0 + 8) for (x in x0 - 3..x0 + 7) for (y in baseY - 1..baseY) level.setBlock(BlockPos(x, y, z), stone, 3)
-            for (z in z0 - 4..z0 + 8) for (x in x0 - 3..x0 + 7) for (y in baseY + 1..baseY + 8) level.setBlock(BlockPos(x, y, z), Blocks.AIR.defaultBlockState(), 3)
-            val a = BlockPos(x0 + (if (single) 0 else ra.x), baseY + 1 + ra.y, z0 + ra.z)
-            val b = BlockPos(x0 + (if (single) 0 else rb.x), baseY + 1 + rb.y, z0 + rb.z)
-            val ground = { x: Int, z: Int -> groundY(level, x, z, baseY + 1, styles) }
-            val placement = if (single) {
-                val piece = if (ra.x == 0) catalog.corner else catalog.end
-                RoadPieceLayer.layCorner(level, a.below(), piece, style, styles, ground)
-                PiecePlacement(piece, a.below(), a.below(), 0, 0, false, 0)
-            } else {
-                val p = catalog.placement(a, b, 0) ?: continue
-                RoadPieceLayer.lay(level, p, style, styles, ground)
-                p
+        for (piece in catalog.pieces.sortedBy { it.id.path }) {
+            // Platform: two layers of stone under the whole piece, its top at baseY; the piece's level 0 is the platform top.
+            for (z in z0 - 5..z0 + 5) for (x in x0 - 5..x0 + 5) for (y in baseY - 1..baseY) level.setBlock(BlockPos(x, y, z), stone, 3)
+            for (z in z0 - 5..z0 + 5) for (x in x0 - 5..x0 + 5) for (y in baseY + 1..baseY + 8) level.setBlock(BlockPos(x, y, z), Blocks.AIR.defaultBlockState(), 3)
+            val p = PiecePlacement(piece, Transform(0, false), x0, baseY, z0, 0, "showcase")
+            RoadPieceLayer.lay(level, p, style, styles, { x, z -> groundY(level, x, z, baseY + 1, styles) })
+            for ((k, c) in p.connectors().withIndex()) {
+                val (pos, f, lvl) = c
+                level.setBlock(BlockPos(pos.x + f.dx, lvl, pos.z + f.dz), if (k == 0) lime else red, 3)
             }
-            // Markers beside the anchors, outside the road's width: lime at the entry, red at the exit.
-            val px = -placement.dz; val pz = placement.dx // perpendicular to the facing; zero for a square
-            if (px == 0 && pz == 0) {
-                level.setBlock(BlockPos(placement.entry.x - 2, placement.entry.y, placement.entry.z), lime, 3)
-                level.setBlock(BlockPos(placement.exit.x + 2, placement.exit.y, placement.exit.z), red, 3)
-            } else {
-                level.setBlock(BlockPos(placement.entry.x + 2 * px, placement.entry.y, placement.entry.z + 2 * pz), lime, 3)
-                level.setBlock(BlockPos(placement.exit.x + 2 * px, placement.exit.y, placement.exit.z + 2 * pz), red, 3)
-            }
-            RoadDebug.showcase.add(dim to placement)
+            RoadDebug.showcase.add(dim to p)
             n++
             x0 += 12
         }
@@ -253,16 +224,16 @@ object RoadBuilder {
      * Returns the next piece to resume at, or -1 when the road is done here.
      */
     private fun buildRoadInChunk(level: ServerLevel, road: PlannedRoad, chunk: Long, styles: RoadStyleSet, boxes: List<BoundingBox>, job: Job, deadline: Long): Int {
-        val placements = RoadPieces.current.assemble(road.points) ?: run {
-            Postroad.LOGGER.warn("Road {} has a segment no piece fits; not built", road.id)
+        val catalog = RoadPieces.current
+        val placements = catalog.assemble(road.points, road.id) ?: run {
+            Postroad.LOGGER.warn("Road {} has a point no piece fits; not built", road.id)
             return -1
         }
         val footprint = RoadPieceLayer.footprintOf(placements)
         val cx = ChunkPos.getX(chunk); val cz = ChunkPos.getZ(chunk)
         fun touches(p: PiecePlacement): Boolean {
-            val minX = (minOf(p.entry.x, p.exit.x) - 3) shr 4; val maxX = (maxOf(p.entry.x, p.exit.x) + 3) shr 4
-            val minZ = (minOf(p.entry.z, p.exit.z) - 3) shr 4; val maxZ = (maxOf(p.entry.z, p.exit.z) + 3) shr 4
-            return cx in minX..maxX && cz in minZ..maxZ
+            val r = RoadPieceLayer.reachOf(p)
+            return cx in (r[0] shr 4)..(r[3] shr 4) && cz in (r[2] shr 4)..(r[5] shr 4)
         }
         var placed = 0
         var i = job.pointIndex
@@ -273,22 +244,11 @@ object RoadBuilder {
                 val style = styles.style(road.families.getOrElse(p.index) { 0 }.toInt())
                 val t0 = System.nanoTime()
                 placed += RoadPieceLayer.lay(level, p, style, styles,
-                    { x, z -> if (level.hasChunk(x shr 4, z shr 4) && !inBox(x, z, boxes)) groundY(level, x, z, p.entry.y + 1, styles) else Int.MIN_VALUE },
-                    { x, z -> (x shr 4) == cx && (z shr 4) == cz }) { x, z -> footprint.contains(RoadPieceLayer.key(x, z)) }
+                    { x, z -> if (level.hasChunk(x shr 4, z shr 4) && !inBox(x, z, boxes)) groundY(level, x, z, p.base + 1, styles) else Int.MIN_VALUE },
+                    { x, z -> (x shr 4) == cx && (z shr 4) == cz }, { x, z -> footprint.contains(RoadPieceLayer.key(x, z)) }, catalog)
                 job.setBlockNanos += System.nanoTime() - t0
             }
             i++
-        }
-        // Corner squares and road ends, after the pieces.
-        val points = road.points
-        for ((k, pt) in points.withIndex()) {
-            if (!RoadPieceLayer.needsSquare(points.getOrNull(k - 1), pt, points.getOrNull(k + 1))) continue
-            val c = (pt.x shr 4); val d = (pt.z shr 4)
-            if (kotlin.math.abs(c - cx) > 1 || kotlin.math.abs(d - cz) > 1) continue
-            val style = styles.style(road.families.getOrElse(k) { 0 }.toInt())
-            placed += RoadPieceLayer.layCorner(level, pt.below(), if (k == 0 || k == points.size - 1) RoadPieces.current.end else RoadPieces.current.corner, style, styles,
-                { x, z -> if (level.hasChunk(x shr 4, z shr 4) && !inBox(x, z, boxes)) groundY(level, x, z, pt.y, styles) else Int.MIN_VALUE },
-                { x, z -> (x shr 4) == cx && (z shr 4) == cz })
         }
         job.blocks += placed
         return -1

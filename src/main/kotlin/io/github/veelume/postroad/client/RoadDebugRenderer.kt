@@ -122,7 +122,7 @@ object RoadDebugRenderer {
             val cx = (b[0] + b[3]) / 2.0 + 0.5; val cz = (b[2] + b[5]) / 2.0 + 0.5; val cy = b[4] + 2.2
             val d = cam.distanceToSqr(cx, cy, cz)
             if (d > PIECE_LABEL_RANGE * PIECE_LABEL_RANGE) continue
-            label(pose, buffers, font, camera, cx, cy, cz, p.piece + (if (p.reversed) " (downhill)" else ""), d, pieceColour(p).let { (r, g, bl) -> (0xFF shl 24) or (r shl 16) or (g shl 8) or bl })
+            label(pose, buffers, font, camera, cx, cy, cz, p.piece, d, pieceColour(p).let { (r, g, bl) -> (0xFF shl 24) or (r shl 16) or (g shl 8) or bl })
         }
         buffers.endBatch()
         pose.popPose()
@@ -182,7 +182,8 @@ object RoadDebugRenderer {
         val base = when (p.shape) {
             "diagonal" -> Triple(255, 80, 255)
             "corner" -> Triple(255, 230, 0)
-            "end" -> Triple(255, 150, 30)
+            "bend" -> Triple(255, 180, 60)
+            "square" -> Triple(255, 150, 30)
             else -> Triple(80, 220, 255)
         }
         return if (p.reversed) Triple(base.first / 2, base.second / 2, base.third / 2 + 60) else base

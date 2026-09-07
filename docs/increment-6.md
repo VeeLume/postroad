@@ -1,0 +1,118 @@
+# Increment 6 — Pieces as schematics with connectors
+
+Decided with Valerie on 2026-09-07 after the analysis in `road-pipeline.md`.
+The entry/exit piece model of increment 5 produced dips at anchors nobody
+laid, double-laid anchors, and needed reversed pieces and hard-coded squares.
+Every piece is now a small schematic anchored at its planned point, with
+**connectors** instead of an entry and an exit, so a road is a chain of
+matched connectors, every block has exactly one owner, and junctions,
+corners, ends, bridges and tunnels are catalog pieces like the rest.
+
+## The piece file (`data/postroad/roads/pieces/<name>.json`)
+
+```json
+{
+  "id": "stairs_2",
+  "cost": 4.0,
+  "connectors": [
+    { "at": [-1, 0, 0], "facing": [-1, 0], "level": 0 },
+    { "at": [ 1, 2, 0], "facing": [ 1, 0], "level": 2 }
+  ],
+  "blocks": [
+    { "at": [-1, 1, 0], "role": "stair", "facing": [1, 0], "span": [-1, 1] },
+    { "at": [ 0, 2, 0], "role": "stair", "facing": [1, 0], "span": [-1, 1] },
+    { "at": [ 1, 2, 0], "role": "surface" }, { "at": [1, 2, -1], "role": "edge" }, { "at": [1, 2, 1], "role": "edge" }
+  ],
+  "decor": [
+    { "at": [0, 3, 2], "role": "post", "every": 8 },
+    { "at": [0, 4, 2], "role": "lamp", "every": 8 }
+  ],
+  "fit": { "cut": 4, "fill": 3, "deck": true }
+}
+```
+
+Coordinates are relative to the **anchor**, the planned point's road block
+at `[0, 0, 0]`: x along the piece as authored, y the level, z across. The
+piece's core is the 3×3 around the anchor; blocks outside it are allowed
+(a diagonal's corner bridge, a tunnel's walls) but may not lie on a block
+another piece owns.
+
+- **`connectors`**: where other pieces attach — the piece's own edge block
+  (`at`), the outward direction (`facing`, a unit vector on x/z; a diagonal
+  connector has both set) and the walk height at that edge relative to the
+  anchor (`level`). A straight piece has two opposite connectors, a corner
+  two adjacent, an end one, a T junction three, a cross four.
+- **`blocks`**: the structure, one entry per block: `role` (`surface`,
+  `edge`, `stair`, `slab`, `fill`, `wall`, `air`, or anything a tier maps),
+  `facing` on stairs. `span: [a, b]` repeats the block across z from a to b
+  and `up: n` repeats it n blocks upward; both are shorthand that expands to
+  plain coordinates and nothing else. Role `air` clears the block.
+- **`decor`**: same form plus `every` (on every n-th piece of a road, sides
+  alternating) and optionally `reach: "ground"` with `max`: the block repeats
+  downward until the block below is solid ground, and is not placed at all
+  when `max` is exceeded. Decoration is skipped where any road block lies.
+- **`terrain`** (optional): when the assembler may pick this piece over the
+  plain one with the same connectors — `minDrop` (ground at least that far
+  below the road under any column: a bridge) or `minCover` (ground at least
+  that far above: a tunnel). The most specific matching condition wins; a
+  piece without a condition is the fallback.
+- **`fit`**: how the ground is reconciled per road-block column (see
+  increment 5): `cut`, `fill`, `deck`; `"none"` leaves the ground alone (a
+  bridge or tunnel is its own reconciliation). One solid block under every
+  road block is always guaranteed.
+- **`cost`**, and for variants `costPerDrop` / `costPerCover`: what the
+  planner pays for the piece, plus per block of drop or cover.
+
+Defaults: `cost` 0, `fit` {4, 3, true}, no `decor`, no `terrain`, `every` 1.
+The assembler does exactly four things a file does not spell out: rotates
+and mirrors a piece into the road's facings, matches connectors, picks the
+variant whose `terrain` condition holds, expands `reach`.
+
+## Matching and placing
+
+Two pieces connect when a connector of each faces the other, the two edge
+blocks are neighbours, and the world walk heights agree:
+`anchorA.y + levelA == anchorB.y + levelB`.
+
+The assembler walks a road's points. At each point it knows the facings to
+its neighbours and the height differences. It picks a piece with connectors
+on those sides whose level difference equals the height difference, and sets
+the piece's base so that its connector toward the previous point sits at the
+previous piece's outgoing world level. Uphill and downhill are the same piece
+rotated. At a junction the pieces on the arms carry the rises so the junction
+piece is flat. The catalog's set of connector-level pairs per shape is the
+planner's move set.
+
+Today's pieces map one to one: the same nine blocks, owned by the anchor in
+their middle instead of by the exit. Reversal, `needsSquare`, the corner and
+end squares disappear from the code.
+
+## The planner, later
+
+For deliberate bridges and tunnels the planner gets one new move: hold the
+level across a cell whose terrain is too far below or above for any rise
+piece. The point stores the held height (the plan format already allows
+it), the search state becomes (cell, height) with a cap on consecutive held
+cells, and the move costs the variant's `cost` plus `costPerDrop` × drop or
+`costPerCover` × cover. The assembler then selects the same variants by the
+same conditions, so what is planned as a bridge is laid as one.
+
+## Hosting a rise (found while building)
+
+A piece cannot both rise into its anchor and fall away from it: hosting every
+rise at the piece it climbs into puts a descending road's anchors above the
+terrain by the drop. So the rise between two points is hosted by the
+**higher** point's piece whenever possible, which keeps every anchor column
+on its own terrain uphill and downhill alike. A hilltop would then host two
+rises; a small assignment pass over the road moves one of them to the lower
+point (that anchor sits above its terrain by the rise, the least bad choice).
+Road ends get a virtual side in the road's direction, so an end is a plain
+straight (or diagonal) piece rather than a special one.
+
+## Order
+
+1. Format, loader, assembler, layer; convert the current nine files; the
+   showcase and the piece debug layer follow the new placements.
+2. T junction and cross pieces; the planner marks junction points so the
+   assembler uses them.
+3. The level-hold move; first `bridge_0` and `tunnel_0`.

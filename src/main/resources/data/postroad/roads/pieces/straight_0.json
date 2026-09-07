@@ -1,41 +1,122 @@
 {
-  "shape": "straight",
-  "rise": 0,
+  "id": "straight_0",
   "cost": 0.0,
-  "entry": {
-    "along": 0,
-    "level": 0
-  },
-  "exit": {
-    "along": 3,
-    "level": 0
-  },
-  "rows": [
+  "connectors": [
     {
-      "level": 0,
+      "at": [
+        -1,
+        0,
+        0
+      ],
+      "facing": [
+        -1,
+        0
+      ],
+      "level": 0
+    },
+    {
+      "at": [
+        1,
+        0,
+        0
+      ],
+      "facing": [
+        1,
+        0
+      ],
+      "level": 0
+    }
+  ],
+  "blocks": [
+    {
+      "at": [
+        -1,
+        0,
+        -1
+      ],
+      "role": "edge"
+    },
+    {
+      "at": [
+        -1,
+        0,
+        0
+      ],
       "role": "surface"
     },
     {
-      "level": 0,
+      "at": [
+        -1,
+        0,
+        1
+      ],
+      "role": "edge"
+    },
+    {
+      "at": [
+        0,
+        0,
+        -1
+      ],
+      "role": "edge"
+    },
+    {
+      "at": [
+        0,
+        0,
+        0
+      ],
       "role": "surface"
     },
     {
-      "level": 0,
+      "at": [
+        0,
+        0,
+        1
+      ],
+      "role": "edge"
+    },
+    {
+      "at": [
+        1,
+        0,
+        -1
+      ],
+      "role": "edge"
+    },
+    {
+      "at": [
+        1,
+        0,
+        0
+      ],
       "role": "surface"
+    },
+    {
+      "at": [
+        1,
+        0,
+        1
+      ],
+      "role": "edge"
     }
   ],
   "decor": [
     {
-      "along": 3,
-      "side": 2,
-      "up": 1,
+      "at": [
+        0,
+        1,
+        2
+      ],
       "role": "post",
       "every": 8
     },
     {
-      "along": 3,
-      "side": 2,
-      "up": 2,
+      "at": [
+        0,
+        2,
+        2
+      ],
       "role": "lamp",
       "every": 8
     }

@@ -1,27 +1,27 @@
 {
-  "id": "diagonal_2",
-  "cost": 6.0,
+  "id": "corner_2",
+  "cost": 5.0,
   "connectors": [
     {
       "at": [
         -1,
         1,
-        -1
+        0
       ],
       "facing": [
         -1,
-        -1
+        0
       ],
       "level": 0
     },
     {
       "at": [
-        1,
+        0,
         2,
         1
       ],
       "facing": [
-        1,
+        0,
         1
       ],
       "level": 2
@@ -30,27 +30,27 @@
   "blocks": [
     {
       "at": [
-        -2,
+        -1,
         1,
         -1
       ],
-      "role": "slab"
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
     },
     {
       "at": [
         -1,
         1,
-        -2
+        0
       ],
-      "role": "slab"
-    },
-    {
-      "at": [
-        -1,
+      "role": "stair",
+      "facing": [
         1,
-        -1
-      ],
-      "role": "surface"
+        0
+      ]
     },
     {
       "at": [
@@ -58,15 +58,11 @@
         2,
         -1
       ],
-      "role": "slab"
-    },
-    {
-      "at": [
-        -1,
-        2,
+      "role": "stair",
+      "facing": [
+        1,
         0
-      ],
-      "role": "slab"
+      ]
     },
     {
       "at": [
@@ -74,13 +70,41 @@
         2,
         0
       ],
-      "role": "surface"
+      "role": "stair",
+      "facing": [
+        0,
+        1
+      ]
+    },
+    {
+      "at": [
+        1,
+        2,
+        -1
+      ],
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
     },
     {
       "at": [
         1,
         2,
         0
+      ],
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
+    },
+    {
+      "at": [
+        -1,
+        2,
+        1
       ],
       "role": "edge"
     },
@@ -90,27 +114,11 @@
         2,
         1
       ],
-      "role": "edge"
-    },
-    {
-      "at": [
-        1,
-        2,
-        1
-      ],
       "role": "surface"
     },
     {
       "at": [
         1,
-        2,
-        -1
-      ],
-      "role": "edge"
-    },
-    {
-      "at": [
-        -1,
         2,
         1
       ],

@@ -15,14 +15,14 @@ import net.minecraft.world.level.levelgen.feature.configurations.NoneFeatureConf
 /**
  * Planned roads laid while a chunk generates: a placed feature at the `surface_structures` step
  * (after the surface, before vegetation) in every overworld biome, placed once per chunk at the
- * chunk's origin. It asks the plan snapshot for the segments whose pieces reach into this chunk
- * and lays each piece's blocks inside it; a chunk without segments is untouched.
+ * chunk's origin. It asks the plan snapshot for the piece placements that reach into this chunk
+ * and lays each one's blocks inside it; a chunk without placements is untouched.
  */
 class RoadFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<NoneFeatureConfiguration>(codec) {
     override fun place(ctx: FeaturePlaceContext<NoneFeatureConfiguration>): Boolean {
         val chunk = ChunkPos(ctx.origin())
-        val segments = RoadPlanSnapshot.segmentsAt(chunk.x, chunk.z)
-        if (segments.isEmpty()) return false
+        val placements = RoadPlanSnapshot.placementsAt(chunk.x, chunk.z)
+        if (placements.isEmpty()) return false
         val level = ctx.level()
         val catalog = RoadPieces.current
         val styles = RoadStyles.current
@@ -35,22 +35,14 @@ class RoadFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<NoneFeatureC
             return y
         }
         fun inChunk(x: Int, z: Int): Boolean = (x shr 4) == chunk.x && (z shr 4) == chunk.z
+        // Every placement reaching into the chunk is in the snapshot, so the footprint of all of them keeps decoration off any road block here.
+        val footprint = RoadPieceLayer.footprintOf(placements.map { it.placement })
         var placed = 0
-        for (seg in segments) {
-            val p = catalog.placement(seg.a, seg.b, seg.index) ?: run { RoadPlanSnapshot.noPiece.incrementAndGet(); null } ?: continue
-            // The neighbouring pieces' footprints keep this piece's decoration off them.
-            val around = listOfNotNull(seg.prev?.let { catalog.placement(it, seg.a, seg.index - 1) }, p, seg.next?.let { catalog.placement(seg.b, it, seg.index + 1) })
-            val footprint = RoadPieceLayer.footprintOf(around)
-            placed += RoadPieceLayer.lay(level, p, styles.style(seg.family), styles, ::ground, ::inChunk) { x, z -> footprint.contains(RoadPieceLayer.key(x, z)) }
+        for (p in placements) {
+            placed += RoadPieceLayer.lay(level, p.placement, styles.style(p.family), styles, ::ground, ::inChunk, { x, z -> footprint.contains(RoadPieceLayer.key(x, z)) }, catalog)
         }
-        // Anchor squares after the pieces: ends, turns and dips (see RoadPieceLayer.needsSquare).
-        for (seg in segments) {
-            val style = styles.style(seg.family)
-            if (RoadPieceLayer.needsSquare(seg.prev, seg.a, seg.b)) placed += RoadPieceLayer.layCorner(level, seg.a.below(), if (seg.prev == null) catalog.end else catalog.corner, style, styles, ::ground, ::inChunk)
-            if (seg.next == null) placed += RoadPieceLayer.layCorner(level, seg.b.below(), catalog.end, style, styles, ::ground, ::inChunk)
-        }
-        RoadPlanSnapshot.piecesPlaced.addAndGet(segments.size)
-        RoadPlanSnapshot.markLaid(chunk.toLong(), segments.mapTo(HashSet()) { it.roadId })
+        RoadPlanSnapshot.piecesPlaced.addAndGet(placements.size)
+        RoadPlanSnapshot.markLaid(chunk.toLong(), placements.mapTo(HashSet()) { it.placement.roadId })
         return placed > 0
     }
 }

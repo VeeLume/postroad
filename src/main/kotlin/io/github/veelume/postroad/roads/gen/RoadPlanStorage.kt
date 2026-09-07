@@ -90,7 +90,8 @@ class PlannedRoad(
     /** Chunks this road passes through. */
     fun chunks(): LongOpenHashSet {
         val set = LongOpenHashSet()
-        for (p in points) set.add(ChunkPos.asLong(p.x shr 4, p.z shr 4))
+        // Every chunk a point's piece (3 wide, decoration 2 off the centre) can reach.
+        for (p in points) for (dz in intArrayOf(-3, 3)) for (dx in intArrayOf(-3, 3)) set.add(ChunkPos.asLong((p.x + dx) shr 4, (p.z + dz) shr 4))
         return set
     }
 

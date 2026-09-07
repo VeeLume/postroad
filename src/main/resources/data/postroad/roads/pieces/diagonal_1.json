@@ -1,39 +1,120 @@
 {
-  "shape": "diagonal",
-  "rise": 1,
+  "id": "diagonal_1",
   "cost": 2.0,
-  "entry": {
-    "along": 0,
-    "level": 0
-  },
-  "exit": {
-    "along": 3,
-    "level": 1
-  },
-  "rows": [
+  "connectors": [
     {
-      "level": 0,
-      "role": "surface"
+      "at": [
+        -1,
+        1,
+        -1
+      ],
+      "facing": [
+        -1,
+        -1
+      ],
+      "level": 0
     },
     {
-      "level": 0,
-      "role": "surface"
-    },
+      "at": [
+        1,
+        1,
+        1
+      ],
+      "facing": [
+        1,
+        1
+      ],
+      "level": 1
+    }
+  ],
+  "blocks": [
     {
-      "level": 1,
+      "at": [
+        -2,
+        1,
+        -1
+      ],
       "role": "slab"
     },
     {
-      "level": 1,
+      "at": [
+        -1,
+        1,
+        -2
+      ],
+      "role": "slab"
+    },
+    {
+      "at": [
+        -1,
+        1,
+        -1
+      ],
       "role": "surface"
     },
     {
-      "level": 1,
+      "at": [
+        0,
+        1,
+        -1
+      ],
+      "role": "edge"
+    },
+    {
+      "at": [
+        -1,
+        1,
+        0
+      ],
+      "role": "edge"
+    },
+    {
+      "at": [
+        0,
+        1,
+        0
+      ],
       "role": "surface"
     },
     {
-      "level": 1,
+      "at": [
+        1,
+        1,
+        0
+      ],
+      "role": "edge"
+    },
+    {
+      "at": [
+        0,
+        1,
+        1
+      ],
+      "role": "edge"
+    },
+    {
+      "at": [
+        1,
+        1,
+        1
+      ],
       "role": "surface"
+    },
+    {
+      "at": [
+        1,
+        1,
+        -1
+      ],
+      "role": "edge"
+    },
+    {
+      "at": [
+        -1,
+        1,
+        1
+      ],
+      "role": "edge"
     }
   ],
   "fit": {

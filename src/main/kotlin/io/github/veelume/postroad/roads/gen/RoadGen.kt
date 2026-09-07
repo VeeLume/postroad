@@ -335,10 +335,10 @@ object RoadGen {
         val catalog = RoadPieces.current
         val newRoads = plan.routes.mapNotNull { route ->
             val points = route.cells.map { c -> val b = terrain.cellToBlock(c.x, c.z); existingY[Terrain.key(c.x, c.z)]?.let { BlockPos(b.x, it, b.z) } ?: b }
-            // What cannot be built is not stored: every segment must be a catalog piece.
-            val bad = (1 until points.size).firstOrNull { catalog.placement(points[it - 1], points[it], it - 1) == null }
+            // What cannot be built is not stored: every point must have a catalog piece.
+            val bad = points.indices.firstOrNull { i -> catalog.needsAt(points, i)?.let { catalog.match(it) } == null }
             if (bad != null) {
-                Postroad.LOGGER.warn("Road {} ({} -> {}) dropped: no piece for {} -> {}", route.id, route.from.id, route.to.id, points[bad - 1].toShortString(), points[bad].toShortString())
+                Postroad.LOGGER.warn("Road {} ({} -> {}) dropped: no piece at {} (needs {})", route.id, route.from.id, route.to.id, points[bad].toShortString(), catalog.needsAt(points, bad))
                 return@mapNotNull null
             }
             val road = PlannedRoad(
@@ -513,7 +513,7 @@ object RoadGen {
         }
         val built = storage.roads.values.sumOf { it.builtChunks.size }
         val total = storage.roads.values.sumOf { it.chunks().size }
-        lines.add("worldgen: ${RoadPlanSnapshot.segments.size} chunk(s) in the snapshot, ${RoadPlanSnapshot.laid.size} chunk(s) laid by the road feature (${RoadPlanSnapshot.featureRuns.get()} run(s), ${RoadPlanSnapshot.piecesPlaced.get()} piece(s), ${RoadPlanSnapshot.noPiece.get()} without a piece); ${ChunkPregen.status()}; ${KnownTerrain.size(server.overworld().dimension().location())} chunk(s) of known terrain; ${storage.roads.values.count { it.provisional }} provisional road(s), $replanned replanned")
+        lines.add("worldgen: ${RoadPlanSnapshot.placements.size} chunk(s) in the snapshot, ${RoadPlanSnapshot.laid.size} chunk(s) laid by the road feature (${RoadPlanSnapshot.featureRuns.get()} run(s), ${RoadPlanSnapshot.piecesPlaced.get()} piece(s), ${RoadPlanSnapshot.noPiece.get()} without a piece); ${ChunkPregen.status()}; ${KnownTerrain.size(server.overworld().dimension().location())} chunk(s) of known terrain; ${storage.roads.values.count { it.provisional }} provisional road(s), $replanned replanned")
         lines.add("$built of $total road chunk(s) built; builder: ${RoadBuilder.chunksBuilt} chunk(s), ${RoadBuilder.blocksPlaced} block(s), ${RoadBuilder.signsPlaced} sign(s) this session, ${RoadBuilder.queueSize} queued")
         return lines
     }

@@ -186,12 +186,18 @@ object RoadDebug {
         val catalog = RoadPieces.current
         val out = ArrayList<DebugPiece>()
         fun add(p: PiecePlacement, roadId: String) {
-            if (!near(p.entry) && !near(p.exit)) return
-            out.add(DebugPiece(p.piece.id.path, p.piece.shape, p.reversed, p.entry, p.exit, RoadPieceLayer.boundsOf(p), roadId))
+            val anchor = p.anchor
+            if (!near(anchor)) return
+            val cs = p.connectors()
+            val entry = cs.firstOrNull()?.first ?: anchor
+            val exit = cs.getOrNull(1)?.first ?: entry
+            val shape = p.piece.id.path.substringBefore('_')
+            out.add(DebugPiece(p.piece.id.path, shape, false, entry, exit, RoadPieceLayer.boundsOf(p), roadId))
         }
         for (road in storage.roadsIn(dim)) {
             if (road.points.none(::near)) continue
-            for (p in RoadPieceLayer.placementsOf(road.points, catalog)) add(p, road.id + (if (road.provisional) " (provisional)" else ""))
+            val placements = catalog.assemble(road.points, road.id) ?: continue
+            for (p in placements) add(p, road.id + (if (road.provisional) " (provisional)" else ""))
         }
         for ((d, p) in showcase) if (d == dim) add(p, "showcase")
         return PieceDebugState(out)

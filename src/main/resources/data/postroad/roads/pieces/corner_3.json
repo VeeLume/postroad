@@ -1,6 +1,6 @@
 {
-  "id": "straight_2",
-  "cost": 4.0,
+  "id": "corner_3",
+  "cost": 10.0,
   "connectors": [
     {
       "at": [
@@ -16,15 +16,15 @@
     },
     {
       "at": [
-        1,
-        2,
-        0
+        0,
+        3,
+        1
       ],
       "facing": [
-        1,
-        0
+        0,
+        1
       ],
-      "level": 2
+      "level": 3
     }
   ],
   "blocks": [
@@ -54,95 +54,87 @@
     },
     {
       "at": [
+        0,
+        2,
+        -1
+      ],
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
+    },
+    {
+      "at": [
+        0,
+        2,
+        0
+      ],
+      "role": "stair",
+      "facing": [
+        0,
+        1
+      ]
+    },
+    {
+      "at": [
+        1,
+        2,
+        -1
+      ],
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
+    },
+    {
+      "at": [
+        1,
+        2,
+        0
+      ],
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
+    },
+    {
+      "at": [
         -1,
-        1,
+        3,
         1
       ],
       "role": "stair",
       "facing": [
-        1,
-        0
+        0,
+        1
       ]
     },
     {
       "at": [
         0,
-        2,
-        -1
-      ],
-      "role": "stair",
-      "facing": [
-        1,
-        0
-      ]
-    },
-    {
-      "at": [
-        0,
-        2,
-        0
-      ],
-      "role": "stair",
-      "facing": [
-        1,
-        0
-      ]
-    },
-    {
-      "at": [
-        0,
-        2,
+        3,
         1
       ],
       "role": "stair",
       "facing": [
-        1,
-        0
+        0,
+        1
       ]
     },
     {
       "at": [
         1,
-        2,
-        -1
-      ],
-      "role": "edge"
-    },
-    {
-      "at": [
-        1,
-        2,
-        0
-      ],
-      "role": "surface"
-    },
-    {
-      "at": [
-        1,
-        2,
+        3,
         1
       ],
-      "role": "edge"
-    }
-  ],
-  "decor": [
-    {
-      "at": [
+      "role": "stair",
+      "facing": [
         0,
-        1,
-        2
-      ],
-      "role": "post",
-      "every": 8
-    },
-    {
-      "at": [
-        0,
-        2,
-        2
-      ],
-      "role": "lamp",
-      "every": 8
+        1
+      ]
     }
   ],
   "fit": {

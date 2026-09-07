@@ -241,7 +241,7 @@ object PostroadCommands {
         val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(ctx.source.server)
         var unmarked = 0
         val centre = BlockPos.containing(ctx.source.position)
-        val snapshot = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.segments
+        val snapshot = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.placements
         var withStart = 0; var without = 0; var absent = 0
         // Planned height against the generated ground, per planned point in generated chunks: how far the plan's
         // idea of the surface is from what the world got (negative = the plan lies under the real ground).
@@ -258,8 +258,9 @@ object PostroadCommands {
             val start = if (io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.wasLaid(key)) Unit else null
             if (chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.SURFACE)) {
                 val seen = HashSet<Long>()
-                for (run in runs) for (p in listOf(run.a, run.b)) {
-                    if ((p.x shr 4) != cx || (p.z shr 4) != cz || !seen.add(p.asLong())) continue
+                // Per placement its anchor's road block, +1 = the planned first-air height as before.
+                for (run in runs) run.placement.anchor.above().let { p ->
+                    if ((p.x shr 4) != cx || (p.z shr 4) != cz || !seen.add(p.asLong())) return@let
                     // Ground as the planner means it: below trees, and the water surface where there is water.
                     val surface = chunk.getHeight(if (chunk.hasPrimedHeightmap(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG)) net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG else net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE, p.x and 15, p.z and 15)
                     var ground = chunk.getHeight(if (chunk.hasPrimedHeightmap(net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR_WG)) net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR_WG else net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR, p.x and 15, p.z and 15)
@@ -310,7 +311,7 @@ object PostroadCommands {
         val chunkKey = net.minecraft.world.level.ChunkPos.asLong(pos.x shr 4, pos.z shr 4)
         val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(ctx.source.server)
         val roadsHere = storage.roadsInChunk(level.dimension().location(), chunkKey)
-        val runs = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.segmentsAt(pos.x shr 4, pos.z shr 4).size
+        val runs = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.placementsAt(pos.x shr 4, pos.z shr 4).size
         val known = io.github.veelume.postroad.roads.gen.KnownTerrain.column(level.dimension().location(), pos.x, pos.z)?.let { "${it.top}${if (it.water) " (water)" else ""}" } ?: "none"
         val tagged = level.chunkSource.generator.biomeSource.getNoiseBiome(pos.x shr 2, base shr 2, pos.z shr 2, level.chunkSource.randomState().sampler()).`is`(net.minecraft.tags.BiomeTags.IS_OVERWORLD)
         val laid = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.laidRoads(chunkKey)
@@ -334,13 +335,13 @@ object PostroadCommands {
     private fun roadsDebugPieces(ctx: CommandContext<CommandSourceStack>): Int {
         val player = ctx.source.playerOrException
         val on = io.github.veelume.postroad.roads.gen.RoadDebug.togglePieces(player)
-        ctx.source.sendSuccess({ Component.literal(if (on) "Piece debug layer on: every placement the plan is laid from within 96 blocks, outlined — cyan straight, magenta diagonal, yellow corner, orange end; darker when the plan runs downhill through it. Green cube = entry anchor, red cube = exit anchor, white line = the connector between them. Labels near you name the piece." else "Piece debug layer off.") }, false)
+        ctx.source.sendSuccess({ Component.literal(if (on) "Piece debug layer on: every placement the plan is laid from within 96 blocks, outlined — cyan straight, magenta diagonal, yellow corner, amber bend, orange square. Green cube = first connector, red cube = second, white line between them. Labels near you name the piece." else "Piece debug layer off.") }, false)
         return 1
     }
 
     private fun roadsShowcase(ctx: CommandContext<CommandSourceStack>): Int {
         val n = io.github.veelume.postroad.roads.gen.RoadBuilder.showcase(ctx.source.level, BlockPos.containing(ctx.source.position))
-        ctx.source.sendSuccess({ Component.literal("$n piece(s) laid in the air east of here, 12 blocks apart: straights uphill and downhill, diagonals, corner, end. Lime block = entry anchor, red block = exit anchor; turn on `/postroad roads debug pieces` for outlines and names.") }, true)
+        ctx.source.sendSuccess({ Component.literal("$n piece(s) laid in the air east of here, 12 blocks apart, each as authored. Lime block = beyond the first connector, red = beyond the others; turn on `/postroad roads debug pieces` for outlines and names.") }, true)
         return n
     }
 

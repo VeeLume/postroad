@@ -1,41 +1,158 @@
 {
-  "shape": "straight",
-  "rise": 3,
+  "id": "straight_3",
   "cost": 9.0,
-  "entry": {
-    "along": 0,
-    "level": 0
-  },
-  "exit": {
-    "along": 3,
-    "level": 3
-  },
-  "rows": [
+  "connectors": [
     {
-      "level": 1,
-      "role": "stair"
+      "at": [
+        -1,
+        1,
+        0
+      ],
+      "facing": [
+        -1,
+        0
+      ],
+      "level": 0
     },
     {
-      "level": 2,
-      "role": "stair"
+      "at": [
+        1,
+        3,
+        0
+      ],
+      "facing": [
+        1,
+        0
+      ],
+      "level": 3
+    }
+  ],
+  "blocks": [
+    {
+      "at": [
+        -1,
+        1,
+        -1
+      ],
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
     },
     {
-      "level": 3,
-      "role": "stair"
+      "at": [
+        -1,
+        1,
+        0
+      ],
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
+    },
+    {
+      "at": [
+        -1,
+        1,
+        1
+      ],
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
+    },
+    {
+      "at": [
+        0,
+        2,
+        -1
+      ],
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
+    },
+    {
+      "at": [
+        0,
+        2,
+        0
+      ],
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
+    },
+    {
+      "at": [
+        0,
+        2,
+        1
+      ],
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
+    },
+    {
+      "at": [
+        1,
+        3,
+        -1
+      ],
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
+    },
+    {
+      "at": [
+        1,
+        3,
+        0
+      ],
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
+    },
+    {
+      "at": [
+        1,
+        3,
+        1
+      ],
+      "role": "stair",
+      "facing": [
+        1,
+        0
+      ]
     }
   ],
   "decor": [
     {
-      "along": 3,
-      "side": 2,
-      "up": 1,
+      "at": [
+        0,
+        1,
+        2
+      ],
       "role": "post",
       "every": 8
     },
     {
-      "along": 3,
-      "side": 2,
-      "up": 2,
+      "at": [
+        0,
+        2,
+        2
+      ],
       "role": "lamp",
       "every": 8
     }
