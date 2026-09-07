@@ -858,7 +858,7 @@ class PostroadGameTests {
         helper.assertTrue(catalog.assemble(listOf(BlockPos(0, 64, 0), BlockPos(3, 68, 0))) == null, "no straight piece for rise 4")
         helper.assertTrue(catalog.assemble(listOf(BlockPos(0, 64, 0), BlockPos(3, 67, 3))) == null, "no diagonal piece for rise 3")
         // The turn limits the planner takes from the catalog: what each turn kind can climb.
-        val limits = catalog.turnLimits()
+        val limits = catalog.turnLimitsByName()
         helper.assertValueEqual(limits["c-c-0"], 3, "a straight climbs 3")
         helper.assertValueEqual(limits["d-d-0"], 2, "a diagonal climbs 2")
         helper.assertValueEqual(limits["c-c-90"], 3, "a corner climbs 3")

@@ -124,36 +124,50 @@ class PieceCatalog(val pieces: List<RoadPiece>) {
     val maxRise: Int get() = pieces.filter { it.isStraight }.maxOfOrNull { it.rise } ?: 0
 
     /**
-     * The largest rise the catalog has per turn kind: key "<low side kind>-<high side kind>-<angle>"
-     * with kinds `c` (cardinal) / `d` (diagonal) and the angle 0, 45 or 90 between the two sides'
-     * lines of travel. The planner refuses a hosted rise its key cannot carry. Two-connector pieces
-     * without a terrain condition only.
+     * The largest rise the catalog has per turn kind, indexed by [turnIndex]: the kinds of the lower
+     * and the higher side (cardinal / diagonal) and the angle between the two sides' lines of travel
+     * (0, 45 or 90°). −1 where the catalog has nothing. The planner refuses a hosted rise its kind
+     * cannot carry. Two-connector pieces without a terrain condition only.
      */
-    fun turnLimits(): Map<String, Int> {
-        val out = HashMap<String, Int>()
+    fun turnLimits(): IntArray {
+        val out = IntArray(TURN_KINDS) { -1 }
         for (p in pieces) {
             if (p.connectors.size != 2 || p.terrain != null) continue
             val (a, b) = p.connectors
             val (low, high) = if (a.level <= b.level) a to b else b to a
-            val k = turnKey(low.facing, high.facing)
-            out[k] = maxOf(out[k] ?: -1, high.level - low.level)
-            if (a.level == b.level) { val k2 = turnKey(b.facing, a.facing); out[k2] = maxOf(out[k2] ?: -1, 0) }
+            val k = turnIndex(low.facing.dx, low.facing.dz, high.facing.dx, high.facing.dz)
+            out[k] = maxOf(out[k], high.level - low.level)
+            if (a.level == b.level) { val k2 = turnIndex(b.facing.dx, b.facing.dz, a.facing.dx, a.facing.dz); out[k2] = maxOf(out[k2], 0) }
         }
+        return out
+    }
+
+    /** [turnLimits] by name, "<low kind>-<high kind>-<angle>" (kinds `c`/`d`), for reading. */
+    fun turnLimitsByName(): Map<String, Int> {
+        val limits = turnLimits()
+        val out = LinkedHashMap<String, Int>()
+        for (lk in 0..1) for (hk in 0..1) for (ai in 0..2) { val v = limits[lk * 6 + hk * 3 + ai]; if (v >= 0) out["${if (lk == 1) "d" else "c"}-${if (hk == 1) "d" else "c"}-${intArrayOf(0, 45, 90)[ai]}"] = v }
         return out
     }
 
     companion object Turns {
         val EMPTY = PieceCatalog(emptyList())
+        const val TURN_KINDS = 12
 
-        /** The turn key for a tile whose two connectors face [low] (the lower side) and [high]. */
-        fun turnKey(low: Facing, high: Facing): String {
-            val dot = -low.dx * high.dx - low.dz * high.dz // between the line of travel in (−low) and out (high)
+        /**
+         * Index of a turn kind for a tile whose two connectors face (lowDx, lowDz), the lower side, and
+         * (highDx, highDz): low kind × 6 + high kind × 3 + angle index (0°, 45°, 90°). No allocation: the
+         * planner calls this for every neighbour of every expanded cell.
+         */
+        fun turnIndex(lowDx: Int, lowDz: Int, highDx: Int, highDz: Int): Int {
+            val lowDiag = lowDx != 0 && lowDz != 0; val highDiag = highDx != 0 && highDz != 0
+            val dot = -lowDx * highDx - lowDz * highDz // between the line of travel in (−low) and out (high)
             val angle = when {
-                dot > 0 && (low.isDiagonal == high.isDiagonal) -> 0
-                dot == 0 -> 90
-                else -> 45
+                dot > 0 && lowDiag == highDiag -> 0
+                dot == 0 -> 2
+                else -> 1
             }
-            return "${if (low.isDiagonal) "d" else "c"}-${if (high.isDiagonal) "d" else "c"}-$angle"
+            return (if (lowDiag) 6 else 0) + (if (highDiag) 3 else 0) + angle
         }
     }
 
