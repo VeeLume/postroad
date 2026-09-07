@@ -38,13 +38,17 @@ object RoadPlanSnapshot {
         val catalog = RoadPieces.current
         val map = HashMap<Long, MutableList<Placed>>()
         var roads = 0
-        for (road in storage.roadsIn(dimension)) {
+        val finalRoads = storage.roadsIn(dimension).filter { !it.provisional }
+        // A point two roads share (a junction) gets one piece: the road with the smaller id lays it, the
+        // other skips it there. Junction pieces come later; this keeps two pieces from stacking.
+        val claims = anchorClaims(finalRoads)
+        for (road in finalRoads) {
             // A provisional road's heights are estimates; laying it would fix the wrong road into the
             // world (and freeze it: a touched road is never replanned). It is laid once it is final.
-            if (road.provisional) continue
             val placements = catalog.assemble(road.points, road.id) ?: run { noPiece.incrementAndGet(); Postroad.LOGGER.warn("Road {} has a point no piece fits; not in the snapshot", road.id); null } ?: continue
             roads++
             for (p in placements) {
+                if (claims[RoadPieceLayer.key(p.x, p.z)] != road.id) continue
                 val b = RoadPieceLayer.reachOf(p)
                 val placed = Placed(p, road.families.getOrElse(p.index) { 0 }.toInt())
                 for (cz in (b[2] shr 4)..(b[5] shr 4)) for (cx in (b[0] shr 4)..(b[3] shr 4)) map.getOrPut(ChunkPos.asLong(cx, cz)) { ArrayList() }.add(placed)
@@ -52,6 +56,17 @@ object RoadPlanSnapshot {
         }
         placements = map
         Postroad.LOGGER.info("Road plan snapshot: {} road(s), {} chunk(s) with placements", roads, map.size)
+    }
+
+    /** Per anchor column shared by several roads, the id of the road that lays it: the smallest id. */
+    fun anchorClaims(roads: List<PlannedRoad>): Map<Long, String> {
+        val claims = HashMap<Long, String>()
+        for (road in roads) for (pt in road.points) {
+            val k = RoadPieceLayer.key(pt.x, pt.z)
+            val cur = claims[k]
+            if (cur == null || road.id < cur) claims[k] = road.id
+        }
+        return claims
     }
 
     fun clear() {

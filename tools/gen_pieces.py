@@ -24,13 +24,14 @@ def bridge(fx, fz, level, role, facing=None):
     """The joint on a diagonal side: the four blocks outside the core that make the corner contact with the
     neighbouring tile a full 3-wide band. Every diagonal connector side owns them; two tiles that share a
     joint lay the same blocks at the same levels, so the double ownership is harmless."""
+    # Valerie's shape (captured 2026-09-07): the 2×2 contact plus one block beside each core edge.
     return [block(2 * fx, level, fz, role, facing), block(fx, level, 2 * fz, role, facing),
-            block(fx, level, 3 * fz, role, facing), block(3 * fx, level, fz, role, facing)]
+            block(0, level, 2 * fz, role, facing), block(2 * fx, level, 0, role, facing)]
 
 
 # Pieces adjusted by hand in the showcase and captured with `/postroad roads capture`: the generator
 # neither writes nor deletes these files; their json is the source of truth.
-HAND_AUTHORED = {"bend_3", "bendd_2", "bendd_3", "corner_2", "corner_3"}
+HAND_AUTHORED = {"bend_3", "bendd_2", "bendd_3", "corner_2", "corner_3", "diagonal_1", "diagonal_2", "dcorner_1", "dcorner_2"}
 COST = {0: 0.0, 1: 1.0, 2: 4.0, 3: 9.0}
 DIAG_COST = {0: 0.5, 1: 2.0, 2: 6.0}
 CORNER_COST = {0: 0.0, 1: 1.5, 2: 5.0, 3: 10.0}

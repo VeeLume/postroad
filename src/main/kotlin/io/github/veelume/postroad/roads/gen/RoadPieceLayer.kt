@@ -27,7 +27,8 @@ object RoadPieceLayer {
      * [catalog] enables terrain variants (bridge, tunnel) for the piece. Returns blocks placed.
      */
     fun lay(level: LevelAccessor, p0: PiecePlacement, style: RoadStyle, styles: RoadStyleSet, groundAt: (Int, Int) -> Int,
-            inArea: (Int, Int) -> Boolean = { _, _ -> true }, footprint: ((Int, Int) -> Boolean)? = null, catalog: PieceCatalog? = null): Int {
+            inArea: (Int, Int) -> Boolean = { _, _ -> true }, footprint: ((Int, Int) -> Boolean)? = null, catalog: PieceCatalog? = null,
+            protect: MutableSet<Long> = HashSet()): Int {
         var placed = 0
         val seed = if (level is WorldGenLevel) level.seed else 0L
         val p = if (catalog != null && p0.piece.terrain == null) variant(p0, catalog, groundAt) else p0
@@ -36,8 +37,8 @@ object RoadPieceLayer {
             val pos = p.world(b.x, b.y, b.z)
             if (!inArea(pos.x, pos.z)) continue
             val state = stateOf(b, p, style, seed, pos)
-            placed += if (b.role in RoadPiece.ROAD_ROLES && !piece.fit.none) column(level, pos.x, pos.z, pos.y, state, piece.fit, style, styles, groundAt(pos.x, pos.z))
-                      else plain(level, pos, state, styles)
+            placed += if (b.role in RoadPiece.ROAD_ROLES && !piece.fit.none) column(level, pos.x, pos.z, pos.y, state, piece.fit, style, styles, groundAt(pos.x, pos.z), protect)
+                      else plain(level, pos, state, styles, protect)
         }
         placed += decorate(level, p, style, styles, groundAt, inArea, footprint, seed)
         return placed
@@ -69,12 +70,14 @@ object RoadPieceLayer {
     }
 
     /** A non-road block: placed where the world has air, plants or replaceable ground; air clears clearable blocks. */
-    private fun plain(level: LevelAccessor, pos: BlockPos, state: BlockState, styles: RoadStyleSet): Int {
+    private fun plain(level: LevelAccessor, pos: BlockPos, state: BlockState, styles: RoadStyleSet, protect: MutableSet<Long>): Int {
         val cur = level.getBlockState(pos)
+        if (protect.contains(pos.asLong())) return 0
         if (state.isAir) { if (cur.isAir || !styles.isClearable(cur)) return 0; level.setBlock(pos, state, 2 or 16); return 1 }
         if (!styles.isClearable(cur) && !styles.isReplaceable(cur)) return 0
         if (cur == state) return 0
         level.setBlock(pos, state, 2 or 16)
+        protect.add(pos.asLong())
         return 1
     }
 
@@ -83,54 +86,53 @@ object RoadPieceLayer {
      * three of headroom kept clear), filled up to it (up to [PieceFit.fill]), or a deck on one
      * support over a deeper drop — then [state] at [top] and a solid block under it. Returns blocks changed.
      */
-    fun column(level: LevelAccessor, x: Int, z: Int, top: Int, state: BlockState, fit: PieceFit, style: RoadStyle, styles: RoadStyleSet, ground: Int): Int {
+    fun column(level: LevelAccessor, x: Int, z: Int, top: Int, state: BlockState, fit: PieceFit, style: RoadStyle, styles: RoadStyleSet, ground: Int, protect: MutableSet<Long> = HashSet()): Int {
         if (ground == Int.MIN_VALUE || ground <= level.minBuildHeight || top <= level.minBuildHeight) return 0
+        val topPos = BlockPos(x, top, z)
+        // A road block another piece laid in this run is never cut, cleared or overwritten (two pieces share a joint column at different levels).
+        if (protect.contains(topPos.asLong())) return 0
         val groundState = level.getBlockState(BlockPos(x, ground, z))
         if (!groundState.fluidState.isEmpty || !level.getFluidState(BlockPos(x, ground + 1, z)).isEmpty) return 0
-        if (ground >= top && !styles.isReplaceable(groundState)) return 0
+        if (ground >= top && !styles.isReplaceable(groundState) && !protect.contains(BlockPos(x, ground, z).asLong())) return 0
         var changed = 0
         val air = Blocks.AIR.defaultBlockState()
-        if (top < ground) {
-            if (ground - top > fit.cut) return 0
-            for (y in top + 1..ground + HEADROOM) {
+        fun clear(from: Int, to: Int, stopAtUnclearable: Boolean): Boolean {
+            for (y in from..to) {
                 val pos = BlockPos(x, y, z)
+                if (protect.contains(pos.asLong())) continue
                 val s = level.getBlockState(pos)
                 if (s.isAir) continue
-                if (y <= ground && !styles.isReplaceable(s)) return changed
-                if (y > ground && !styles.isClearable(s)) break
+                if (y <= ground && !styles.isReplaceable(s) && !styles.isClearable(s)) return false
+                if (y > ground && !styles.isClearable(s)) { if (stopAtUnclearable) return true else continue }
                 level.setBlock(pos, air, 2 or 16); changed++
             }
+            return true
+        }
+        if (top < ground) {
+            // Cut the ground down to the road, or — past the cap — only the passage above it: a rough
+            // tunnel through the hill rather than a gap in the road.
+            val to = if (ground - top > fit.cut) top + HEADROOM else ground + HEADROOM
+            if (!clear(top + 1, to, true)) return changed
         } else if (top > ground) {
             val drop = top - ground - 1
             val from = if (drop > fit.fill) { if (!fit.deck) return 0; top - 1 } else ground + 1
             for (y in from until top) {
                 val pos = BlockPos(x, y, z)
+                if (protect.contains(pos.asLong())) continue
                 if (!styles.isClearable(level.getBlockState(pos))) return changed
                 level.setBlock(pos, style.fill, 2 or 16); changed++
             }
-            for (y in top + 1..top + HEADROOM) {
-                val pos = BlockPos(x, y, z)
-                val s = level.getBlockState(pos)
-                if (s.isAir) continue
-                if (!styles.isClearable(s)) break
-                level.setBlock(pos, air, 2 or 16); changed++
-            }
+            clear(top + 1, top + HEADROOM, true)
         } else {
-            for (y in top + 1..top + HEADROOM) {
-                val pos = BlockPos(x, y, z)
-                val s = level.getBlockState(pos)
-                if (s.isAir) continue
-                if (!styles.isClearable(s)) break
-                level.setBlock(pos, air, 2 or 16); changed++
-            }
+            clear(top + 1, top + HEADROOM, true)
         }
-        val topPos = BlockPos(x, top, z)
         if (top > ground && !styles.isClearable(level.getBlockState(topPos))) return changed
         if (level.getBlockState(topPos) != state) { level.setBlock(topPos, state, 2 or 16); changed++ }
+        protect.add(topPos.asLong())
         // A solid block under every road block: sand and gravel fall, and a road on leaves or over a hollow sinks.
         val below = BlockPos(x, top - 1, z)
         val b = level.getBlockState(below)
-        if (top - 1 > level.minBuildHeight && !b.isSolid && b.fluidState.isEmpty && styles.isClearable(b)) { level.setBlock(below, style.fill, 2 or 16); changed++ }
+        if (top - 1 > level.minBuildHeight && !protect.contains(below.asLong()) && !b.isSolid && b.fluidState.isEmpty && styles.isClearable(b)) { level.setBlock(below, style.fill, 2 or 16); changed++ }
         return changed
     }
 

@@ -770,7 +770,7 @@ class PostroadGameTests {
         val ps = layRoad(helper, floorY, listOf(BlockPos(1, F + 1, 1), BlockPos(4, F + 2, 4)))
         helper.assertValueEqual(ps.map { it.piece.id.path }, listOf("diagonal_0", "diagonal_1"), "a road that starts diagonally starts with a diagonal piece, then the rise-1 diagonal")
         helper.assertTrue(isSlab(blockAt(helper, 2, F + 1, 3)) && isSlab(blockAt(helper, 3, F + 1, 2)), "the joint blocks at (2, 3) and (3, 2) are the slab step")
-        helper.assertTrue(isSlab(blockAt(helper, 3, F + 1, 1)) && isSlab(blockAt(helper, 1, F + 1, 3)), "the joint is three wide: slabs at (3, 1) and (1, 3) too")
+        helper.assertTrue(isSlab(blockAt(helper, 4, F + 1, 2)) && isSlab(blockAt(helper, 2, F + 1, 4)), "the joint is three wide: slabs beside the core at (4, 2) and (2, 4) too")
         helper.assertTrue(blockAt(helper, 3, F + 1, 3) != Blocks.AIR && !isSlab(blockAt(helper, 3, F + 1, 3)), "the core corner (3, 3) is a surface at level 1")
         var stairs = 0
         for (x in 0..6) for (z in 0..6) for (y in F..F + 2) if (isStair(blockAt(helper, x, y, z))) stairs++
@@ -788,6 +788,60 @@ class PostroadGameTests {
         helper.assertTrue(isStair(blockAt(helper, 3, F + 1, 4)), "the corner's in-row is the first stair at (3, 4)")
         helper.assertTrue(blockAt(helper, 4, F + 2, 3) != Blocks.AIR && blockAt(helper, 4, F + 2, 3) != Blocks.STONE, "the corner's out-row at level 2 at (4, 3)")
         for (z in 0..2) helper.assertTrue(blockAt(helper, 4, F + 2, z) != Blocks.AIR && blockAt(helper, 4, F + 2, z) != Blocks.STONE && !isStair(blockAt(helper, 4, F + 2, z)), "the flat run north at level 2 at (4, $z)")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun pieces_laid_in_either_order_keep_each_others_blocks(helper: GameTestHelper) {
+        // A flat piece and a rising diagonal share a joint column: the flat one's block at level 0, the
+        // diagonal's slab at level 1. Whichever is laid first, both must survive the other's clearing.
+        val level = helper.level
+        val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
+        val catalog = io.github.veelume.postroad.roads.gen.RoadPieces.current
+        val floorY = shapeFloor(helper) { x, z -> if (x + z >= 6) 1 else 0 }
+        val abs = listOf(BlockPos(1, F + 1, 1), BlockPos(4, F + 2, 4)).map { helper.absolutePos(it) }
+        val ps = catalog.assemble(abs)!!
+        val o = helper.absolutePos(BlockPos(0, 0, 0))
+        val inside = { x: Int, z: Int -> x in o.x..o.x + 6 && z in o.z..o.z + 6 }
+        val ground = { x: Int, z: Int -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 1, styles) }
+        val protect = HashSet<Long>()
+        // The diagonal first, then the flat piece whose headroom would have cleared the slab.
+        io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, ps[1], styles.style(0), styles, ground, inside, null, null, protect)
+        io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, ps[0], styles.style(0), styles, ground, inside, null, null, protect)
+        helper.assertTrue(isSlab(blockAt(helper, 2, F + 1, 3)) && isSlab(blockAt(helper, 3, F + 1, 2)), "the slab step survives the flat piece's clearing")
+        helper.assertTrue(blockAt(helper, 1, F, 1) != Blocks.STONE && blockAt(helper, 2, F, 2) != Blocks.STONE, "the flat piece's blocks are there")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun pieces_cut_past_the_cap_leaves_a_passage(helper: GameTestHelper) {
+        // A hill 6 above the road: the cap of 4 no longer skips the column; the road block is placed and 3 blocks cleared above it.
+        val floorY = shapeFloor(helper) { x, _ -> if (x == 3) 5 else 0 }
+        layRoad(helper, floorY, listOf(BlockPos(1, F + 1, 3), BlockPos(4, F + 1, 3)))
+        helper.assertTrue(blockAt(helper, 3, F, 3) != Blocks.STONE, "the road block under the hill is placed")
+        for (y in F + 1..F + 3) helper.assertTrue(blockAt(helper, 3, y, 3) == Blocks.AIR, "passage clear at (3, $y, 3)")
+        helper.assertTrue(blockAt(helper, 3, F + 5, 3) == Blocks.STONE, "the hill above the passage stays")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun snapshot_gives_a_shared_point_to_one_road(helper: GameTestHelper) {
+        val server = helper.level.server
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(server)
+        val dim = helper.level.dimension().location()
+        val tag = java.util.UUID.randomUUID().toString().take(6)
+        val a = io.github.veelume.postroad.roads.gen.PlannedRoad("test/$tag/a", dim, "a", "b", listOf(BlockPos(310000, 64, 310000), BlockPos(310003, 64, 310000), BlockPos(310006, 64, 310000)), ByteArray(3))
+        val b = io.github.veelume.postroad.roads.gen.PlannedRoad("test/$tag/b", dim, "c", "b", listOf(BlockPos(310003, 64, 310006), BlockPos(310003, 64, 310003), BlockPos(310003, 64, 310000)), ByteArray(3))
+        storage.addRoad(a); storage.addRoad(b)
+        try {
+            io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.publish(storage, dim)
+            val here = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.placementsAt(310003 shr 4, 310000 shr 4).filter { it.placement.x == 310003 && it.placement.z == 310000 }
+            helper.assertValueEqual(here.size, 1, "one piece at the shared point")
+            helper.assertValueEqual(here.first().placement.roadId, a.id, "the road with the smaller id lays it")
+        } finally {
+            storage.removeRoad(a.id); storage.removeRoad(b.id)
+            io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.publish(storage, dim)
+        }
         helper.succeed()
     }
 

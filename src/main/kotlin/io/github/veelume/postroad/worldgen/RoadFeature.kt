@@ -37,9 +37,11 @@ class RoadFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<NoneFeatureC
         fun inChunk(x: Int, z: Int): Boolean = (x shr 4) == chunk.x && (z shr 4) == chunk.z
         // Every placement reaching into the chunk is in the snapshot, so the footprint of all of them keeps decoration off any road block here.
         val footprint = RoadPieceLayer.footprintOf(placements.map { it.placement })
+        // Road blocks laid in this run are protected from the clearing of the pieces laid after them.
+        val protect = HashSet<Long>()
         var placed = 0
         for (p in placements) {
-            placed += RoadPieceLayer.lay(level, p.placement, styles.style(p.family), styles, ::ground, ::inChunk, { x, z -> footprint.contains(RoadPieceLayer.key(x, z)) }, catalog)
+            placed += RoadPieceLayer.lay(level, p.placement, styles.style(p.family), styles, ::ground, ::inChunk, { x, z -> footprint.contains(RoadPieceLayer.key(x, z)) }, catalog, protect)
         }
         RoadPlanSnapshot.piecesPlaced.addAndGet(placements.size)
         RoadPlanSnapshot.markLaid(chunk.toLong(), placements.mapTo(HashSet()) { it.placement.roadId })

@@ -148,6 +148,23 @@ a hosted rise its kind cannot carry: with dcorner_3 gone no route climbs 3
 through a diagonal corner, and the catalog check at storage time no longer
 has to drop it.
 
+## Laying rules found in real use (2026-09-07, second walk)
+
+- **Protected road blocks.** Two pieces share a joint column at different
+  levels (a flat piece's block at 0, the next diagonal's slab at 1). A piece's
+  headroom clearing or cut must never remove a road block another piece laid;
+  every road block laid in a run (a chunk's feature call, a builder job) is
+  recorded and later pieces skip it. Laying order no longer matters.
+- **A shared anchor belongs to one road.** At a junction each road assembles
+  its own piece at the shared point and two pieces stacked. Until junction
+  pieces exist, the road with the smaller id lays the shared anchor and the
+  other skips it (`RoadPlanSnapshot.anchorClaims`).
+- **The cut cap leaves a passage, not a gap.** Past `fit.cut` the column used
+  to be skipped, stairs included; now the road block is placed and three
+  blocks above it cleared: a rough passage through the hill, until tunnels.
+- **Joint shape** (Valerie's): the 2×2 contact plus one block beside each
+  core edge, `(2f, 1), (1, 2f), (0, 2f), (2f, 0)` for a corner facing `f`.
+
 ## Order
 
 1. Format, loader, assembler, layer; convert the current nine files; the

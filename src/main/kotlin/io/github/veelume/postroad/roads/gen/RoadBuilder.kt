@@ -41,6 +41,8 @@ import kotlin.math.sqrt
  */
 object RoadBuilder {
     private class Job(val dimension: ResourceLocation, val chunk: Long) {
+        /** Road blocks laid in this chunk's job, protected from the clearing of later pieces. */
+        val protect = HashSet<Long>()
         /** Resume point: which road of the chunk's list and which point of it comes next. */
         var roadIndex = 0
         var pointIndex = 0
@@ -302,17 +304,19 @@ object RoadBuilder {
             val r = RoadPieceLayer.reachOf(p)
             return cx in (r[0] shr 4)..(r[3] shr 4) && cz in (r[2] shr 4)..(r[5] shr 4)
         }
+        // A shared anchor (a junction) belongs to the road with the smaller id; see RoadPlanSnapshot.anchorClaims.
+        val claims = RoadPlanSnapshot.anchorClaims(RoadPlanStorage.get(level.server).roadsIn(level.dimension().location()).filter { !it.provisional })
         var placed = 0
         var i = job.pointIndex
         while (i < placements.size) {
             if (i > job.pointIndex && System.nanoTime() > deadline) { job.blocks += placed; return i }
             val p = placements[i]
-            if (touches(p)) {
+            if (touches(p) && claims[RoadPieceLayer.key(p.x, p.z)] == road.id) {
                 val style = styles.style(road.families.getOrElse(p.index) { 0 }.toInt())
                 val t0 = System.nanoTime()
                 placed += RoadPieceLayer.lay(level, p, style, styles,
                     { x, z -> if (level.hasChunk(x shr 4, z shr 4) && !inBox(x, z, boxes)) groundY(level, x, z, p.base + 1, styles) else Int.MIN_VALUE },
-                    { x, z -> (x shr 4) == cx && (z shr 4) == cz }, { x, z -> footprint.contains(RoadPieceLayer.key(x, z)) }, catalog)
+                    { x, z -> (x shr 4) == cx && (z shr 4) == cz }, { x, z -> footprint.contains(RoadPieceLayer.key(x, z)) }, catalog, job.protect)
                 job.setBlockNanos += System.nanoTime() - t0
             }
             i++
