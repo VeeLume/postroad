@@ -1015,6 +1015,38 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun planner_dropped_pairs_say_whether_estimates_judged_them(helper: GameTestHelper) {
+        // Two towns with a wide water band between them: dropped for water. With the band estimated the drop
+        // is provisional and carries the route to generate; with the band known it is final.
+        for (estimated in listOf(true, false)) {
+            val T = io.github.veelume.postroad.roads.gen.TerrainGrid(0, 0, 3, 40, 12)
+            for (z in 0 until 12) for (x in 0 until 40) T.setHeight(x, z, 64)
+            for (z in 0 until 12) for (x in 15..25) { T.set(x, z, io.github.veelume.postroad.roads.gen.Terrain.WATER); if (estimated) T.set(x, z, io.github.veelume.postroad.roads.gen.Terrain.ESTIMATED) }
+            val towns = listOf(io.github.veelume.postroad.roads.gen.Town("a", io.github.veelume.postroad.roads.gen.Cell(3, 6)), io.github.veelume.postroad.roads.gen.Town("b", io.github.veelume.postroad.roads.gen.Cell(36, 6)))
+            val plan = io.github.veelume.postroad.roads.gen.RoadPlanner.planNetwork(T, towns, io.github.veelume.postroad.roads.gen.PlannerCosts(maxWaterRun = 3), neighbours = 1, maxLinkCells = 100.0)
+            helper.assertTrue(plan.routes.isEmpty() && plan.dropped.size == 1 && plan.dropped[0].reason == "water", "dropped for water (estimated $estimated)")
+            helper.assertValueEqual(plan.dropped[0].estimated, estimated, "provisional only when estimates judged it")
+            helper.assertTrue(plan.dropped[0].cells.isNotEmpty(), "a water drop carries the route it found")
+        }
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun storage_keeps_provisional_dropped_pairs(helper: GameTestHelper) {
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage()
+        storage.markDropped(mapOf("gtest1" to io.github.veelume.postroad.roads.gen.RoadPlanStorage.DroppedInfo("a", "b", "water", provisional = true)))
+        helper.assertTrue(storage.retryDropped("gtest1"), "a provisional pair can be retried")
+        helper.assertTrue("gtest1" !in storage.droppedRoutes && storage.droppedDetails["gtest1"]!!.tries == 1, "out of the skip set, one try counted")
+        storage.markDropped(mapOf("gtest1" to io.github.veelume.postroad.roads.gen.RoadPlanStorage.DroppedInfo("a", "b", "water", provisional = false)))
+        helper.assertTrue(storage.droppedDetails["gtest1"]!!.tries == 1 && !storage.retryDropped("gtest1"), "tries survive a new drop; a final drop is not retried")
+        val tag = storage.save(net.minecraft.nbt.CompoundTag(), helper.level.registryAccess())
+        val again = io.github.veelume.postroad.roads.gen.RoadPlanStorage.FACTORY.deserializer().apply(tag, helper.level.registryAccess())
+        val d = again.droppedDetails["gtest1"]!!
+        helper.assertTrue(d.reason == "water" && !d.provisional && d.tries == 1 && "gtest1" in again.droppedRoutes, "round trip keeps reason, flag and tries")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun planner_passable_structure_tag_is_loaded(helper: GameTestHelper) {
         val tag = helper.level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE).getTag(io.github.veelume.postroad.roads.gen.TownFinder.PASSABLE)
         helper.assertTrue(tag.isPresent, "#postroad:passable exists (tags/worldgen/structure)")

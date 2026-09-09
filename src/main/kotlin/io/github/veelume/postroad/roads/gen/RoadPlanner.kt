@@ -66,8 +66,13 @@ data class PlannedRoute(val id: String, val from: Town, val to: Town, val cells:
 data class Junction(val cell: Cell, val joinedRoute: String, val joiningRoute: String)
 
 /** Routes in planning order and the junctions between them. */
-/** A pair the planner gave up on and why: "water" (long crossing) or "unreachable" (no passable route). */
-data class DroppedPair(val id: String, val from: Town, val to: Town, val reason: String)
+/**
+ * A pair the planner gave up on and why: "water" (long crossing) or "unreachable" (no passable route).
+ * [estimated]: the judgement rested on estimated cells, so it is provisional — [cells] (the route a water
+ * drop found) or [corridor] (the coarse cells the search was confined to) say what to generate before the
+ * pair is planned again on real terrain.
+ */
+data class DroppedPair(val id: String, val from: Town, val to: Town, val reason: String, val cells: List<Cell> = emptyList(), val corridor: List<Cell> = emptyList(), val estimated: Boolean = false)
 
 data class RoadPlan(val routes: List<PlannedRoute>, val junctions: List<Junction>, val dropped: List<DroppedPair> = emptyList())
 
@@ -88,6 +93,8 @@ object RoadPlanner {
      * around an unreachable pair is made of. A neighbour is counted each time a closed cell looks at it.
      */
     val traceRejects = ThreadLocal<IntArray?>()
+    /** The coarse corridor of the last [routeTowns] on this thread (empty without a coarse map): what an unreachable pair searched. */
+    private val lastCorridor = ThreadLocal<List<Cell>>()
     val REJECT_NAMES = arrayOf("turned back", "turn limit (rise in)", "turn limit (descent out)", "outside the corridor", "blocked", "lava", "too steep", "too steep (diagonal)")
     private const val R_TURN_BACK = 0; private const val R_TURN_RISE = 1; private const val R_TURN_DROP = 2
     private const val R_BOUNDS = 3; private const val R_BLOCKED = 4; private const val R_LAVA = 5; private const val R_STEEP = 6; private const val R_STEEP_DIAGONAL = 7
@@ -308,7 +315,7 @@ object RoadPlanner {
     fun routeTowns(fine: Terrain, coarse: Terrain?, ratio: Int, a: Town, b: Town, costs: PlannerCosts = PlannerCosts(), freeTurns: Boolean = false): List<Cell>? {
         val starts = endpoints(fine, a, b.cell) ?: run { lastFailure.set("no passable cell within reach of ${a.id}'s exits (cell ${fine.cellSize})"); return null }
         val goals = endpoints(fine, b, a.cell) ?: run { lastFailure.set("no passable cell within reach of ${b.id}'s exits (cell ${fine.cellSize})"); return null }
-        traceEnds.set(starts to goals)
+        traceEnds.set(starts to goals); lastCorridor.set(emptyList())
         if (coarse == null) return search(fine, starts, goals, costs, 1.0, freeTurns)
         fun onCoarse(t: Town) = Town(t.id, Cell(Math.floorDiv(t.cell.x, ratio), Math.floorDiv(t.cell.z, ratio)), t.exits.map { Cell(Math.floorDiv(it.x, ratio), Math.floorDiv(it.z, ratio)) }.distinct(), t.reach)
         val ca = onCoarse(a); val cb = onCoarse(b)
@@ -316,6 +323,7 @@ object RoadPlanner {
         val cg = endpoints(coarse, cb, ca.cell) ?: run { lastFailure.set("coarse: no passable cell within reach of ${b.id}'s exits"); return null }
         val coarsePath = search(coarse, cs, cg, costs.copy(heuristicWeight = costs.reuseFactor), ratio.toDouble()) ?: run { lastFailure.set("coarse: " + lastFailure.get()); return null }
         val allowed = corridor(coarse, coarsePath, listOf(ca.cell to a.reach, cb.cell to b.reach), ratio)
+        lastCorridor.set(allowed.map { Cell.of(it) })
         return search(CorridorTerrain(fine, ratio, allowed), starts, goals, costs, 1.0, freeTurns)
     }
 
@@ -408,9 +416,15 @@ object RoadPlanner {
             val raw = routeTowns(terrain, coarse, ratio, towns[i], towns[j], costs)
             if (raw == null) {
                 io.github.veelume.postroad.Postroad.LOGGER.info("Pair {} ({} -> {}) unreachable: {}", id, towns[i].id, towns[j].id, lastFailure.get())
-                dropped.add(DroppedPair(id, towns[i], towns[j], "unreachable")); known.add(id); continue
+                // Judged on estimates? On the coarse corridor when there was one, else along the line between the towns.
+                val corridor = lastCorridor.get() ?: emptyList()
+                val estimated = if (coarse != null && corridor.isNotEmpty()) corridor.any { coarse.inBounds(it.x, it.z) && coarse.has(it.x, it.z, Terrain.ESTIMATED) }
+                    else lineCells(towns[i].cell, towns[j].cell).any { terrain.inBounds(it.x, it.z) && terrain.has(it.x, it.z, Terrain.ESTIMATED) }
+                dropped.add(DroppedPair(id, towns[i], towns[j], "unreachable", corridor = corridor, estimated = estimated)); known.add(id); continue
             }
-            if (longestWaterRun(terrain, raw) > costs.maxWaterRun) { dropped.add(DroppedPair(id, towns[i], towns[j], "water")); known.add(id); continue }
+            if (longestWaterRun(terrain, raw) > costs.maxWaterRun) {
+                dropped.add(DroppedPair(id, towns[i], towns[j], "water", cells = raw, estimated = raw.any { terrain.has(it.x, it.z, Terrain.ESTIMATED) })); known.add(id); continue
+            }
             // Snapping splices another road's cells in; those were judged on that road's heights, so the
             // result is checked on today's terrain and the raw route kept when a step no class allows.
             val snapped = snapExcursions(raw, owner, EXCURSION_MAX)
@@ -434,6 +448,12 @@ object RoadPlanner {
             known.add(id)
         }
         return RoadPlan(routes, junctions, dropped)
+    }
+
+    /** The cells on the straight line from [a] to [b], one per step of the longer axis. */
+    fun lineCells(a: Cell, b: Cell): List<Cell> {
+        val n = maxOf(abs(b.x - a.x), abs(b.z - a.z), 1)
+        return (0..n).map { k -> Cell(a.x + Math.round((b.x - a.x) * k.toDouble() / n).toInt(), a.z + Math.round((b.z - a.z) * k.toDouble() / n).toInt()) }.distinct()
     }
 
     /**

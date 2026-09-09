@@ -157,11 +157,17 @@ class RoadPlanStorage : SavedData() {
     val roads: MutableMap<String, PlannedRoad> = LinkedHashMap()
     val junctions: MutableList<PlannedJunction> = ArrayList()
 
-    /** Route ids the planner gave up on; not retried until the plan is cleared. */
+    /** Route ids the planner gave up on; skipped by every pass until [retryDropped] takes one out again. */
     val droppedRoutes: MutableSet<String> = HashSet()
 
-    /** Why, and between which towns, for the debug view: id → (from, to, reason). */
-    val droppedDetails: MutableMap<String, Triple<String, String, String>> = HashMap()
+    /**
+     * A dropped pair: its towns and the reason; [provisional] when the judgement rested on estimated terrain
+     * (its corridor is generated and the pair planned again, [tries] times so far).
+     */
+    class DroppedInfo(val from: String, val to: String, val reason: String, var provisional: Boolean = false, var tries: Int = 0)
+
+    /** Why, and between which towns, per dropped pair id. */
+    val droppedDetails: MutableMap<String, DroppedInfo> = HashMap()
 
     /** Dimension → [DISCOVERY_SQUARE]-block squares (packed as chunk-style longs) already searched for towns. */
     val discovered: MutableMap<ResourceLocation, LongOpenHashSet> = HashMap()
@@ -197,10 +203,19 @@ class RoadPlanStorage : SavedData() {
         setDirty()
     }
 
-    fun markDropped(pairs: Collection<Triple<String, Pair<String, String>, String>>) {
+    fun markDropped(pairs: Map<String, DroppedInfo>) {
         if (pairs.isEmpty()) return
-        for ((id, ends, reason) in pairs) { droppedRoutes.add(id); droppedDetails[id] = Triple(ends.first, ends.second, reason) }
+        for ((id, info) in pairs) { droppedRoutes.add(id); info.tries = (droppedDetails[id]?.tries ?: 0); droppedDetails[id] = info }
         setDirty()
+    }
+
+    /** Takes a provisional dropped pair out of the skip set so the next pass plans it again; counts the try. */
+    fun retryDropped(id: String): Boolean {
+        val info = droppedDetails[id] ?: return false
+        if (!info.provisional || !droppedRoutes.remove(id)) return false
+        info.tries++
+        setDirty()
+        return true
     }
 
     fun markDiscovered(dimension: ResourceLocation, squares: Collection<Long>) {
@@ -241,7 +256,7 @@ class RoadPlanStorage : SavedData() {
         tag.put("Discovered", CompoundTag().also { d -> discovered.forEach { (dim, set) -> d.putLongArray(dim.toString(), set.toLongArray()) } })
         tag.put("Dropped", ListTag().also { list -> droppedRoutes.forEach { list.add(net.minecraft.nbt.StringTag.valueOf(it)) } })
         tag.put("DroppedDetails", ListTag().also { list ->
-            droppedDetails.forEach { (id, d) -> list.add(CompoundTag().also { c -> c.putString("Id", id); c.putString("From", d.first); c.putString("To", d.second); c.putString("Reason", d.third) }) }
+            droppedDetails.forEach { (id, d) -> list.add(CompoundTag().also { c -> c.putString("Id", id); c.putString("From", d.from); c.putString("To", d.to); c.putString("Reason", d.reason); c.putBoolean("Provisional", d.provisional); c.putInt("Tries", d.tries) }) }
         })
         return tag
     }
@@ -252,7 +267,7 @@ class RoadPlanStorage : SavedData() {
         tag.getList("Roads", Tag.TAG_COMPOUND.toInt()).forEach { t -> PlannedRoad.fromTag(t as CompoundTag)?.let { roads[it.id] = it } }
         tag.getList("Junctions", Tag.TAG_COMPOUND.toInt()).forEach { t -> PlannedJunction.fromTag(t as CompoundTag)?.let { junctions.add(it) } }
         tag.getList("Dropped", Tag.TAG_STRING.toInt()).forEach { droppedRoutes.add(it.asString) }
-        tag.getList("DroppedDetails", Tag.TAG_COMPOUND.toInt()).forEach { t -> val c = t as CompoundTag; droppedDetails[c.getString("Id")] = Triple(c.getString("From"), c.getString("To"), c.getString("Reason")) }
+        tag.getList("DroppedDetails", Tag.TAG_COMPOUND.toInt()).forEach { t -> val c = t as CompoundTag; droppedDetails[c.getString("Id")] = DroppedInfo(c.getString("From"), c.getString("To"), c.getString("Reason"), c.getBoolean("Provisional"), c.getInt("Tries")) }
         val d = tag.getCompound("Discovered")
         for (key in d.allKeys) {
             val dim = ResourceLocation.tryParse(key) ?: continue

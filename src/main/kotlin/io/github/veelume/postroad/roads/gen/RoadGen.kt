@@ -80,6 +80,8 @@ object RoadGen {
         val replaced: Set<String> = emptySet(),
         val newJunctions: List<JunctionResult>,
         val discovered: List<Long>,
+        /** Chunks to generate per provisional dropped pair, to plan it again on real terrain. */
+        val droppedCorridors: Map<String, LongOpenHashSet> = emptyMap(),
         val millis: Long,
         val tilesSampled: Int,
         val discoverMillis: Long = 0,
@@ -131,6 +133,11 @@ object RoadGen {
             n++
         }
         if (n > 0) Postroad.LOGGER.info("Resuming {} provisional road(s): corridors queued for generation", n)
+        // Provisional dropped pairs: their corridors are not kept across sessions; the next pass simply plans
+        // them again (and drops them again with a corridor if the terrain is still estimated).
+        var m = 0
+        for ((id, info) in storage.droppedDetails) if (info.provisional && info.tries < MAX_REPLANS && storage.retryDropped(id)) m++
+        if (m > 0) Postroad.LOGGER.info("Resuming {} provisional dropped pair(s): planned again by the next pass", m)
     }
 
     fun onServerStopping(event: ServerStoppingEvent) {
@@ -370,7 +377,23 @@ object RoadGen {
             if (joined < 0 || joining < 0) null
             else JunctionResult(terrain.cellToBlock(j.cell.x, j.cell.z), j.joinedRoute, joined, j.joiningRoute, joining)
         }
-        return PassResult(req.dimension, req.center, newTowns, newRoads, newObstacles, corridors, req.replace, newJunctions, discoveredNow,
+        // Corridors of the provisional dropped pairs, in chunks: a water drop's route with the usual margin, an
+        // unreachable pair's coarse corridor.
+        val droppedCorridors = HashMap<String, LongOpenHashSet>()
+        for (d in plan.dropped) {
+            if (!d.estimated) continue
+            val chunks = LongOpenHashSet()
+            for (c in d.cells) {
+                val b = terrain.cellToBlock(c.x, c.z)
+                for (dz in -CORRIDOR_CHUNKS..CORRIDOR_CHUNKS) for (dx in -CORRIDOR_CHUNKS..CORRIDOR_CHUNKS) chunks.add(ChunkPos.asLong((b.x shr 4) + dx, (b.z shr 4) + dz))
+            }
+            for (c in d.corridor) {
+                val x0 = c.x * COARSE_CELL; val z0 = c.z * COARSE_CELL
+                for (bz in listOf(z0, z0 + COARSE_CELL - 1)) for (bx in listOf(x0, x0 + COARSE_CELL - 1)) chunks.add(ChunkPos.asLong(bx shr 4, bz shr 4))
+            }
+            droppedCorridors[d.id] = chunks
+        }
+        return PassResult(req.dimension, req.center, newTowns, newRoads, newObstacles, corridors, req.replace, newJunctions, discoveredNow, droppedCorridors,
             (System.nanoTime() - t0) / 1_000_000, worker.sampler.sampled - sampledBefore, discoverMillis, chunksChecked, worker.coarseSampler.sampled - coarseBefore, plan.dropped)
     }
 
@@ -437,7 +460,17 @@ object RoadGen {
         }
         if (roads > 0) RoadPlanSnapshot.publish(storage, result.dimension)
         storage.markDiscovered(result.dimension, result.discovered)
-        storage.markDropped(result.dropped.map { Triple(it.id, it.from.id to it.to.id, it.reason) })
+        // Dropped pairs judged on estimated terrain are provisional: generate what they searched, plan them again.
+        val droppedInfo = LinkedHashMap<String, RoadPlanStorage.DroppedInfo>()
+        for (d in result.dropped) droppedInfo[d.id] = RoadPlanStorage.DroppedInfo(d.from.id, d.to.id, d.reason, provisional = d.estimated && (storage.droppedDetails[d.id]?.tries ?: 0) < MAX_REPLANS)
+        storage.markDropped(droppedInfo)
+        if (PostroadConfig.planPregenInFlight > 0) for (d in result.dropped) {
+            if (droppedInfo[d.id]?.provisional != true) continue
+            val chunks = result.droppedCorridors[d.id] ?: continue
+            if (chunks.isEmpty()) continue
+            pendingDropped[d.id] = chunks
+            ChunkPregen.request(result.dimension, chunks) { ok, failed -> droppedCorridorDone(server, result.dimension, d.id, ok, failed) }
+        }
         passesRun++
         Postroad.LOGGER.info("Road plan pass at {}: {} new town(s), {} new obstacle(s), {} new road(s) ({} provisional, {} corridor chunk(s) to generate), {} junction(s), {} pair(s) dropped for water; {} chunk(s) checked in {} ms, {} coarse + {} fine tile(s) sampled, {} ms total",
             result.center.toShortString(), towns, obstacles, roads, provisional, result.corridors.values.sumOf { it.size }, junctions, result.dropped.size, result.chunksChecked, result.discoverMillis, result.coarseTilesSampled, result.tilesSampled, result.millis)
@@ -450,6 +483,24 @@ object RoadGen {
      */
     /** Corridor chunks requested per provisional road, handed to its replan pass as the tiles to sample again. */
     private val pendingCorridors = HashMap<String, LongOpenHashSet>()
+    /** The same for provisional dropped pairs. */
+    private val pendingDropped = HashMap<String, LongOpenHashSet>()
+
+    /** A dropped pair's corridor is generated: take it out of the skip set and plan around it again. */
+    private fun droppedCorridorDone(server: MinecraftServer, dimension: ResourceLocation, pairId: String, ok: Int, failed: Int) {
+        val corridor = pendingDropped.remove(pairId) ?: LongOpenHashSet()
+        if (ok == 0 && failed > 0) { Postroad.LOGGER.warn("Corridor of dropped pair {} could not be generated ({} chunk(s) failed); it stays dropped", pairId, failed); return }
+        val storage = RoadPlanStorage.get(server)
+        if (storage.roads.containsKey(pairId)) return
+        val info = storage.droppedDetails[pairId] ?: return
+        if (!storage.retryDropped(pairId)) return
+        val level = server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, dimension)) ?: return
+        val a = storage.towns[info.from]?.pos ?: return
+        val b = storage.towns[info.to]?.pos ?: return
+        val mid = BlockPos((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2)
+        schedule(level, mid, discoverTowns = false, refresh = corridor)
+        Postroad.LOGGER.info("Dropped pair {} ({} -> {}, {}): corridor generated, planning again (try {})", pairId, info.from, info.to, info.reason, info.tries)
+    }
 
     /** A corridor job finished: replan only when the world actually produced chunks (a failed job would just repeat itself). */
     private fun corridorDone(server: MinecraftServer, dimension: ResourceLocation, roadId: String, ok: Int, failed: Int) {
@@ -507,7 +558,7 @@ object RoadGen {
         val lines = ArrayList<String>()
         lines.add("Planner ${if (executor != null) "on" else "off"}; ${passesRun} pass(es) applied, ${pending.get()} pending; ${DhTerrain.status(server.overworld())}")
         lines.add("${storage.towns.size} predicted town(s), ${storage.obstacles.size} obstacle(s), ${storage.roads.size} planned road(s), ${storage.junctions.size} junction(s), " +
-            "${storage.discovered.values.sumOf { it.size }} square(s) searched, ${storage.droppedRoutes.size} pair(s) dropped for water")
+            "${storage.discovered.values.sumOf { it.size }} square(s) searched, ${storage.droppedRoutes.size} pair(s) dropped (${storage.droppedDetails.values.count { it.reason == "water" }} water, ${storage.droppedDetails.values.count { it.provisional }} provisional)")
         for ((dim, w) in workers) {
             lines.add("$dim: ${w.terrain.tileCount} fine + ${w.coarse.tileCount} coarse tile(s) in memory, ${w.sampler.sampled}/${w.coarseSampler.sampled} sampled, ${w.sampler.fromCache}/${w.coarseSampler.fromCache} from cache, " +
                 "${w.sampler.chunkCells}/${w.coarseSampler.chunkCells} cell(s) from own chunks, ${w.sampler.knownCells - w.sampler.chunkCells}/${w.coarseSampler.knownCells - w.coarseSampler.chunkCells} from Distant Horizons, ${w.sampler.estimatedCells}/${w.coarseSampler.estimatedCells} estimated; " +
@@ -547,7 +598,8 @@ object RoadGen {
         if (pending.get() > 0) return "A pass is running; try again when it is done."
         val worker = workers[level.dimension().location()] ?: return "No planner data for this dimension."
         val storage = RoadPlanStorage.get(level.server)
-        val d = storage.droppedDetails[pairId] ?: return "No dropped pair $pairId."
+        val dd = storage.droppedDetails[pairId] ?: return "No dropped pair $pairId."
+        val d = Triple(dd.from, dd.to, dd.reason)
         val req = request(level, BlockPos.ZERO)
         val terrain = worker.terrain; val coarse = worker.coarse
         fun town(id: String): Town? {
@@ -664,8 +716,8 @@ object RoadGen {
         }
         g2.color = java.awt.Color.RED
         for ((_, d) in storage.droppedDetails) {
-            val a = storage.towns[d.first]?.pos ?: continue
-            val b = storage.towns[d.second]?.pos ?: continue
+            val a = storage.towns[d.from]?.pos ?: continue
+            val b = storage.towns[d.to]?.pos ?: continue
             g2.drawLine(Math.floorDiv(a.x, CELL_SIZE) - x0, Math.floorDiv(a.z, CELL_SIZE) - z0, Math.floorDiv(b.x, CELL_SIZE) - x0, Math.floorDiv(b.z, CELL_SIZE) - z0)
         }
         g2.color = java.awt.Color.YELLOW

@@ -311,9 +311,9 @@ object RoadDebug {
         }
         val nodes = network.nodes.values.filter { it.dimension == dim && near(it.pos) }.map { DebugNode(it.pos, it.name, it.kind) }
         val dropped = storage.droppedDetails.values.mapNotNull { d ->
-            val a = storage.towns[d.first] ?: return@mapNotNull null
-            val b = storage.towns[d.second] ?: return@mapNotNull null
-            if (a.dimension != dim || (!near(a.pos) && !near(b.pos))) null else DebugDropped(a.pos, b.pos, d.third)
+            val a = storage.towns[d.from] ?: return@mapNotNull null
+            val b = storage.towns[d.to] ?: return@mapNotNull null
+            if (a.dimension != dim || (!near(a.pos) && !near(b.pos))) null else DebugDropped(a.pos, b.pos, d.reason + (if (d.provisional) " (provisional)" else ""))
         }
         return RoadDebugState(roads, junctions, towns + obstacles, nodes, dropped)
     }
