@@ -54,7 +54,18 @@ object PostroadCommands {
                         .then(Commands.literal("clear").requires { it.hasPermission(2) }.executes { roadsClear(it) })
                         .then(Commands.literal("rebuild").requires { it.hasPermission(2) }.executes { roadsRebuild(it) })
                         .then(Commands.literal("export").requires { it.hasPermission(2) }.executes { roadsExport(it) })
-                        .then(Commands.literal("showcase").requires { it.hasPermission(2) }.executes { roadsShowcase(it) })
+                        .then(Commands.literal("planner").requires { it.hasPermission(2) }
+                            .then(Commands.literal("off").executes { roadsPlanner(it, false) })
+                            .then(Commands.literal("on").executes { roadsPlanner(it, true) }))
+                        .then(Commands.literal("scan").requires { it.hasPermission(2) }
+                            .then(Commands.argument("radius", IntegerArgumentType.integer(16, 8192)).executes { roadsScan(it, IntegerArgumentType.getInteger(it, "radius")) }))
+                        .then(Commands.literal("measure").requires { it.hasPermission(2) }.executes { roadsMeasureStatus(it) }
+                            .then(Commands.argument("radius", IntegerArgumentType.integer(16, 4096))
+                                .executes { roadsMeasure(it, IntegerArgumentType.getInteger(it, "radius"), "carvers") }
+                                .then(Commands.argument("step", StringArgumentType.word())
+                                    .executes { roadsMeasure(it, IntegerArgumentType.getInteger(it, "radius"), StringArgumentType.getString(it, "step")) })))
+                        .then(Commands.literal("showcase").requires { it.hasPermission(2) }.executes { roadsShowcase(it) }
+                            .then(Commands.argument("family", StringArgumentType.word()).executes { roadsShowcase(it, StringArgumentType.getString(it, "family")) }))
                         .then(Commands.literal("capture").requires { it.hasPermission(2) }.then(Commands.argument("piece", com.mojang.brigadier.arguments.StringArgumentType.word()).executes { ctx ->
                             ctx.source.sendSuccess({ Component.literal(io.github.veelume.postroad.roads.gen.RoadBuilder.capture(ctx.source.level, com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "piece"), BlockPos.containing(ctx.source.position))) }, false); 1 }))
                         .then(Commands.literal("known").requires { it.hasPermission(2) }.then(Commands.argument("x", IntegerArgumentType.integer()).then(Commands.argument("z", IntegerArgumentType.integer()).executes { roadsKnown(it, IntegerArgumentType.getInteger(it, "x"), IntegerArgumentType.getInteger(it, "z")) })))
@@ -358,9 +369,81 @@ object PostroadCommands {
         return 1
     }
 
-    private fun roadsShowcase(ctx: CommandContext<CommandSourceStack>): Int {
-        val n = io.github.veelume.postroad.roads.gen.RoadBuilder.showcase(ctx.source.level, BlockPos.containing(ctx.source.position))
-        ctx.source.sendSuccess({ Component.literal("$n piece(s) laid in the air east of here, 12 blocks apart, each as authored. Lime block = beyond the first connector, red = beyond the others; turn on `/postroad roads debug pieces` for outlines and names.") }, true)
+    private fun roadsPlanner(ctx: CommandContext<CommandSourceStack>, on: Boolean): Int {
+        io.github.veelume.postroad.roads.gen.RoadGen.pausePlanning(!on)
+        ctx.source.sendSuccess({ Component.literal(if (on) "Planning resumed." else "Planning and road building paused; chunk generation still runs, so a measurement has the machine to itself.") }, true)
+        return 1
+    }
+
+    /** Finds towns the real-terrain way: candidate chunks generated to structure starts, then read. */
+    private fun roadsScan(ctx: CommandContext<CommandSourceStack>, radius: Int): Int {
+        val source = ctx.source
+        val center = BlockPos.containing(source.position)
+        val n = io.github.veelume.postroad.roads.gen.TownScan.scan(source.level, center, radius) { r ->
+            source.sendSuccess({
+                Component.literal(
+                    "Town scan done: %d candidate chunk(s) in %.1f s — %d new town(s), %d new obstacle(s)."
+                        .format(r.candidates, r.seconds, r.towns, r.obstacles)
+                )
+            }, true)
+        }
+        when (n) {
+            -1 -> { source.sendFailure(Component.literal("A town scan is already running.")); return 0 }
+            0 -> { source.sendSuccess({ Component.literal("No chunk within $radius blocks can hold a structure start.") }, false); return 0 }
+            else -> source.sendSuccess({ Component.literal("Scanning $n candidate chunk(s) within $radius blocks at structure-starts. Result follows when it finishes.") }, true)
+        }
+        return n
+    }
+
+    private fun roadsMeasureStatus(ctx: CommandContext<CommandSourceStack>): Int {
+        ctx.source.sendSuccess({ Component.literal(io.github.veelume.postroad.roads.gen.PregenMeasure.status()) }, false)
+        return 1
+    }
+
+    /**
+     * Times generating a square of [radius] blocks well away from anything already generated, so the
+     * figure is real generation rather than a cache read. `step` is `carvers` (terrain, what the
+     * planner needs) or `starts` (structure starts only, what town-finding needs).
+     */
+    private fun roadsMeasure(ctx: CommandContext<CommandSourceStack>, radius: Int, step: String): Int {
+        val status = when (step.lowercase()) {
+            "starts", "structure_starts" -> net.minecraft.world.level.chunk.status.ChunkStatus.STRUCTURE_STARTS
+            "carvers" -> net.minecraft.world.level.chunk.status.ChunkStatus.CARVERS
+            "surface" -> net.minecraft.world.level.chunk.status.ChunkStatus.SURFACE
+            else -> {
+                ctx.source.sendFailure(Component.literal("Unknown step '$step'. One of: starts, surface, carvers"))
+                return 0
+            }
+        }
+        val plannerQuiet = io.github.veelume.postroad.roads.gen.RoadGen.planningPaused || !io.github.veelume.postroad.PostroadConfig.planEnabled
+        if (!plannerQuiet) {
+            ctx.source.sendFailure(Component.literal("Pause the planner first (`/postroad roads planner off`, or plan.enabled = false in the config), or its passes and builder compete for the very workers being measured."))
+            return 0
+        }
+        // Far from spawn and from any corridor, and a fresh patch per run, so every chunk is generated
+        // for the first time: a second run over the same ground would time a disk load, not generation.
+        val here = BlockPos.containing(ctx.source.position)
+        val nth = io.github.veelume.postroad.roads.gen.PregenMeasure.runs
+        val center = BlockPos(here.x + 200_000 + nth * 20_000, here.y, here.z + 200_000)
+        val chunks = io.github.veelume.postroad.roads.gen.Corridor.square(center, radius)
+        val message = io.github.veelume.postroad.roads.gen.PregenMeasure.start(ctx.source.level, chunks, status, "square r=$radius at ${center.x}, ${center.z} (${step.lowercase()})")
+        if (message == null) {
+            ctx.source.sendFailure(Component.literal("A measurement is already running; `/postroad roads measure` shows it."))
+            return 0
+        }
+        ctx.source.sendSuccess({ Component.literal(message) }, true)
+        return 1
+    }
+
+    private fun roadsShowcase(ctx: CommandContext<CommandSourceStack>, family: String? = null): Int {
+        val index = family?.let { f -> io.github.veelume.postroad.roads.gen.Families.NAMES.indexOfFirst { it.equals(f, true) } } ?: 0
+        if (index < 0) {
+            ctx.source.sendFailure(Component.literal("Unknown family '$family'. One of: ${io.github.veelume.postroad.roads.gen.Families.NAMES.joinToString(", ")}"))
+            return 0
+        }
+        val name = io.github.veelume.postroad.roads.gen.Families.NAMES[index]
+        val n = io.github.veelume.postroad.roads.gen.RoadBuilder.showcase(ctx.source.level, BlockPos.containing(ctx.source.position), index)
+        ctx.source.sendSuccess({ Component.literal("$n piece(s) laid in the air east of here in the $name palettes, 12 blocks apart, each as authored — one row per tier going south: dirt nearest, then gravel, then paved. Lime block = beyond the first connector, red = beyond the others; turn on `/postroad roads debug pieces` for outlines and names.") }, true)
         return n
     }
 

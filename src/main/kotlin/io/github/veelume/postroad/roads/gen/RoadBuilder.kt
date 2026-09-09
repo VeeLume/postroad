@@ -4,6 +4,7 @@ import io.github.veelume.postroad.Postroad
 import io.github.veelume.postroad.PostroadConfig
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.roads.RoadNode
+import io.github.veelume.postroad.roads.Tier
 import io.github.veelume.postroad.travel.SignNodes
 import io.github.veelume.postroad.travel.SignWriter
 import net.minecraft.core.BlockPos
@@ -78,7 +79,7 @@ object RoadBuilder {
 
     fun onServerTick(event: ServerTickEvent.Post) {
         val server = event.server
-        if (!PostroadConfig.planEnabled) { candidates.clear(); return }
+        if (!PostroadConfig.planEnabled || RoadGen.planningPaused) { candidates.clear(); return }
         val storage = RoadPlanStorage.get(server)
         // Filter candidates against the plan; most loaded chunks carry no road.
         var taken = 0
@@ -135,10 +136,9 @@ object RoadBuilder {
      * the air near [origin], a lime block one beyond its first connector and red ones beyond the
      * others; the placements go to the piece debug layer with their names. Returns how many.
      */
-    fun showcase(level: ServerLevel, origin: BlockPos): Int {
+    fun showcase(level: ServerLevel, origin: BlockPos, family: Int = 0): Int {
         val catalog = RoadPieces.current
         val styles = RoadStyles.current
-        val style = styles.style(0)
         val baseY = (level.getHeight(Heightmap.Types.MOTION_BLOCKING, origin.x, origin.z) + 12).coerceAtMost(level.maxBuildHeight - 16)
         val stone = Blocks.STONE.defaultBlockState()
         val lime = Blocks.LIME_CONCRETE.defaultBlockState()
@@ -146,21 +146,25 @@ object RoadBuilder {
         val dim = level.dimension().location()
         RoadDebug.showcase.removeAll { it.first == dim }
         var n = 0
-        var x0 = origin.x + 4
-        val z0 = origin.z
-        for (piece in catalog.pieces.sortedBy { it.id.path }) {
-            // Platform: two layers of stone under the whole piece, its top at baseY; the piece's level 0 is the platform top.
-            for (z in z0 - 5..z0 + 5) for (x in x0 - 5..x0 + 5) for (y in baseY - 1..baseY) level.setBlock(BlockPos(x, y, z), stone, 3)
-            for (z in z0 - 5..z0 + 5) for (x in x0 - 5..x0 + 5) for (y in baseY + 1..baseY + 8) level.setBlock(BlockPos(x, y, z), Blocks.AIR.defaultBlockState(), 3)
-            val p = PiecePlacement(piece, Transform(0, false), x0, baseY, z0, 0, "showcase")
-            RoadPieceLayer.lay(level, p, style, styles, { x, z -> groundY(level, x, z, baseY + 1, styles) })
-            for ((k, c) in p.connectors().withIndex()) {
-                val (pos, f, lvl) = c
-                level.setBlock(BlockPos(pos.x + f.dx, lvl, pos.z + f.dz), if (k == 0) lime else red, 3)
+        // One row per tier, 14 blocks apart, so the three palettes of a family can be compared side by side.
+        for (tier in Tier.entries.indices) {
+            val style = styles.style(family, tier)
+            var x0 = origin.x + 4
+            val z0 = origin.z + tier * 14
+            for (piece in catalog.pieces.sortedBy { it.id.path }) {
+                // Platform: two layers of stone under the whole piece, its top at baseY; the piece's level 0 is the platform top.
+                for (z in z0 - 5..z0 + 5) for (x in x0 - 5..x0 + 5) for (y in baseY - 1..baseY) level.setBlock(BlockPos(x, y, z), stone, 3)
+                for (z in z0 - 5..z0 + 5) for (x in x0 - 5..x0 + 5) for (y in baseY + 1..baseY + 8) level.setBlock(BlockPos(x, y, z), Blocks.AIR.defaultBlockState(), 3)
+                val p = PiecePlacement(piece, Transform(0, false), x0, baseY, z0, 0, "showcase")
+                RoadPieceLayer.lay(level, p, style, styles, { x, z -> groundY(level, x, z, baseY + 1, styles) })
+                for ((k, c) in p.connectors().withIndex()) {
+                    val (pos, f, lvl) = c
+                    level.setBlock(BlockPos(pos.x + f.dx, lvl, pos.z + f.dz), if (k == 0) lime else red, 3)
+                }
+                RoadDebug.showcase.add(dim to p)
+                n++
+                x0 += 12
             }
-            RoadDebug.showcase.add(dim to p)
-            n++
-            x0 += 12
         }
         return n
     }
@@ -312,7 +316,7 @@ object RoadBuilder {
             if (i > job.pointIndex && System.nanoTime() > deadline) { job.blocks += placed; return i }
             val p = placements[i]
             if (touches(p) && claims[RoadPieceLayer.key(p.x, p.z)] == road.id) {
-                val style = styles.style(road.families.getOrElse(p.index) { 0 }.toInt())
+                val style = styles.style(road.families.getOrElse(p.index) { 0 }.toInt(), road.tier)
                 val t0 = System.nanoTime()
                 placed += RoadPieceLayer.lay(level, p, style, styles,
                     { x, z -> if (level.hasChunk(x shr 4, z shr 4) && !inBox(x, z, boxes)) groundY(level, x, z, p.base + 1, styles) else Int.MIN_VALUE },
@@ -356,7 +360,7 @@ object RoadBuilder {
     private fun placeJunctionSign(level: ServerLevel, storage: RoadPlanStorage, junction: PlannedJunction, styles: RoadStyleSet, boxes: List<BoundingBox>): Int {
         val road = storage.roads[junction.roadA] ?: return 0
         val index = road.points.indexOfFirst { it.x == junction.pos.x && it.z == junction.pos.z }.takeIf { it >= 0 } ?: return 0
-        val style = styles.style(road.families.getOrElse(index) { 0 }.toInt())
+        val style = styles.style(road.families.getOrElse(index) { 0 }.toInt(), road.tier)
         // Off the road: perpendicular to the joined road's direction here.
         val before = road.points.getOrElse(index - 1) { road.points[index] }
         val after = road.points.getOrElse(index + 1) { road.points[index] }

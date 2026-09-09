@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import io.github.veelume.postroad.Postroad
+import io.github.veelume.postroad.roads.Tier
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.packs.resources.ResourceManager
@@ -43,13 +44,21 @@ class RoadStyle(val surface: Palette, val edge: Palette, val post: BlockState, v
  * without some mod still builds roads.
  */
 class RoadStyleSet(
-    private val families: Map<Int, RoadStyle>,
+    private val families: Map<Int, List<RoadStyle>>,
     private val replaceable: Set<Block>,
     private val replaceableKeywords: List<String>,
     private val clearable: Set<Block>,
     private val clearableKeywords: List<String>,
 ) {
-    fun style(family: Int): RoadStyle = families[family] ?: families[Families.TEMPERATE] ?: FALLBACK_STYLE
+    /**
+     * One family's look at one tier. A family that names fewer tiers than asked for keeps its best
+     * one, so a pack may ship a single palette and still build roads at any tier.
+     */
+    fun style(family: Int, tier: Int = 0): RoadStyle {
+        val tiers = families[family] ?: families[Families.TEMPERATE] ?: return FALLBACK_STYLE
+        if (tiers.isEmpty()) return FALLBACK_STYLE
+        return tiers[tier.coerceIn(0, tiers.size - 1)]
+    }
 
     /** Ground the road surface may take the place of. */
     fun isReplaceable(state: BlockState): Boolean {
@@ -77,7 +86,7 @@ class RoadStyleSet(
         )
 
         val FALLBACK = RoadStyleSet(
-            mapOf(Families.TEMPERATE to FALLBACK_STYLE),
+            mapOf(Families.TEMPERATE to listOf(FALLBACK_STYLE)),
             setOf(Blocks.GRASS_BLOCK, Blocks.DIRT, Blocks.COARSE_DIRT, Blocks.PODZOL, Blocks.SAND, Blocks.RED_SAND, Blocks.GRAVEL, Blocks.STONE, Blocks.SANDSTONE, Blocks.RED_SANDSTONE, Blocks.TERRACOTTA, Blocks.MUD, Blocks.PACKED_MUD, Blocks.DIRT_PATH, Blocks.SNOW_BLOCK),
             listOf("terracotta", "sandstone", "dirt", "grass_block", "stone", "sand", "gravel", "mud"),
             setOf(Blocks.SHORT_GRASS, Blocks.TALL_GRASS, Blocks.FERN, Blocks.LARGE_FERN, Blocks.DEAD_BUSH, Blocks.SNOW),
@@ -100,7 +109,7 @@ object RoadStyles : SimpleJsonResourceReloadListener(Gson(), "roads") {
         }
         try {
             current = parse(GsonHelper.convertToJsonObject(json, "road styles"))
-            Postroad.LOGGER.info("Loaded road styles for {} families", Families.NAMES.size)
+            Postroad.LOGGER.info("Loaded road styles for {} families, {} tiers", Families.NAMES.size, Tier.entries.size)
         } catch (e: Exception) {
             current = RoadStyleSet.FALLBACK
             Postroad.LOGGER.error("Invalid road styles, using defaults: {}", e.message)
@@ -134,17 +143,23 @@ object RoadStyles : SimpleJsonResourceReloadListener(Gson(), "roads") {
 
     private fun parse(obj: JsonObject): RoadStyleSet {
         val fams = GsonHelper.getAsJsonObject(obj, "families")
-        val styles = HashMap<Int, RoadStyle>()
+        val styles = HashMap<Int, List<RoadStyle>>()
         for ((index, name) in Families.NAMES.withIndex()) {
             val f = fams.getAsJsonObject(name) ?: continue
-            val surface = palette(f.getAsJsonArray("surface"))
-            val edge = palette(f.getAsJsonArray("edge"))
+            // The lampposts are the family's, not the tier's: paving a road does not rebuild its lamps.
             val post = f.get("post")?.asString?.let { block(it) }?.defaultBlockState() ?: Blocks.OAK_FENCE.defaultBlockState()
             val lamp = f.get("lamp")?.asString?.let { block(it) }?.defaultBlockState() ?: Blocks.LANTERN.defaultBlockState()
-            val stairs = f.get("stairs")?.asString?.let { block(it) }?.defaultBlockState() ?: Blocks.COBBLESTONE_STAIRS.defaultBlockState()
-            val slab = f.get("slab")?.asString?.let { block(it) }?.defaultBlockState() ?: Blocks.COBBLESTONE_SLAB.defaultBlockState()
-            val fill = f.get("fill")?.asString?.let { block(it) }?.defaultBlockState() ?: Blocks.COBBLESTONE.defaultBlockState()
-            styles[index] = RoadStyle(if (surface.isEmpty) RoadStyleSet.FALLBACK_STYLE.surface else surface, if (edge.isEmpty) surface else edge, post, lamp, stairs, slab, fill)
+            val tiers = ArrayList<RoadStyle>()
+            for (t in f.getAsJsonArray("tiers") ?: continue) {
+                val o = t.asJsonObject
+                val surface = palette(o.getAsJsonArray("surface"))
+                val edge = palette(o.getAsJsonArray("edge"))
+                val stairs = o.get("stairs")?.asString?.let { block(it) }?.defaultBlockState() ?: Blocks.COBBLESTONE_STAIRS.defaultBlockState()
+                val slab = o.get("slab")?.asString?.let { block(it) }?.defaultBlockState() ?: Blocks.COBBLESTONE_SLAB.defaultBlockState()
+                val fill = o.get("fill")?.asString?.let { block(it) }?.defaultBlockState() ?: Blocks.COBBLESTONE.defaultBlockState()
+                tiers.add(RoadStyle(if (surface.isEmpty) RoadStyleSet.FALLBACK_STYLE.surface else surface, if (edge.isEmpty) surface else edge, post, lamp, stairs, slab, fill))
+            }
+            if (tiers.isNotEmpty()) styles[index] = tiers
         }
         return RoadStyleSet(
             styles,

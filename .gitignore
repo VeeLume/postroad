@@ -25,6 +25,9 @@ src/generated/resources/.cache/
 
 # Local, machine-specific Claude context
 CLAUDE.local.md
+.claude/
+.mcp.json
+.firefly.toml
 
 # OS
 .DS_Store

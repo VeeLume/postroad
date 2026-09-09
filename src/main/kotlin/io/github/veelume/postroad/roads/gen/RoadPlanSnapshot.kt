@@ -12,8 +12,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * chunk with placements gets its roads laid while it generates; a chunk without gets nothing.
  */
 object RoadPlanSnapshot {
-    /** One placement with its road's biome family at that point. */
-    class Placed(val placement: PiecePlacement, val family: Int)
+    /** One placement with its road's biome family at that point, and the road's tier. */
+    class Placed(val placement: PiecePlacement, val family: Int, val tier: Int)
 
     @Volatile
     var placements: Map<Long, List<Placed>> = emptyMap()
@@ -50,7 +50,7 @@ object RoadPlanSnapshot {
             for (p in placements) {
                 if (claims[RoadPieceLayer.key(p.x, p.z)] != road.id) continue
                 val b = RoadPieceLayer.reachOf(p)
-                val placed = Placed(p, road.families.getOrElse(p.index) { 0 }.toInt())
+                val placed = Placed(p, road.families.getOrElse(p.index) { 0 }.toInt(), road.tier)
                 for (cz in (b[2] shr 4)..(b[5] shr 4)) for (cx in (b[0] shr 4)..(b[3] shr 4)) map.getOrPut(ChunkPos.asLong(cx, cz)) { ArrayList() }.add(placed)
             }
         }

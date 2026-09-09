@@ -18,6 +18,7 @@ import net.minecraft.world.level.levelgen.RandomState
 import net.minecraft.world.level.levelgen.WorldgenRandom
 import net.minecraft.world.level.levelgen.structure.BoundingBox
 import net.minecraft.world.level.levelgen.structure.StructureSet
+import net.minecraft.world.level.levelgen.structure.StructureStart
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager
 import java.util.concurrent.ConcurrentHashMap
 import java.util.function.Predicate
@@ -89,6 +90,49 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
     }
 
     /** Everything that starts in this chunk. */
+    /**
+     * Whether any structure set may start in this chunk — the cheap half of [find], with no jigsaw
+     * assembly at all.
+     *
+     * This is what aims the generator in the real-terrain pipeline: it says "a structure could begin
+     * here, so generate this chunk and read what actually started", instead of assembling the layout
+     * to predict it. The assembly still happens, but once, inside chunk generation, where the result
+     * is kept — rather than once here and again when the world catches up.
+     */
+    fun mayStart(chunkX: Int, chunkZ: Int): Boolean {
+        for (set in sets) {
+            val placement = set.value().placement()
+            if (placement is net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStructurePlacement) {
+                val potential = placement.getPotentialStructureChunk(seed, chunkX, chunkZ)
+                if (potential.x != chunkX || potential.z != chunkZ) continue
+            }
+            if (placement.isStructureChunk(state, chunkX, chunkZ)) return true
+        }
+        return false
+    }
+
+    /**
+     * What actually started in a generated chunk, read rather than predicted.
+     *
+     * The starts are created at the `STRUCTURE_STARTS` step, so this needs no terrain — and the
+     * jigsaw assembly it reads was done once, by the world, and kept. That is the whole saving over
+     * [find], which assembles a second copy the world will later throw away.
+     */
+    fun fromChunk(chunk: net.minecraft.world.level.chunk.ChunkAccess): Found {
+        val registry = registryAccess.registryOrThrow(Registries.STRUCTURE)
+        var town: Candidate? = null
+        var obstacles: MutableList<Obstacle>? = null
+        for ((structure, start) in chunk.allStarts) {
+            if (!start.isValid) continue
+            val holder = registry.wrapAsHolder(structure)
+            val structureId = registry.getKey(structure) ?: continue
+            val outcome = classify(holder, structureId, chunk.pos, start)
+            outcome.candidate?.let { if (town == null) town = it }
+            outcome.obstacle?.let { (obstacles ?: ArrayList<Obstacle>().also { l -> obstacles = l }).add(it) }
+        }
+        return Found(town, obstacles ?: emptyList())
+    }
+
     fun find(chunkX: Int, chunkZ: Int): Found {
         val chunkPos = ChunkPos(chunkX, chunkZ)
         var town: Candidate? = null
@@ -133,7 +177,7 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
         return Found(town, obstacles ?: emptyList())
     }
 
-    private class Outcome(val generated: Boolean, val candidate: Candidate? = null, val obstacle: Obstacle? = null)
+    class Outcome(val generated: Boolean, val candidate: Candidate? = null, val obstacle: Obstacle? = null)
 
     private fun tryOne(entry: StructureSet.StructureSelectionEntry, chunkPos: ChunkPos): Outcome {
         val holder = entry.structure()
@@ -165,6 +209,19 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
             t[0]++; t[1] += System.nanoTime() - t0
         }
         if (!start.isValid) return Outcome(false)
+        return classify(holder, structureId, chunkPos, start)
+    }
+
+    /**
+     * What a structure start means for the road network: a town to link, an obstacle to route round,
+     * or passable landscape to ignore — plus, for a town, its box, its streets and its street stubs.
+     *
+     * This is a pure function of the start, so it reads a real one out of a generated chunk exactly
+     * as it reads a predicted one. That is what lets discovery stop replaying jigsaw assembly and
+     * simply look at what the world built.
+     */
+    fun classify(holder: Holder<Structure>, structureId: ResourceLocation, chunkPos: ChunkPos, start: StructureStart): Outcome {
+        val sid = structureId.toString()
         val box = start.boundingBox
         if (holder.`is`(PASSABLE)) { passableFound++; return Outcome(true) }
         if (!holder.`is`(StructureTags.VILLAGE)) {
@@ -180,7 +237,8 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
             obstaclesFound++
             return Outcome(true, obstacle = Obstacle(structureId, chunkPos, box))
         }
-        val id = "$dimension/${chunkPos.x}/${chunkPos.z}"
+        // The same id the depot will resolve to, so a predicted town and its depot are one place.
+        val id = io.github.veelume.postroad.network.PlaceResolver.placeId(dimension, chunkPos.x, chunkPos.z)
         val pieces = ArrayList<BoundingBox>()
         val streets = ArrayList<net.minecraft.core.BlockPos>()
         val exits = ArrayList<Pair<net.minecraft.core.BlockPos, net.minecraft.core.Direction>>()

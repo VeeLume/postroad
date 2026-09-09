@@ -45,7 +45,7 @@ class RoadFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<NoneFeatureC
         val protect = HashSet<Long>()
         var placed = 0
         for (p in placements) {
-            placed += RoadPieceLayer.lay(level, p.placement, styles.style(p.family), styles, ::ground, ::inChunk, { x, z -> footprint.contains(RoadPieceLayer.key(x, z)) }, catalog, protect)
+            placed += RoadPieceLayer.lay(level, p.placement, styles.style(p.family, p.tier), styles, ::ground, ::inChunk, { x, z -> footprint.contains(RoadPieceLayer.key(x, z)) }, catalog, protect)
         }
         RoadPlanSnapshot.piecesPlaced.addAndGet(placements.size)
         RoadPlanSnapshot.markLaid(chunk.toLong(), placements.mapTo(HashSet()) { it.placement.roadId })

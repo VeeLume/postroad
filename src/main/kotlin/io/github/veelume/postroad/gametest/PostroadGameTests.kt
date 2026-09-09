@@ -696,6 +696,34 @@ class PostroadGameTests {
         return helper.absolutePos(BlockPos(0, F, 0)).y
     }
 
+    /**
+     * Every block a family's tier palette lays must classify as that tier. A road whose surface,
+     * shoulders, steps or fill classify as something else reads as the wrong tier wherever it
+     * climbs, which silently breaks road works: the quest would never see the upgrade it paid for.
+     */
+    @GameTest(template = ARENA)
+    fun every_palette_classifies_as_its_own_tier(helper: GameTestHelper) {
+        val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
+        val rules = io.github.veelume.postroad.roads.RoadRules.current
+        val random = java.util.Random(1L)
+        for ((family, name) in io.github.veelume.postroad.roads.gen.Families.NAMES.withIndex()) {
+            for (want in io.github.veelume.postroad.roads.Tier.entries) {
+                val style = styles.style(family, want.ordinal)
+                fun check(state: net.minecraft.world.level.block.state.BlockState, what: String) {
+                    val got = rules.classify(state)
+                    helper.assertTrue(got == want, "$name tier ${want.key}: $what is ${state.block.descriptionId}, which classifies as ${got?.key ?: "no road"}")
+                }
+                // Palettes are weighted, so sample enough times to meet every entry.
+                repeat(64) { check(style.surface.pick(random), "a surface block") }
+                repeat(64) { check(style.edge.pick(random), "an edge block") }
+                check(style.stairs, "the stair block")
+                check(style.slab, "the slab block")
+                check(style.fill, "the fill block")
+            }
+        }
+        helper.succeed()
+    }
+
     private fun blockAt(helper: GameTestHelper, x: Int, y: Int, z: Int): net.minecraft.world.level.block.Block = helper.level.getBlockState(helper.absolutePos(BlockPos(x, y, z))).block
     private fun stateAt(helper: GameTestHelper, x: Int, y: Int, z: Int): net.minecraft.world.level.block.state.BlockState = helper.level.getBlockState(helper.absolutePos(BlockPos(x, y, z)))
 
@@ -709,7 +737,7 @@ class PostroadGameTests {
         // Never write outside the arena (a piece's joint blocks can reach past it).
         val o = helper.absolutePos(BlockPos(0, 0, 0))
         val inside = { x: Int, z: Int -> x in o.x..o.x + 6 && z in o.z..o.z + 6 && inArea(x, z) }
-        for (p in placements) io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, p, styles.style(0), styles, { x, z -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 1, styles) }, inside)
+        for (p in placements) io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, p, styles.style(0, 0), styles, { x, z -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 1, styles) }, inside)
         return placements
     }
 
@@ -806,8 +834,8 @@ class PostroadGameTests {
         val ground = { x: Int, z: Int -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 1, styles) }
         val protect = HashSet<Long>()
         // The diagonal first, then the flat piece whose headroom would have cleared the slab.
-        io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, ps[1], styles.style(0), styles, ground, inside, null, null, protect)
-        io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, ps[0], styles.style(0), styles, ground, inside, null, null, protect)
+        io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, ps[1], styles.style(0, 0), styles, ground, inside, null, null, protect)
+        io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, ps[0], styles.style(0, 0), styles, ground, inside, null, null, protect)
         helper.assertTrue(isSlab(blockAt(helper, 2, F + 1, 3)) && isSlab(blockAt(helper, 3, F + 1, 2)), "the slab step survives the flat piece's clearing")
         helper.assertTrue(blockAt(helper, 1, F, 1) != Blocks.STONE && blockAt(helper, 2, F, 2) != Blocks.STONE, "the flat piece's blocks are there")
         helper.succeed()
@@ -830,7 +858,7 @@ class PostroadGameTests {
             shapeFloor(helper) { x, z -> if (x + z >= 9) 1 else 0 }
             for (x in 0..6) for (z in 0..6) for (y in F + 1..F + 3) if (helper.level.getBlockState(helper.absolutePos(BlockPos(x, y, z))).block != Blocks.STONE) helper.setBlock(BlockPos(x, y, z), Blocks.AIR)
             val protect = HashSet<Long>()
-            for (i in order) io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, ps[i], styles.style(0), styles, ground, inside, null, null, protect)
+            for (i in order) io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, ps[i], styles.style(0, 0), styles, ground, inside, null, null, protect)
             // The rise piece at (6, 6) has its joint slabs at (4, 5), (5, 4), (6, 4), (4, 6) — level F+1.
             for ((x, z) in listOf(4 to 5, 5 to 4, 6 to 4, 4 to 6)) helper.assertTrue(isSlab(blockAt(helper, x, F + 1, z)), "order $order: slab at ($x, $z): ${blockAt(helper, x, F + 1, z)}")
         }
@@ -896,7 +924,7 @@ class PostroadGameTests {
         val catalog = io.github.veelume.postroad.roads.gen.RoadPieces.current
         val flat = catalog.pieces.first { it.id.path == "straight_0" }.copy(fit = io.github.veelume.postroad.roads.gen.PieceFit(cut = 4, fill = 2, deck = true))
         val p = io.github.veelume.postroad.roads.gen.PiecePlacement(flat, io.github.veelume.postroad.roads.gen.Transform(0, false), helper.absolutePos(BlockPos(4, 0, 3)).x, helper.absolutePos(BlockPos(0, F + 4, 0)).y, helper.absolutePos(BlockPos(0, 0, 3)).z, 1)
-        io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, p, styles.style(0), styles, { x, z -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 5, styles) })
+        io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, p, styles.style(0, 0), styles, { x, z -> io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(level, x, z, floorY + 5, styles) })
         for (x in 3..4) {
             helper.assertTrue(blockAt(helper, x, F + 4, 3) != Blocks.AIR, "deck surface at ($x, 3)")
             helper.assertTrue(blockAt(helper, x, F + 3, 3) != Blocks.AIR, "one support under the deck at ($x, 3)")
@@ -1007,8 +1035,13 @@ class PostroadGameTests {
         for (x in listOf(1, 3, 5)) for (y in 5..16) helper.level.setBlock(helper.absolutePos(BlockPos(x, y, 1)), Blocks.AIR.defaultBlockState(), 3)
         for (x in listOf(1, 3, 5)) for (y in 5..16) { val st = helper.level.getBlockState(helper.absolutePos(BlockPos(x, y, 1))); helper.assertTrue(st.isAir, "column $x clear at +$y, found ${st.block}") }
         val origin = helper.absolutePos(BlockPos(0, 0, 0))
-        val tops = io.github.veelume.postroad.roads.gen.KnownTerrain.tops(helper.level.getChunk(helper.absolutePos(BlockPos(1, 0, 1)).x shr 4, helper.absolutePos(BlockPos(1, 0, 1)).z shr 4))
-        fun top(x: Int, z: Int): Int { val p = helper.absolutePos(BlockPos(x, 0, z)); return tops.top[((p.z and 15) shl 4) or (p.x and 15)].toInt() }
+        // Each column from its own chunk: an arena can straddle a chunk boundary, and indexing one
+        // chunk's tops by another chunk's column silently wraps to the wrong one.
+        fun top(x: Int, z: Int): Int {
+            val p = helper.absolutePos(BlockPos(x, 0, z))
+            val tops = io.github.veelume.postroad.roads.gen.KnownTerrain.tops(helper.level.getChunk(p.x shr 4, p.z shr 4))
+            return tops.top[((p.z and 15) shl 4) or (p.x and 15)].toInt()
+        }
         helper.assertValueEqual(top(1, 1), origin.y + 1, "grass with a flower: the flower's y")
         helper.assertValueEqual(top(3, 1), origin.y + 1, "dirt under a log: the log's y")
         helper.assertValueEqual(top(5, 1), origin.y + 3, "pool: the air above the water")
@@ -1226,6 +1259,73 @@ class PostroadGameTests {
         helper.assertTrue(first != elsewhere || true, "different places may collide, that is fine")
         val taken = NameGenerator.generate(1234L, "overworld/1/2", culture, setOf(first))
         helper.assertTrue(taken != first, "taken name must be disambiguated")
+        helper.succeed()
+    }
+
+    /**
+     * A town the planner predicted is named at once, so a junction sign built before anyone goes
+     * there reads the town's name and not "a village" — but it stays out of towns() and
+     * destinations() until a depot binds, so it cannot be mailed or travelled to early.
+     */
+    @GameTest(template = ARENA)
+    fun a_predicted_town_is_named_but_not_yet_a_destination(helper: GameTestHelper) {
+        val level = helper.level
+        val network = Network.get(level.server)
+        val structure = net.minecraft.resources.ResourceLocation.withDefaultNamespace("village_plains")
+        // Keyed to this arena, so a second run of the batch does not meet the first run's place.
+        val origin = helper.absolutePos(BlockPos(0, 0, 0))
+        val id = io.github.veelume.postroad.network.PlaceResolver.placeId(level.dimension().location(), origin.x, origin.z)
+        helper.assertTrue(network.places[id] == null, "the test town must not exist yet")
+
+        val place = io.github.veelume.postroad.network.PlaceResolver.predict(level, structure, id, helper.absolutePos(BlockPos(3, 1, 3)))
+        helper.assertTrue(place.name.isNotBlank(), "a predicted town has a name")
+        val fallback = net.minecraft.network.chat.Component.translatable("sign.postroad.village").string
+        helper.assertTrue(place.name != fallback, "the name is not the \"a village\" fallback")
+        helper.assertValueEqual(place.type, io.github.veelume.postroad.network.Place.TYPE_VILLAGE, "predicted village type")
+
+        // Naming it must not make it reachable: both of these key on a bound depot.
+        helper.assertTrue(network.towns().none { it.id == id }, "a predicted town is not a town until its depot loads")
+        helper.assertTrue(network.destinations().none { it.id == id }, "a predicted town is not a mail destination until its depot loads")
+        helper.assertTrue(!network.isDestination(id), "isDestination stays false for a predicted town")
+
+        // Predicting again is idempotent — the depot that arrives later must find this same place.
+        val again = io.github.veelume.postroad.network.PlaceResolver.predict(level, structure, id, helper.absolutePos(BlockPos(3, 1, 3)))
+        helper.assertValueEqual(again.name, place.name, "predicting twice keeps the first name")
+        helper.succeed()
+    }
+
+    /**
+     * A road that goes final without ever being replanned carries estimated heights, and since the
+     * build-time refiner was removed those are laid verbatim — that is how roads ended up hanging two
+     * blocks over the landscape. refit snaps such a road to the ground the world actually has.
+     */
+    @GameTest(template = ARENA)
+    fun refit_snaps_a_road_to_the_real_ground(helper: GameTestHelper) {
+        val level = helper.level
+        val dim = level.dimension().location()
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(level.server)
+        // Record the arena's chunks so KnownTerrain has real columns to fit against.
+        val floor = helper.absolutePos(BlockPos(3, 1, 3))
+        io.github.veelume.postroad.roads.gen.KnownTerrain.record(dim, level.getChunk(floor), level)
+        val truth = io.github.veelume.postroad.roads.gen.KnownTerrain.column(dim, floor.x, floor.z)
+        helper.assertTrue(truth != null, "the arena chunk must be recorded")
+
+        // A straight road two blocks above the ground, as an estimate that read high would give.
+        val points = (0..3).map { i -> BlockPos(floor.x + i, truth!!.top + 2, floor.z) }
+        val road = io.github.veelume.postroad.roads.gen.PlannedRoad(
+            "test_refit", dim, "a", "b", points, ByteArray(points.size),
+        )
+        storage.addRoad(road)
+
+        val changed = io.github.veelume.postroad.roads.gen.RoadGen.refit(storage, dim, road)
+        helper.assertTrue(changed, "refit reports the road moved")
+        for (p in road.points) {
+            val column = io.github.veelume.postroad.roads.gen.KnownTerrain.column(dim, p.x, p.z)
+            if (column != null) helper.assertValueEqual(p.y, column.top, "point (${p.x}, ${p.z}) sits on the real ground")
+        }
+        // Idempotent: a road already on the ground is left alone.
+        helper.assertTrue(!io.github.veelume.postroad.roads.gen.RoadGen.refit(storage, dim, road), "refitting twice changes nothing")
+        storage.removeRoad("test_refit")
         helper.succeed()
     }
 

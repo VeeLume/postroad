@@ -65,6 +65,13 @@ object RoadGen {
         val refresh: LongOpenHashSet = LongOpenHashSet(),
         /** Provisional roads this pass plans again; they are left out of the known roads and swapped on apply. */
         val replace: Set<String> = emptySet(),
+        /**
+         * Towns the pass must plan even if they lie outside its reach: the ends of the roads in
+         * [replace]. A replan is centred on the road's midpoint, so a road longer than the reach
+         * would otherwise leave its own endpoints out and the pair would go unplanned — which used
+         * to keep the road at its estimated heights and lay it there.
+         */
+        val include: Set<String> = emptySet(),
     )
 
     class JunctionResult(val pos: BlockPos, val joinedRoad: String, val joinedIndex: Int, val joiningRoad: String, val joiningIndex: Int)
@@ -126,8 +133,47 @@ object RoadGen {
         spawnPlanned = schedule(overworld, overworld.sharedSpawnPos)
     }
 
+    /**
+     * Towns predicted before names were given to predicted towns, and any a pass stored while the
+     * network was unavailable: name them now, so their signs stop reading "a village".
+     */
+    private fun nameKnownTowns(server: MinecraftServer, level: ServerLevel) {
+        val storage = RoadPlanStorage.get(server)
+        val network = Network.get(server)
+        val dim = level.dimension().location()
+        var n = 0
+        for (town in storage.towns.values) {
+            if (town.dimension != dim || network.places.containsKey(town.id)) continue
+            io.github.veelume.postroad.network.PlaceResolver.predict(level, town.structure, town.id, town.pos)
+            n++
+        }
+        if (n > 0) Postroad.LOGGER.info("Named {} predicted town(s) that had no place yet", n)
+    }
+
+    /**
+     * Roads that went final on estimated heights in an earlier session, before [refit] existed: fit
+     * them to the ground now, while none of them has been laid. A road that was planned on real
+     * terrain moves no point, so this is a no-op for a healthy plan.
+     */
+    private fun refitFinalRoads(server: MinecraftServer, level: ServerLevel) {
+        val storage = RoadPlanStorage.get(server)
+        val dim = level.dimension().location()
+        var n = 0
+        for (road in storage.roadsIn(dim)) {
+            if (road.provisional || road.builtChunks.isNotEmpty()) continue
+            if (refit(storage, dim, road)) n++
+        }
+        if (n > 0) {
+            storage.setDirty()
+            RoadPlanSnapshot.publish(storage, dim)
+            Postroad.LOGGER.info("Re-fitted {} road(s) to the real ground at start", n)
+        }
+    }
+
     /** Provisional roads left over from an earlier session: generate their corridors again and replan them. */
     private fun resumeProvisional(server: MinecraftServer, level: ServerLevel) {
+        nameKnownTowns(server, level)
+        refitFinalRoads(server, level)
         if (PostroadConfig.planPregenInFlight <= 0) return
         val storage = RoadPlanStorage.get(server)
         val dim = level.dimension().location()
@@ -163,12 +209,28 @@ object RoadGen {
         RoadBuilder.reset()
     }
 
+    /**
+     * Planning and building off, chunk generation still available. Measuring what the chunk system
+     * can do is only honest with the planner quiet: its passes and its builder compete for exactly
+     * the CPU and the worldgen workers the measurement is trying to size up.
+     */
+    @Volatile
+    var planningPaused: Boolean = false
+        private set
+
+    fun pausePlanning(paused: Boolean) {
+        planningPaused = paused
+        if (paused) deferred.clear()
+        Postroad.LOGGER.info("Road planning {}", if (paused) "paused (chunk generation still runs)" else "resumed")
+    }
+
     fun onServerTick(event: ServerTickEvent.Post) {
         val server = event.server
         while (true) {
             val result = results.poll() ?: break
             apply(server, result)
         }
+        if (planningPaused) return
         if (pending.get() == 0 && deferred.isNotEmpty()) {
             val next = deferred.removeFirst()
             server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, next.dimension))?.let { schedule(it, next.center, next.discoverTowns, next.refresh, next.replace) }
@@ -256,6 +318,7 @@ object RoadGen {
             dropped = HashSet(storage.droppedRoutes),
             refresh = refresh,
             replace = replace,
+            include = replace.flatMapTo(HashSet()) { id -> storage.roads[id]?.let { listOf(it.from, it.to) } ?: emptyList() },
         )
     }
 
@@ -352,7 +415,7 @@ object RoadGen {
         // 3. Plan: towns in reach, existing roads as reusable cells.
         val townById = HashMap<String, Town>()
         val towns = allTowns
-            .filter { it.pos.distSqr(req.center) <= reach.toDouble() * reach }
+            .filter { it.pos.distSqr(req.center) <= reach.toDouble() * reach || it.id in req.include }
             .map { townFor(it, terrain, req.margin).also { t -> townById[t.id] = t } }
         // An existing road's cells are at its stored heights now (built, or about to be), so the search
         // judges steps onto and along it by those, not by the terrain of its day.
@@ -438,6 +501,9 @@ object RoadGen {
         for (town in result.newTowns) {
             if (storage.towns.containsKey(town.id)) continue
             storage.addTown(town)
+            // Name it now. A junction sign is written when its chunk is built, which is long before
+            // anyone walks into the village, and an unnamed place made the sign read "a village".
+            io.github.veelume.postroad.network.PlaceResolver.predict(level, town.structure, town.id, town.pos)
             towns++
         }
         var obstacles = 0
@@ -453,8 +519,10 @@ object RoadGen {
             if (fresh == null) {
                 if (result.dropped.none { it.id == id }) {
                     // The pass did not plan the pair at all (a town out of its reach, or no longer among the
-                    // nearest): the road stays as it is, and final — nothing would plan it again.
+                    // nearest): the road stays as it is, and final — nothing would plan it again. Its heights
+                    // are still estimates, so fit them to the ground before it is ever laid.
                     old.provisional = false
+                    refit(storage, result.dimension, old)
                     storage.setDirty()
                     RoadBuilder.enqueueLoaded(level, old)
                     Postroad.LOGGER.info("Road {} ({} -> {}) kept as planned: its replan pass did not plan the pair", id, old.from, old.to)
@@ -551,6 +619,54 @@ object RoadGen {
         replan(server, dimension, roadId)
     }
 
+    /**
+     * Snaps a road's points to the ground the world actually has, where that ground is known.
+     *
+     * A road goes final with estimated heights whenever its replan cannot run, and since the
+     * build-time refiner was replaced by the piece catalog the plan's y is laid verbatim — so an
+     * estimate that reads two blocks high builds a road two blocks in the air. This is the backstop:
+     * the route (x and z) is left alone, only the height moves, and the result is checked against the
+     * catalog because moving a point changes the rise its neighbours must span. If the re-fitted line
+     * has a point no piece can build, nothing is changed and the road stays as planned.
+     *
+     * A road that is already partly in the world is left alone: its built chunks would no longer meet
+     * the unbuilt ones.
+     */
+    fun refit(storage: RoadPlanStorage, dimension: ResourceLocation, road: PlannedRoad): Boolean {
+        if (road.builtChunks.isNotEmpty()) return false
+        // A cell another road has already built is the ground there now: two roads through one cell must
+        // lay the same blocks, so those points keep the height the world was given.
+        val built = HashMap<Long, Int>()
+        for (other in storage.roadsIn(dimension)) {
+            if (other.id == road.id || other.builtChunks.isEmpty()) continue
+            for (p in other.points) built.putIfAbsent(RoadPieceLayer.key(p.x, p.z), p.y)
+        }
+        var moved = 0
+        val fitted = road.points.map { p ->
+            if (built.containsKey(RoadPieceLayer.key(p.x, p.z))) return@map p
+            val column = KnownTerrain.column(dimension, p.x, p.z) ?: return@map p
+            if (column.water || column.lava || column.top == p.y) p else { moved++; BlockPos(p.x, column.top, p.z) }
+        }
+        if (moved == 0) return false
+        val catalog = RoadPieces.current
+        val bad = fitted.indices.firstOrNull { i -> catalog.needsAt(fitted, i)?.let { catalog.match(it) } == null }
+        if (bad != null) {
+            // Snapping a point changes the rise its neighbours must span, and the real relief can make
+            // that steeper than any piece. Route those stretches again on the ground instead.
+            val refined = RoadRefiner.refine(dimension, fitted, road.families)
+            if (refined == null) {
+                Postroad.LOGGER.warn("Road {} kept at its planned heights: no piece at {} and the refiner found no way round it", road.id, fitted[bad].toShortString())
+                return false
+            }
+            road.points = refined.points
+            road.families = refined.families
+            return true
+        }
+        Postroad.LOGGER.info("Road {} re-fitted to the real ground: {} of {} point(s) moved", road.id, moved, fitted.size)
+        road.points = fitted
+        return true
+    }
+
     private fun replan(server: MinecraftServer, dimension: ResourceLocation, roadId: String) {
         val storage = RoadPlanStorage.get(server)
         val corridor = pendingCorridors.remove(roadId) ?: LongOpenHashSet()
@@ -559,8 +675,10 @@ object RoadGen {
         val level = server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, dimension)) ?: return
         val touched = road.builtChunks.isNotEmpty() || road.chunks().any { road.id in RoadPlanSnapshot.laidRoads(it) }
         if (touched || road.replans >= MAX_REPLANS) {
-            // Final as it is: from now on the feature and the builder lay it.
+            // Final as it is: from now on the feature and the builder lay it. Its heights are still
+            // estimates, so fit them to the ground first (refit leaves a touched road alone).
             road.provisional = false
+            refit(storage, dimension, road)
             storage.setDirty()
             RoadPlanSnapshot.publish(storage, dimension)
             RoadBuilder.enqueueLoaded(level, road)

@@ -59,8 +59,10 @@ object RoadPieceLayer {
     }
 
     private fun stateOf(b: PieceBlock, p: PiecePlacement, style: RoadStyle, seed: Long, pos: BlockPos): BlockState = when (b.role) {
-        RoadPiece.ROLE_SURFACE -> style.surface.pick(Random(Mth.getSeed(pos.x, 0, pos.z) xor seed))
-        RoadPiece.ROLE_EDGE -> style.edge.pick(Random(Mth.getSeed(pos.x, 0, pos.z) xor seed))
+        // Rolled per 2x2 patch, not per block: an independent roll at every column is white noise,
+        // which reads as confetti rather than as wear. Patches make the accent look like use.
+        RoadPiece.ROLE_SURFACE -> style.surface.pick(Random(Mth.getSeed(pos.x shr 1, 0, pos.z shr 1) xor seed))
+        RoadPiece.ROLE_EDGE -> style.edge.pick(Random(Mth.getSeed(pos.x shr 1, 0, pos.z shr 1) xor seed))
         RoadPiece.ROLE_STAIR -> style.stairs.trySetValue(StairBlock.FACING, b.facing?.let { p.facing(it) }?.let { Direction.fromDelta(it.dx, 0, it.dz) } ?: Direction.NORTH)
         RoadPiece.ROLE_SLAB -> style.slab
         RoadPiece.ROLE_AIR -> Blocks.AIR.defaultBlockState()

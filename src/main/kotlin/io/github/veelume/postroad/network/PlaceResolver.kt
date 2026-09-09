@@ -13,6 +13,41 @@ import net.minecraft.world.level.levelgen.structure.StructureStart
 /** Turns a depot position into a registered [Place], creating the place on first sight. */
 object PlaceResolver {
 
+    /**
+     * The id of the place a structure start stands for. The planner predicts towns long before a
+     * depot loads, so both derive the id here rather than each formatting their own — a mismatch
+     * would give the same town two places and two names.
+     */
+    fun placeId(dimension: ResourceLocation, chunkX: Int, chunkZ: Int): String = "$dimension/$chunkX/$chunkZ"
+
+    /** Tavern or village, from the structure id. */
+    fun typeOf(structureId: ResourceLocation): String =
+        if (structureId.path.contains("tavern")) Place.TYPE_TAVERN else Place.TYPE_VILLAGE
+
+    /** Creates the place if it is not known yet, with the deterministic name for its culture. */
+    private fun ensure(level: ServerLevel, network: Network, id: String, type: String, culture: String, anchor: BlockPos): Place {
+        network.places[id]?.let { return it }
+        val taken = network.places.values.mapTo(HashSet()) { it.name }
+        val name = NameGenerator.generate(level.seed, id, CultureRegistry.get(culture), taken)
+        val place = Place(id, name, culture, type, level.dimension().location(), anchor, FreshLoot.dayOf(level))
+        network.addPlace(place)
+        Postroad.LOGGER.info("New place '{}' ({}, {}) at {}", name, type, culture, anchor.toShortString())
+        return place
+    }
+
+    /**
+     * Names a town the planner predicted, before any player has been there, so the junction signs
+     * on a road leading to it can carry its name instead of "a village".
+     *
+     * This registers no depot, and that is what keeps it honest: [Network.towns] and
+     * [Network.destinations] both key on a *bound depot*, so a predicted place is a name and
+     * nothing else until its depot actually loads. It cannot be mailed to or travelled to early.
+     * When the depot does load, [register] finds this place and binds to it, so the sign and the
+     * town always agree.
+     */
+    fun predict(level: ServerLevel, structureId: ResourceLocation, id: String, anchor: BlockPos): Place =
+        ensure(level, Network.get(level.server), id, typeOf(structureId), CultureRegistry.resolve(structureId), anchor)
+
     sealed interface Result {
         /** The depot is bound to this place. */
         data class Bound(val placeId: String) : Result
@@ -39,8 +74,8 @@ object PlaceResolver {
         if (found != null) {
             val (structureId, start) = found
             val chunk = start.chunkPos
-            id = "$dimension/${chunk.x}/${chunk.z}"
-            type = if (structureId.path.contains("tavern")) Place.TYPE_TAVERN else Place.TYPE_VILLAGE
+            id = placeId(dimension, chunk.x, chunk.z)
+            type = typeOf(structureId)
             culture = CultureRegistry.resolve(structureId)
             anchor = BlockPos(chunk.middleBlockX, pos.y, chunk.middleBlockZ)
         } else {
@@ -54,11 +89,13 @@ object PlaceResolver {
             return Result.Redundant(id)
         }
 
-        if (network.places[id] == null) {
-            val taken = network.places.values.mapTo(HashSet()) { it.name }
-            val name = NameGenerator.generate(level.seed, id, CultureRegistry.get(culture), taken)
-            network.addPlace(Place(id, name, culture, type, dimension, anchor, FreshLoot.dayOf(level)))
-            Postroad.LOGGER.info("New place '{}' ({}, {}) at {}", name, type, culture, anchor.toShortString())
+        val known = network.places[id]
+        if (known == null) {
+            ensure(level, network, id, type, culture, anchor)
+        } else if (known.pos != anchor && known.type != Place.TYPE_FOUNDED) {
+            // The place was predicted from the structure's placement, so its anchor carries the
+            // planner's estimated height. The depot is the authority on where the town actually is.
+            network.addPlace(known.copy(pos = anchor))
         }
         network.bindDepot(level.dimension(), pos, id)
         return Result.Bound(id)

@@ -85,13 +85,17 @@ class PlannedRoad(
     val dimension: ResourceLocation,
     val from: String,
     val to: String,
-    val points: List<BlockPos>,
-    val families: ByteArray,
+    /** Re-fitted to the real ground when a road goes final without having been replanned; see RoadGen.refit. */
+    var points: List<BlockPos>,
+    /** One per point, so the refiner replaces both together when it splices a stretch. */
+    var families: ByteArray,
 ) {
     val builtChunks = LongOpenHashSet()
     /** Planned over estimated terrain somewhere along the way; replanned once the corridor is generated. */
     var provisional: Boolean = false
     var replans: Int = 0
+    /** Road quality, an ordinal of [io.github.veelume.postroad.roads.Tier]: the palette it is laid from. Road works raise it. */
+    var tier: Int = 0
 
     /** Chunks this road passes through. */
     fun chunks(): LongOpenHashSet {
@@ -112,6 +116,7 @@ class PlannedRoad(
         tag.putLongArray("Built", builtChunks.toLongArray())
         tag.putBoolean("Provisional", provisional)
         tag.putInt("Replans", replans)
+        tag.putInt("Tier", tier)
         return tag
     }
 
@@ -125,6 +130,7 @@ class PlannedRoad(
             for (c in tag.getLongArray("Built")) road.builtChunks.add(c)
             road.provisional = tag.getBoolean("Provisional")
             road.replans = tag.getInt("Replans")
+            road.tier = tag.getInt("Tier")
             return road
         }
     }

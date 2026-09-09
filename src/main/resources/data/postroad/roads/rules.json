@@ -1,4 +1,5 @@
 {
+  "_comment": "Via Romana's road rule, reimplemented and extended with tiers. A block is tested against the tiers in order (dirt, gravel, paved): exact ids first, then id-path keywords. Every block a tier's palette in styles.json uses must land on that tier, or a road drifts tier wherever it climbs — that is why the mud-brick and tuff step blocks are listed exactly: 'brick' would otherwise make mud bricks paved, and tuff would count as no road at all.",
   "minRoadShare": 0.3,
   "sampleSpacingMin": 4,
   "sampleSpacingMax": 8,
@@ -9,7 +10,10 @@
         "minecraft:dirt_path",
         "minecraft:packed_mud",
         "minecraft:coarse_dirt",
-        "minecraft:rooted_dirt"
+        "minecraft:rooted_dirt",
+        "minecraft:mud_bricks",
+        "minecraft:mud_brick_stairs",
+        "minecraft:mud_brick_slab"
       ],
       "keywords": [
         "dirt_path"
@@ -17,7 +21,10 @@
     },
     "gravel": {
       "blocks": [
-        "minecraft:gravel"
+        "minecraft:gravel",
+        "minecraft:tuff",
+        "minecraft:tuff_stairs",
+        "minecraft:tuff_slab"
       ],
       "keywords": [
         "gravel"
