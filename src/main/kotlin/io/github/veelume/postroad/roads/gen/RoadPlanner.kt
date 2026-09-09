@@ -95,9 +95,19 @@ object RoadPlanner {
     val traceRejects = ThreadLocal<IntArray?>()
     /** The coarse corridor of the last [routeTowns] on this thread (empty without a coarse map): what an unreachable pair searched. */
     private val lastCorridor = ThreadLocal<List<Cell>>()
-    val REJECT_NAMES = arrayOf("turned back", "turn limit (rise in)", "turn limit (descent out)", "outside the corridor", "blocked", "lava", "too steep", "too steep (diagonal)")
+    val REJECT_NAMES = arrayOf("turned back", "turn limit (rise in)", "turn limit (descent out)", "outside the corridor", "blocked", "lava", "too steep", "too steep (diagonal)", "cuts a road's corner")
     private const val R_TURN_BACK = 0; private const val R_TURN_RISE = 1; private const val R_TURN_DROP = 2
     private const val R_BOUNDS = 3; private const val R_BLOCKED = 4; private const val R_LAVA = 5; private const val R_STEEP = 6; private const val R_STEEP_DIAGONAL = 7
+    private const val R_ROAD_CORNER = 8
+
+    /**
+     * A diagonal move from one road cell to another that skips a road cell beside it: the road goes round
+     * that corner, and a route riding the road must too, or the two lay different pieces over the same
+     * anchors (a diagonal inside a corner — the "double route").
+     */
+    private fun cutsRoadCorner(terrain: Terrain, x: Int, z: Int, dx: Int, dz: Int): Boolean =
+        dx != 0 && dz != 0 && terrain.has(x, z, Terrain.ROAD) && terrain.inBounds(x + dx, z + dz) && terrain.has(x + dx, z + dz, Terrain.ROAD) &&
+            ((terrain.inBounds(x + dx, z) && terrain.has(x + dx, z, Terrain.ROAD)) || (terrain.inBounds(x, z + dz) && terrain.has(x, z + dz, Terrain.ROAD)))
 
     private val NEIGHBOURS = arrayOf(
         intArrayOf(1, 0), intArrayOf(-1, 0), intArrayOf(0, 1), intArrayOf(0, -1),
@@ -283,6 +293,7 @@ object RoadPlanner {
                         if (hn < h && costs.turnLimits[PieceCatalog.turnIndex(d[0], d[1], -inDx, -inDz)] < h - hn) { rejects?.let { it[R_TURN_DROP]++ }; continue }
                     }
                 }
+                if (k >= 4 && slopeDivisor == 1.0 && cutsRoadCorner(terrain, cx, cz, d[0], d[1])) { rejects?.let { it[R_ROAD_CORNER]++ }; continue }
                 val step = stepCost(terrain, nx, nz, h, k >= 4, costs, slopeDivisor, band, rejects) ?: continue
                 val tentative = gi + step
                 if (tentative < g.get(j)) {
@@ -427,7 +438,7 @@ object RoadPlanner {
             }
             // Snapping splices another road's cells in; those were judged on that road's heights, so the
             // result is checked on today's terrain and the raw route kept when a step no class allows.
-            val snapped = snapExcursions(raw, owner, EXCURSION_MAX)
+            val snapped = snapExcursions(raw, owner, EXCURSION_MAX) { window -> stepsFeasible(terrain, window, costs) }
             val cells = if (stepsFeasible(terrain, snapped, costs)) snapped else raw
             // A junction is where the route's own new cells meet an existing road: stepping onto one, or
             // off one. Road-to-road steps pass through junctions recorded when those roads met, and the
@@ -461,7 +472,7 @@ object RoadPlanner {
      * onto it: the excursion is replaced by the road's own cells between the two points (found by a
      * short search over that road's cells). Otherwise every bend would become a little ring.
      */
-    fun snapExcursions(cells: List<Cell>, owner: Map<Cell, String>, maxLen: Int): List<Cell> {
+    fun snapExcursions(cells: List<Cell>, owner: Map<Cell, String>, maxLen: Int, accept: (List<Cell>) -> Boolean = { true }): List<Cell> {
         val out = ArrayList<Cell>(cells.size)
         var i = 0
         while (i < cells.size) {
@@ -476,8 +487,17 @@ object RoadPlanner {
             while (back < cells.size && owner[cells[back]] != here && back - leave < maxLen) back++
             if (back < cells.size && owner[cells[back]] == here) {
                 // Excursion of (back - leave) cells: bridge along the road instead.
-                val bridge = roadPath(cells[leave - 1], cells[back], here, owner) ?: run { out.addAll(cells.subList(i, back)); i = back; return@run null }
-                if (bridge != null) {
+                // [accept] judges the bridge with its seams (a cell either side), so one bad seam keeps only
+                // this excursion, not every snap of the route.
+                val bridge = roadPath(cells[leave - 1], cells[back], here, owner)?.takeIf { br ->
+                    val window = ArrayList<Cell>()
+                    if (leave >= 2) window.add(cells[leave - 2])
+                    window.addAll(br)
+                    if (back + 1 < cells.size) window.add(cells[back + 1])
+                    accept(window)
+                }
+                if (bridge == null) { out.addAll(cells.subList(i, back)); i = back }
+                else {
                     out.addAll(cells.subList(i, leave))
                     out.addAll(bridge.subList(1, bridge.size - 1))
                     i = back
@@ -522,6 +542,8 @@ object RoadPlanner {
             for (d in NEIGHBOURS) {
                 val n = Cell(c.x + d[0], c.z + d[1])
                 if (owner[n] != road || parent.containsKey(n)) continue
+                // Round the road's corners, not across them: the bridge must be the road's own cells in order.
+                if (d[0] != 0 && d[1] != 0 && (owner[Cell(c.x + d[0], c.z)] == road || owner[Cell(c.x, c.z + d[1])] == road)) continue
                 parent[n] = c
                 queue.add(n)
             }

@@ -1047,6 +1047,45 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun planner_rides_an_existing_road_round_its_corners(helper: GameTestHelper) {
+        // An L-shaped road from a to b. A route from c that rides it must pass its corner cell, not cut across it.
+        val T = io.github.veelume.postroad.roads.gen.TerrainGrid(0, 0, 3, 30, 30)
+        for (z in 0 until 30) for (x in 0 until 30) T.setHeight(x, z, 64)
+        val old = ArrayList<io.github.veelume.postroad.roads.gen.Cell>()
+        for (x in 5..20) old.add(io.github.veelume.postroad.roads.gen.Cell(x, 5))
+        for (z in 6..20) old.add(io.github.veelume.postroad.roads.gen.Cell(20, z))
+        val a = io.github.veelume.postroad.roads.gen.Town("a", io.github.veelume.postroad.roads.gen.Cell(5, 5)); val b = io.github.veelume.postroad.roads.gen.Town("b", io.github.veelume.postroad.roads.gen.Cell(20, 20))
+        val existing = listOf(io.github.veelume.postroad.roads.gen.PlannedRoute("old", a, b, old))
+        val c = io.github.veelume.postroad.roads.gen.Town("c", io.github.veelume.postroad.roads.gen.Cell(12, 2))
+        val costs = io.github.veelume.postroad.roads.gen.PlannerCosts(steps = io.github.veelume.postroad.roads.gen.RoadPieces.current.stepClasses(), diagonalSteps = io.github.veelume.postroad.roads.gen.RoadPieces.current.diagonalStepClasses(), turnLimits = io.github.veelume.postroad.roads.gen.RoadPieces.current.turnLimits())
+        val plan = io.github.veelume.postroad.roads.gen.RoadPlanner.planNetwork(T, listOf(b, c), costs, neighbours = 1, maxLinkCells = 100.0, existing = existing)
+        val route = plan.routes.firstOrNull { it.from.id == "c" || it.to.id == "c" } ?: return helper.fail("no route from c (${plan.dropped.map { it.reason }})")
+        val onOld = route.cells.filter { it in old }
+        helper.assertTrue(onOld.size > 10, "the route rides the old road (${onOld.size} shared cells)")
+        helper.assertTrue(io.github.veelume.postroad.roads.gen.Cell(20, 5) in route.cells, "it passes the corner cell")
+        for (k in 1 until route.cells.size) {
+            val p = route.cells[k - 1]; val q = route.cells[k]
+            val diagonal = p.x != q.x && p.z != q.z
+            helper.assertTrue(!(diagonal && p in old && q in old && (io.github.veelume.postroad.roads.gen.Cell(q.x, p.z) in old || io.github.veelume.postroad.roads.gen.Cell(p.x, q.z) in old)), "no diagonal across the road's corner at $p")
+        }
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun planner_snaps_each_excursion_on_its_own(helper: GameTestHelper) {
+        // A straight road; a route that steps off it twice for one cell. The first seam is refused, the second accepted:
+        // only the second excursion is snapped back onto the road.
+        val C = { x: Int, z: Int -> io.github.veelume.postroad.roads.gen.Cell(x, z) }
+        val owner = HashMap<io.github.veelume.postroad.roads.gen.Cell, String>()
+        for (x in 0..20) owner[C(x, 5)] = "r"
+        val route = listOf(C(0, 5), C(1, 5), C(2, 5), C(3, 4), C(4, 5), C(5, 5), C(6, 5), C(7, 5), C(8, 6), C(9, 5), C(10, 5))
+        val snapped = io.github.veelume.postroad.roads.gen.RoadPlanner.snapExcursions(route, owner, 16) { window -> C(3, 4) !in window && window.none { it == C(2, 5) } }
+        helper.assertTrue(C(3, 4) in snapped, "the refused excursion stays")
+        helper.assertTrue(C(8, 6) !in snapped && C(8, 5) in snapped, "the accepted excursion is snapped onto the road")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun planner_passable_structure_tag_is_loaded(helper: GameTestHelper) {
         val tag = helper.level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE).getTag(io.github.veelume.postroad.roads.gen.TownFinder.PASSABLE)
         helper.assertTrue(tag.isPresent, "#postroad:passable exists (tags/worldgen/structure)")
