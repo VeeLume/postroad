@@ -383,9 +383,16 @@ object PostroadCommands {
             net.minecraft.world.level.chunk.status.ChunkStatus.FULL,
         )
         val tops = ArrayList<io.github.veelume.postroad.roads.gen.KnownTerrain.ChunkTops>()
+        // Per status: the block at each column's top (the first non-blocking position) and the one under it,
+        // read from that status's own chunk — what changed, not only where.
+        val atTop = ArrayList<Array<String>>(); val underTop = ArrayList<Array<String>>()
+        fun name(state: net.minecraft.world.level.block.state.BlockState) = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.block).path
         for (st in statuses) {
             val chunk = level.chunkSource.getChunk(cx, cz, st, true) ?: run { ctx.source.sendFailure(Component.literal("no chunk at ${st.name}")); return 0 }
-            tops.add(io.github.veelume.postroad.roads.gen.KnownTerrain.tops(chunk))
+            val t = io.github.veelume.postroad.roads.gen.KnownTerrain.tops(chunk)
+            tops.add(t)
+            atTop.add(Array(256) { i -> name(chunk.getBlockState(BlockPos(cx * 16 + (i and 15), t.top[i].toInt(), cz * 16 + (i shr 4)))) })
+            underTop.add(Array(256) { i -> name(chunk.getBlockState(BlockPos(cx * 16 + (i and 15), t.top[i] - 1, cz * 16 + (i shr 4)))) })
         }
         val lines = ArrayList<String>()
         lines.add("Chunk ($cx, $cz) was $before" + (if (before != null && before != net.minecraft.world.level.chunk.status.ChunkStatus.EMPTY) " - already generated, every status is the finished chunk; pick an ungenerated one" else ""))
@@ -397,11 +404,9 @@ object PostroadCommands {
                 val i = (lz shl 4) or lx
                 val d = b.top[i] - a.top[i]
                 hist.merge(d, 1, Int::plus)
-                if (d != 0 && examples.size < 3) {
+                if (d != 0 && examples.size < 4) {
                     val bx = cx * 16 + lx; val bz = cz * 16 + lz
-                    val under = level.getBlockState(BlockPos(bx, b.top[i] - 1, bz)).block
-                    val was = level.getBlockState(BlockPos(bx, a.top[i] - 1, bz)).block
-                    examples.add("($bx, $bz) ${a.top[i]} -> ${b.top[i]}, now ${net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(under).path} over ${net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(was).path}")
+                    examples.add("($bx, $bz) ${a.top[i]} -> ${b.top[i]}: column was ${underTop[k - 1][i]} / ${atTop[k - 1][i]} at ${a.top[i] - 1}/${a.top[i]}, now ${underTop[k][i]} / ${atTop[k][i]} at ${b.top[i] - 1}/${b.top[i]}")
                 }
             }
             lines.add("${statuses[k].name} minus ${statuses[k - 1].name}: " + hist.entries.joinToString(", ") { "${it.key}: ${it.value}" } + (if (examples.isEmpty()) "" else "; e.g. " + examples.joinToString("; ")))

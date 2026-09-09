@@ -43,37 +43,38 @@ object KnownTerrain {
         chunks.getOrPut(dimension) { ConcurrentHashMap() }[chunk.pos.toLong()] = tops
     }
 
-    /** The column tops of [chunk] as [record] sees them, without storing them (for measurement). */
+    /**
+     * The column tops of [chunk] as [record] sees them, without storing them (for measurement). A top is the
+     * **first air above the ground** — the height every other source uses (the estimate, Distant Horizons,
+     * the builder's ground scan) — found by walking down from the highest block of any kind past plants,
+     * logs, leaves and snow to the first block that is ground or liquid. The heightmaps only give the
+     * starting point: `ChunkAccess.getHeight` is the y of the highest matching block, not the air above it
+     * (`Level.getHeight` adds the one), and at the worldgen statuses the motion-blocking one lags the
+     * blocks by one in many columns. Taking it as the top made every recorded height one low (2026-09-09).
+     */
     fun tops(chunk: ChunkAccess): ChunkTops {
         val worldSurface = if (chunk.hasPrimedHeightmap(Heightmap.Types.WORLD_SURFACE_WG)) Heightmap.Types.WORLD_SURFACE_WG else Heightmap.Types.WORLD_SURFACE
-        val oceanFloor = if (chunk.hasPrimedHeightmap(Heightmap.Types.OCEAN_FLOOR_WG)) Heightmap.Types.OCEAN_FLOOR_WG else Heightmap.Types.OCEAN_FLOOR
         val tops = ChunkTops(ShortArray(256), ByteArray(256), ByteArray(256))
         val pos = chunk.pos
         val cursor = BlockPos.MutableBlockPos()
         for (lz in 0 until 16) for (lx in 0 until 16) {
             val i = (lz shl 4) or lx
-            val surface = chunk.getHeight(worldSurface, lx, lz)   // first air above anything, water included
-            var floor = chunk.getHeight(oceanFloor, lx, lz)       // first non-solid above the ground (logs count as ground)
             val x = pos.minBlockX + lx; val z = pos.minBlockZ + lz
-            // Trees on finished chunks: walk down past logs and leaves to real ground.
+            var y = chunk.getHeight(worldSurface, lx, lz)   // the highest block that is not air, water included
             var guard = 0
-            while (floor > chunk.minBuildHeight && guard++ < 48) {
-                cursor.set(x, floor - 1, z)
+            while (y > chunk.minBuildHeight && guard++ < 64) {
+                cursor.set(x, y, z)
                 val s = chunk.getBlockState(cursor)
-                if (DhTerrain.isGround(s)) break
-                if (!s.fluidState.isEmpty) break
-                floor--
-            }
-            if (surface > floor) {
-                cursor.set(x, surface - 1, z)
-                val fluid = chunk.getBlockState(cursor).fluidState
+                val fluid = s.fluidState
                 if (!fluid.isEmpty) {
-                    tops.top[i] = surface.toShort(); tops.liquid[i] = 1
+                    tops.liquid[i] = 1
                     if (fluid.`is`(net.minecraft.tags.FluidTags.LAVA)) tops.lava[i] = 1
-                    continue
+                    break
                 }
+                if (DhTerrain.isGround(s)) break
+                y--
             }
-            tops.top[i] = floor.toShort()
+            tops.top[i] = (y + 1).toShort()
         }
         return tops
     }

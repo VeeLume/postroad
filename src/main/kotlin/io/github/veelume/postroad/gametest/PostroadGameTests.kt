@@ -997,6 +997,24 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun known_terrain_records_the_first_air_above_ground(helper: GameTestHelper) {
+        // A grass block with a flower on it, dirt under a log with leaves, and a pool: the recorded top is
+        // the first air above the ground — under the flower, at the log's foot, above the water.
+        helper.setBlock(BlockPos(1, 0, 1), Blocks.GRASS_BLOCK); helper.setBlock(BlockPos(1, 1, 1), Blocks.POPPY)
+        helper.setBlock(BlockPos(3, 0, 1), Blocks.DIRT); for (y in 1..4) helper.setBlock(BlockPos(3, y, 1), Blocks.OAK_LOG); helper.setBlock(BlockPos(3, 5, 1), Blocks.OAK_LEAVES)
+        helper.setBlock(BlockPos(5, 0, 1), Blocks.STONE); helper.setBlock(BlockPos(5, 1, 1), Blocks.WATER); helper.setBlock(BlockPos(5, 2, 1), Blocks.WATER)
+        // The harness cases every test in barrier blocks; the scan starts at the highest block, so open the casing above these columns.
+        for (x in listOf(1, 3, 5)) for (y in 5..8) helper.level.setBlock(helper.absolutePos(BlockPos(x, y, 1)), Blocks.AIR.defaultBlockState(), 3)
+        val origin = helper.absolutePos(BlockPos(0, 0, 0))
+        val tops = io.github.veelume.postroad.roads.gen.KnownTerrain.tops(helper.level.getChunk(helper.absolutePos(BlockPos(1, 0, 1)).x shr 4, helper.absolutePos(BlockPos(1, 0, 1)).z shr 4))
+        fun top(x: Int, z: Int): Int { val p = helper.absolutePos(BlockPos(x, 0, z)); return tops.top[((p.z and 15) shl 4) or (p.x and 15)].toInt() }
+        helper.assertValueEqual(top(1, 1), origin.y + 1, "grass with a flower: the flower's y")
+        helper.assertValueEqual(top(3, 1), origin.y + 1, "dirt under a log: the log's y")
+        helper.assertValueEqual(top(5, 1), origin.y + 3, "pool: the air above the water")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun planner_passable_structure_tag_is_loaded(helper: GameTestHelper) {
         val tag = helper.level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE).getTag(io.github.veelume.postroad.roads.gen.TownFinder.PASSABLE)
         helper.assertTrue(tag.isPresent, "#postroad:passable exists (tags/worldgen/structure)")

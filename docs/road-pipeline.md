@@ -358,3 +358,21 @@ second time with the turn rules off):
 Trace pictures for the 27 pairs are in the world's `postroad/trace_<pair>.png`
 (world `world` of 2026-09-07).
 
+
+## Addendum 2026-09-09 (2) — D1 was the recorder, not a feature
+
+`/postroad roads known` now generates a fresh chunk status by status and
+compares each step's tops with the previous one, naming the block at the top
+of every changed column. Noise, surface, carvers and features agreed; the
+full chunk was one higher in a third of the columns — but the block was
+already there at the features status. The heightmap was stale, not the
+terrain. The bytecode then gave the real D1: `ChunkAccess.getHeight` returns
+the y of the **top block** (`getFirstAvailable - 1`; `Level.getHeight` is the
+one that adds 1), and `KnownTerrain.tops()` took it as the first air. Every
+own-chunk height was one low wherever the block under the top is ground,
+which is nearly everywhere, while the estimate, Distant Horizons and the
+builder's ground scan all mean the first air. **Fix:** the recorder walks the
+blocks down from the highest block past plants, logs, leaves and snow to the
+first ground or liquid block and records the air above it; heightmaps are
+only the starting point. The road feature's step stays at
+`surface_structures`.
