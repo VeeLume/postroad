@@ -61,8 +61,9 @@ object KnownTerrain {
             val i = (lz shl 4) or lx
             val x = pos.minBlockX + lx; val z = pos.minBlockZ + lz
             var y = chunk.getHeight(worldSurface, lx, lz)   // the highest block that is not air, water included
-            var guard = 0
-            while (y > chunk.minBuildHeight && guard++ < 64) {
+            // No short guard here: under an overhang or a floating island the highest block is far above the
+            // ground, and giving up early would record the air under the overhang as the top.
+            while (y > chunk.minBuildHeight) {
                 cursor.set(x, y, z)
                 val s = chunk.getBlockState(cursor)
                 val fluid = s.fluidState

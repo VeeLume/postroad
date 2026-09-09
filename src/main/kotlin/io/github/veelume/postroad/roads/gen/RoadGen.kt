@@ -97,6 +97,14 @@ object RoadGen {
     private val workers = ConcurrentHashMap<ResourceLocation, Worker>()
     private val results = ConcurrentLinkedQueue<PassResult>()
     private val pending = AtomicInteger()
+
+    /**
+     * A pass asked for while another is pending. Its request is built only when it starts, so it sees the
+     * roads and dropped pairs the earlier passes produced; a request built at scheduling time would plan
+     * the same pairs again and, once applied, re-request their corridors — a loop (2026-09-09).
+     */
+    private class Deferred(val dimension: ResourceLocation, val center: BlockPos, val discoverTowns: Boolean, val refresh: LongOpenHashSet, val replace: Set<String>)
+    private val deferred = ArrayDeque<Deferred>()
     private val lastPass = HashMap<UUID, BlockPos>()
     private var spawnPlanned = false
     var passesRun: Int = 0
@@ -148,6 +156,7 @@ object RoadGen {
         ChunkPregen.reset()
         workers.clear()
         results.clear()
+        deferred.clear()
         lastPass.clear()
         pending.set(0)
         spawnPlanned = false
@@ -160,7 +169,11 @@ object RoadGen {
             val result = results.poll() ?: break
             apply(server, result)
         }
-        if (executor == null || server.tickCount % 100 != 0 || pending.get() > 0) return
+        if (pending.get() == 0 && deferred.isNotEmpty()) {
+            val next = deferred.removeFirst()
+            server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, next.dimension))?.let { schedule(it, next.center, next.discoverTowns, next.refresh, next.replace) }
+        }
+        if (executor == null || server.tickCount % 100 != 0 || pending.get() > 0 || deferred.isNotEmpty()) return
         val overworld = server.overworld()
         if (!spawnPlanned) spawnPlanned = schedule(overworld, overworld.sharedSpawnPos)
         val repass = PostroadConfig.planRepassDistance.toDouble()
@@ -191,6 +204,11 @@ object RoadGen {
     /** Queues a pass around [center]; false if the planner is off. */
     fun schedule(level: ServerLevel, center: BlockPos, discoverTowns: Boolean = true, refresh: LongOpenHashSet = LongOpenHashSet(), replace: Set<String> = emptySet()): Boolean {
         val exec = executor ?: return false
+        if (pending.get() > 0 || results.isNotEmpty()) {
+            val dim = level.dimension().location()
+            if (deferred.none { it.dimension == dim && it.center == center && it.discoverTowns == discoverTowns && it.replace == replace }) deferred.add(Deferred(dim, center, discoverTowns, refresh, replace))
+            return true
+        }
         val request = request(level, center, discoverTowns, refresh, replace)
         val worker = workerFor(level)
         pending.incrementAndGet()
@@ -423,6 +441,15 @@ object RoadGen {
             val old = storage.roads[id] ?: continue
             val fresh = result.newRoads.firstOrNull { it.id == id }
             if (fresh == null) {
+                if (result.dropped.none { it.id == id }) {
+                    // The pass did not plan the pair at all (a town out of its reach, or no longer among the
+                    // nearest): the road stays as it is, and final — nothing would plan it again.
+                    old.provisional = false
+                    storage.setDirty()
+                    RoadBuilder.enqueueLoaded(level, old)
+                    Postroad.LOGGER.info("Road {} ({} -> {}) kept as planned: its replan pass did not plan the pair", id, old.from, old.to)
+                    continue
+                }
                 // No route for the pair on the real terrain: the estimate-based road goes with it.
                 storage.removeRoad(id)
                 network.removePath(id)
@@ -435,8 +462,10 @@ object RoadGen {
             replanned++
         }
         var provisional = 0
+        val added = HashSet<String>()
         for (road in result.newRoads) {
             if (storage.roads.containsKey(road.id)) continue
+            added.add(road.id)
             storage.addRoad(road)
             network.addPath(RoadPath(road.id, road.dimension, road.points.toMutableList(), MutableList(road.points.size) { Tier.PAVED },
                 GENERATED_BY, day, charted = false))
@@ -447,14 +476,14 @@ object RoadGen {
         // Provisional roads: generate their corridors, then plan them again on what the world really is.
         if (PostroadConfig.planPregenInFlight > 0) {
             for ((id, chunks) in result.corridors) {
-                if (!storage.roads.containsKey(id)) continue
+                if (id !in added) continue
                 pendingCorridors[id] = chunks
                 ChunkPregen.request(result.dimension, chunks) { ok, failed -> corridorDone(server, result.dimension, id, ok, failed) }
             }
         }
         for (j in result.newJunctions) {
             if (network.paths[j.joinedRoad] == null || network.paths[j.joiningRoad] == null) continue
-            storage.addJunction(PlannedJunction(result.dimension, j.pos, j.joinedRoad, j.joiningRoad))
+            if (!storage.addJunction(PlannedJunction(result.dimension, j.pos, j.joinedRoad, j.joiningRoad))) continue
             network.addLink(PathLink(j.joiningRoad, j.joiningIndex, j.joinedRoad, j.joinedIndex))
             junctions++
         }

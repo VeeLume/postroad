@@ -1004,7 +1004,8 @@ class PostroadGameTests {
         helper.setBlock(BlockPos(3, 0, 1), Blocks.DIRT); for (y in 1..4) helper.setBlock(BlockPos(3, y, 1), Blocks.OAK_LOG); helper.setBlock(BlockPos(3, 5, 1), Blocks.OAK_LEAVES)
         helper.setBlock(BlockPos(5, 0, 1), Blocks.STONE); helper.setBlock(BlockPos(5, 1, 1), Blocks.WATER); helper.setBlock(BlockPos(5, 2, 1), Blocks.WATER)
         // The harness cases every test in barrier blocks; the scan starts at the highest block, so open the casing above these columns.
-        for (x in listOf(1, 3, 5)) for (y in 5..8) helper.level.setBlock(helper.absolutePos(BlockPos(x, y, 1)), Blocks.AIR.defaultBlockState(), 3)
+        for (x in listOf(1, 3, 5)) for (y in 5..16) helper.level.setBlock(helper.absolutePos(BlockPos(x, y, 1)), Blocks.AIR.defaultBlockState(), 3)
+        for (x in listOf(1, 3, 5)) for (y in 5..16) { val st = helper.level.getBlockState(helper.absolutePos(BlockPos(x, y, 1))); helper.assertTrue(st.isAir, "column $x clear at +$y, found ${st.block}") }
         val origin = helper.absolutePos(BlockPos(0, 0, 0))
         val tops = io.github.veelume.postroad.roads.gen.KnownTerrain.tops(helper.level.getChunk(helper.absolutePos(BlockPos(1, 0, 1)).x shr 4, helper.absolutePos(BlockPos(1, 0, 1)).z shr 4))
         fun top(x: Int, z: Int): Int { val p = helper.absolutePos(BlockPos(x, 0, z)); return tops.top[((p.z and 15) shl 4) or (p.x and 15)].toInt() }
@@ -1082,6 +1083,17 @@ class PostroadGameTests {
         val snapped = io.github.veelume.postroad.roads.gen.RoadPlanner.snapExcursions(route, owner, 16) { window -> C(3, 4) !in window && window.none { it == C(2, 5) } }
         helper.assertTrue(C(3, 4) in snapped, "the refused excursion stays")
         helper.assertTrue(C(8, 6) !in snapped && C(8, 5) in snapped, "the accepted excursion is snapped onto the road")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun storage_keeps_one_junction_per_place_and_road_pair(helper: GameTestHelper) {
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage()
+        val dim = helper.level.dimension().location()
+        helper.assertTrue(storage.addJunction(io.github.veelume.postroad.roads.gen.PlannedJunction(dim, BlockPos(10, 64, 10), "a", "b")), "first junction added")
+        helper.assertTrue(!storage.addJunction(io.github.veelume.postroad.roads.gen.PlannedJunction(dim, BlockPos(10, 64, 10), "b", "a")), "the same place and roads, either way round, is not added again")
+        helper.assertTrue(storage.addJunction(io.github.veelume.postroad.roads.gen.PlannedJunction(dim, BlockPos(13, 64, 10), "a", "b")), "another place is")
+        helper.assertValueEqual(storage.junctions.size, 2, "two junctions")
         helper.succeed()
     }
 

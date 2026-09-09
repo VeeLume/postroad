@@ -198,9 +198,12 @@ class RoadPlanStorage : SavedData() {
         setDirty()
     }
 
-    fun addJunction(junction: PlannedJunction) {
+    /** Adds a junction unless the same one (place and roads) is known already; true when it was new. */
+    fun addJunction(junction: PlannedJunction): Boolean {
+        if (junctions.any { it.dimension == junction.dimension && it.pos == junction.pos && ((it.roadA == junction.roadA && it.roadB == junction.roadB) || (it.roadA == junction.roadB && it.roadB == junction.roadA)) }) return false
         junctions.add(junction)
         setDirty()
+        return true
     }
 
     fun markDropped(pairs: Map<String, DroppedInfo>) {
