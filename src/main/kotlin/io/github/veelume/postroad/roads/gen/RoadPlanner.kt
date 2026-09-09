@@ -100,6 +100,18 @@ object RoadPlanner {
     val REJECT_NAMES = arrayOf("turned back", "turn limit (rise in)", "turn limit (descent out)", "outside the corridor", "blocked", "lava", "too steep", "too steep (diagonal)", "cuts a road's corner")
     private const val R_TURN_BACK = 0; private const val R_TURN_RISE = 1; private const val R_TURN_DROP = 2
     private const val R_BOUNDS = 3; private const val R_BLOCKED = 4; private const val R_LAVA = 5; private const val R_STEEP = 6; private const val R_STEEP_DIAGONAL = 7
+
+    /**
+     * Ground the world has not generated is not ground to plan a road on.
+     *
+     * With this set, a cell carrying [Terrain.ESTIMATED] is impassable, so a route can only be found
+     * over heights that are real. A pair whose corridor was too narrow then comes back unreachable —
+     * an honest failure that says "generate more ground here" — instead of a road laid on a guess
+     * that is wrong by anything up to the estimator's spread. It is the whole point of planning after
+     * the ground exists: without it a route simply walks out of the corridor and guesses again.
+     */
+    @Volatile
+    var realTerrainOnly: Boolean = false
     private const val R_ROAD_CORNER = 8
 
     /**
@@ -131,6 +143,7 @@ object RoadPlanner {
     private fun stepCost(terrain: Terrain, x: Int, z: Int, fromHeight: Int, diagonal: Boolean, costs: PlannerCosts, slopeDivisor: Double, band: Band?, rejects: IntArray? = null): Double? {
         if (!terrain.inBounds(x, z)) { rejects?.let { it[R_BOUNDS]++ }; return null }
         if (terrain.has(x, z, Terrain.BLOCKED)) { rejects?.let { it[R_BLOCKED]++ }; return null }
+        if (realTerrainOnly && terrain.has(x, z, Terrain.ESTIMATED)) { rejects?.let { it[R_BLOCKED]++ }; return null }
         if (terrain.has(x, z, Terrain.LAVA)) { rejects?.let { it[R_LAVA]++ }; return null }
         val h = terrain.heightAt(x, z)
         val onRoad = terrain.has(x, z, Terrain.ROAD)
@@ -163,7 +176,8 @@ object RoadPlanner {
     class Band(val low: Double, val high: Double)
 
     private fun passable(terrain: Terrain, x: Int, z: Int): Boolean =
-        terrain.inBounds(x, z) && !terrain.has(x, z, Terrain.BLOCKED) && !terrain.has(x, z, Terrain.LAVA)
+        terrain.inBounds(x, z) && !terrain.has(x, z, Terrain.BLOCKED) && !terrain.has(x, z, Terrain.LAVA) &&
+            !(realTerrainOnly && terrain.has(x, z, Terrain.ESTIMATED))
 
     /** How far (blocks) an endpoint may be moved to leave a town's box and reach the corridor: past any village's half-width. */
     const val ENDPOINT_REACH = 160

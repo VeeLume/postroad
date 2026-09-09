@@ -95,8 +95,12 @@ object RoadPipeline {
 
     private fun finish(level: ServerLevel, center: BlockPos, startedAt: Long, scan: TownScan.Result, corridorChunks: Int, onDone: (String) -> Unit) {
         stage = "planning"
-        // Discovery is done and the ground is real: one ordinary pass, and nothing it plans should
-        // come back provisional. Any road that does is a corridor that was too narrow.
+        // Discovery is done and the corridors are real ground, so the pass may not leave them: an
+        // estimated cell is impassable. Without this a route simply walks out of its corridor and
+        // guesses again — the first run of this pipeline planned 81 roads and 40 came back
+        // provisional for exactly that reason. Now a pair that cannot be routed inside the ground it
+        // was given comes back unreachable, which says "widen the corridor", not "lay a guess".
+        RoadPlanner.realTerrainOnly = true
         RoadGen.schedule(level, center, discoverTowns = false)
         running = false
         stage = "idle"
