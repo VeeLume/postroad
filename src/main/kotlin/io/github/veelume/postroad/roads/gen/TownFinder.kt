@@ -200,6 +200,10 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
             for (info in pe.element.getShuffledJigsawBlocks(templates, pe.position, pe.rotation, jigsawRandom)) {
                 val facing = net.minecraft.world.level.block.JigsawBlock.getFrontFacing(info.state())
                 if (facing.axis.isVertical) continue
+                // Only the jigsaws that continue the street (their target pool is a streets pool): the ones along
+                // the sides face house lots, and an unfilled lot is not a stub.
+                val pool = info.nbt()?.getString("pool") ?: ""
+                if (!pool.contains("street", ignoreCase = true)) continue
                 val outside = info.pos().relative(facing)
                 val neighbour = all.firstOrNull { it !== piece && it.boundingBox.isInside(outside) }
                 val exit = when {
