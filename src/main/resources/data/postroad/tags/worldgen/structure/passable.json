@@ -1,0 +1,141 @@
+{
+  "replace": false,
+  "values": [
+    {
+      "id": "biomeswevegone:ironwood_gour_plateau",
+      "required": false
+    },
+    {
+      "id": "biomeswevegone:lush_arch",
+      "required": false
+    },
+    {
+      "id": "biomeswevegone:dripstone_arch",
+      "required": false
+    },
+    {
+      "id": "biomeswevegone:red_rock_arch",
+      "required": false
+    },
+    {
+      "id": "biomeswevegone:large_cold_lake",
+      "required": false
+    },
+    {
+      "id": "biomeswevegone:rugged_fossil",
+      "required": false
+    },
+    {
+      "id": "biomeswevegone:sharpened_rock",
+      "required": false
+    },
+    {
+      "id": "minecraft:mineshaft",
+      "required": false
+    },
+    {
+      "id": "minecraft:mineshaft_mesa",
+      "required": false
+    },
+    {
+      "id": "minecraft:stronghold",
+      "required": false
+    },
+    {
+      "id": "minecraft:ancient_city",
+      "required": false
+    },
+    {
+      "id": "minecraft:trial_chambers",
+      "required": false
+    },
+    {
+      "id": "minecraft:buried_treasure",
+      "required": false
+    },
+    {
+      "id": "bettermineshafts:mineshaft_acacia",
+      "required": false
+    },
+    {
+      "id": "bettermineshafts:mineshaft_desert",
+      "required": false
+    },
+    {
+      "id": "bettermineshafts:mineshaft_dripstone",
+      "required": false
+    },
+    {
+      "id": "bettermineshafts:mineshaft_ice",
+      "required": false
+    },
+    {
+      "id": "bettermineshafts:mineshaft_jungle",
+      "required": false
+    },
+    {
+      "id": "bettermineshafts:mineshaft_lush",
+      "required": false
+    },
+    {
+      "id": "bettermineshafts:mineshaft_mesa",
+      "required": false
+    },
+    {
+      "id": "bettermineshafts:mineshaft_mushroom",
+      "required": false
+    },
+    {
+      "id": "bettermineshafts:mineshaft_oak",
+      "required": false
+    },
+    {
+      "id": "bettermineshafts:mineshaft_overgrown",
+      "required": false
+    },
+    {
+      "id": "bettermineshafts:mineshaft_red_desert",
+      "required": false
+    },
+    {
+      "id": "bettermineshafts:mineshaft_spruce",
+      "required": false
+    },
+    {
+      "id": "bettermineshafts:mineshaft_spruce_snowy",
+      "required": false
+    },
+    {
+      "id": "terralith:underground/giant_bee_hive",
+      "required": false
+    },
+    {
+      "id": "terralith:underground/oak_cabin",
+      "required": false
+    },
+    {
+      "id": "terralith:underground/sunken_tower",
+      "required": false
+    },
+    {
+      "id": "terralith:underground/frosted_dungeon",
+      "required": false
+    },
+    {
+      "id": "terralith:underground/mining_outpost",
+      "required": false
+    },
+    {
+      "id": "terralith:underground/old_refinery",
+      "required": false
+    },
+    {
+      "id": "terralith:underground/witch_hut",
+      "required": false
+    },
+    {
+      "id": "terralith:underground_cabin",
+      "required": false
+    }
+  ]
+}

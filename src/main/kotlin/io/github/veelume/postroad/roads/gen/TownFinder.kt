@@ -5,7 +5,10 @@ import net.minecraft.core.Holder
 import net.minecraft.core.RegistryAccess
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.core.registries.Registries
 import net.minecraft.tags.StructureTags
+import net.minecraft.tags.TagKey
+import net.minecraft.world.level.levelgen.structure.Structure
 import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.biome.Biome
 import net.minecraft.world.level.chunk.ChunkGenerator
@@ -26,8 +29,11 @@ import java.util.function.Predicate
  * Everything here is a pure function of the seed, so it runs on the planner thread.
  *
  * A structure tagged `#minecraft:village` is a **town** (a road endpoint, with its pieces and
- * street exits). Any other structure that stands on the surface — arches, plateaus, towers,
- * temples, mansions — is an **obstacle**: its start box is kept so the planner routes around it.
+ * street exits). Any other structure that stands on the surface — towers, temples, mansions —
+ * is an **obstacle**: its start box is kept so the planner routes around it. Structures tagged
+ * `#postroad:passable` are neither: landscape structures (a plateau or arch whose box spans
+ * hundreds of blocks and the whole world height) and underground ones whose box reaches the
+ * surface (mineshafts) — a road crosses them like any other ground.
  * Buried ones (mineshafts, strongholds, dungeons) are ignored; a road above them is fine.
  */
 class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
@@ -62,6 +68,8 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
     @Volatile var generated: Int = 0
         private set
     @Volatile var obstaclesFound: Int = 0
+    /** Layouts of `#postroad:passable` structures: predicted, then ignored. */
+    @Volatile var passableFound: Int = 0
         private set
     /** Per structure: layouts built, nanoseconds spent, and how many came out buried — the cost picture in `status`. */
     val timing = ConcurrentHashMap<String, LongArray>()
@@ -156,6 +164,7 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
         }
         if (!start.isValid) return Outcome(false)
         val box = start.boundingBox
+        if (holder.`is`(PASSABLE)) { passableFound++; return Outcome(true) }
         if (!holder.`is`(StructureTags.VILLAGE)) {
             // On the surface, or buried? The box's mid-height against the estimated surface at its centre.
             val centre = box.center
@@ -180,6 +189,8 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
     }
 
     companion object {
+        /** Structures a road may cross: landscape features and underground structures. Neither town nor obstacle. */
+        val PASSABLE: TagKey<Structure> = TagKey.create(Registries.STRUCTURE, ResourceLocation.fromNamespaceAndPath(Postroad.MOD_ID, "passable"))
         /** A structure whose box mid-height is this far under the surface is buried and ignored. */
         const val BURIED_BELOW = 4
         /** After this many layouts that all came out buried, a structure is skipped for good. */

@@ -318,3 +318,43 @@ no record of its own corridors; DH covers most of it, the estimate the rest.
 4. **Persist own-chunk heights** next to the terrain cache so a restart does
    not lose them.
 5. Serpentines, tiers — unchanged, after the above.
+
+---
+
+## Addendum 2026-09-09 — what the unreachable pairs were
+
+The world at build 44c5b5b had 29 roads and 47 dropped pairs: 20 for water,
+27 "unreachable". `/postroad roads trace` on all 27 (the trace now also counts
+every neighbour the fine search refused, by reason, and runs the search a
+second time with the turn rules off):
+
+- **None was a budget or a slope problem.** Every search died with cells to
+  spare, and in several the steep steps around the closed cells were a few
+  dozen out of ten thousand.
+- **The wall was obstacles.** Two families of structures were stored as
+  obstacles and blocked, with margin: *landscape structures* — Oh The Biomes
+  We've Gone places its gour plateaus and arches as structures with boxes of
+  80–250 blocks a side and the full world height, dozens of them overlapping
+  around a village — and *underground structures whose box reaches the
+  surface* (Better Mineshafts, 150-block boxes; mesa mineshafts). A town
+  ringed by plateau boxes cannot be left; a corridor ±24 blocks wide crossed
+  by a mineshaft box is cut. **Fix:** the structure tag `#postroad:passable`
+  (`data/postroad/tags/worldgen/structure/passable.json`) lists structures a
+  road crosses like ground; the finder never records them as obstacles and
+  stored ones of that kind block nothing (a pack extends the tag).
+- **The turn rules were the wall for 2 of 25**, and those two need a hairpin
+  (a turn past 90°) on a slope — a serpentine, which no piece builds. With the
+  rules off the other 23 closed exactly the same cells. This also settles a
+  question about the search itself: it closes a cell on its first arrival
+  although the legal moves out of it depend on the direction it was entered
+  in. That is complete while turns up to 90° are allowed and every turn kind
+  of the catalog carries the step classes' largest rise (both true today; the
+  turn limits then only refuse what the classes refuse), so the search stays
+  one state per cell. The reasoning sits on `RoadPlanner.search`.
+- **Two pairs were reachable when traced** — they had been judged on the
+  estimate and never tried again (D5). Dropped-unreachable pairs still have no
+  retry; that is the next planner item.
+
+Trace pictures for the 27 pairs are in the world's `postroad/trace_<pair>.png`
+(world `world` of 2026-09-07).
+

@@ -56,6 +56,8 @@ object RoadGen {
         val knownTowns: List<PlannedTown>,
         val knownRoads: List<PlannedRoad>,
         val knownObstacles: List<PlannedObstacle> = emptyList(),
+        /** Structures tagged `#postroad:passable`: stored obstacles of these kinds (from before the tag) block nothing. */
+        val passable: Set<ResourceLocation> = emptySet(),
         val discovered: LongOpenHashSet,
         val discoverTowns: Boolean = true,
         val dropped: Set<String> = emptySet(),
@@ -211,6 +213,8 @@ object RoadGen {
             knownTowns = storage.townsIn(dimension),
             knownRoads = storage.roadsIn(dimension).filter { it.id !in replace },
             knownObstacles = storage.obstaclesIn(dimension),
+            passable = level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE).getTag(TownFinder.PASSABLE)
+                .map { set -> set.mapNotNull { h -> h.unwrapKey().orElse(null)?.location() }.toSet() }.orElse(emptySet()),
             discovered = LongOpenHashSet(storage.discovered[dimension] ?: LongOpenHashSet()),
             discoverTowns = discoverTowns,
             dropped = HashSet(storage.droppedRoutes),
@@ -288,6 +292,7 @@ object RoadGen {
         )
         // Obstacles: every predicted surface structure that is not a town, with the configured margin.
         for (o in req.knownObstacles + newObstacles) {
+            if (o.structure in req.passable) continue
             val b = o.box
             val min = terrain.blockToCell(b.minX() - req.margin, b.minZ() - req.margin)
             val max = terrain.blockToCell(b.maxX() + req.margin, b.maxZ() + req.margin)
@@ -506,7 +511,7 @@ object RoadGen {
         for ((dim, w) in workers) {
             lines.add("$dim: ${w.terrain.tileCount} fine + ${w.coarse.tileCount} coarse tile(s) in memory, ${w.sampler.sampled}/${w.coarseSampler.sampled} sampled, ${w.sampler.fromCache}/${w.coarseSampler.fromCache} from cache, " +
                 "${w.sampler.chunkCells}/${w.coarseSampler.chunkCells} cell(s) from own chunks, ${w.sampler.knownCells - w.sampler.chunkCells}/${w.coarseSampler.knownCells - w.coarseSampler.chunkCells} from Distant Horizons, ${w.sampler.estimatedCells}/${w.coarseSampler.estimatedCells} estimated; " +
-                "finder: ${w.finder.generated} layout(s) built, ${w.finder.prefiltered} skipped by biome, ${w.finder.obstaclesFound} obstacle(s)")
+                "finder: ${w.finder.generated} layout(s) built, ${w.finder.prefiltered} skipped by biome, ${w.finder.obstaclesFound} obstacle(s), ${w.finder.passableFound} passable")
             val costly = w.finder.timing.entries.sortedByDescending { it.value[1] }.take(6)
             if (costly.isNotEmpty()) lines.add("  layouts by cost: " + costly.joinToString(", ") { "${it.key} ${it.value[0]}× ${it.value[1] / 1_000_000 / maxOf(1, it.value[0])} ms" } +
                 (if (w.finder.skipped.isEmpty()) "" else "; always buried, skipped: ${w.finder.skipped.joinToString(", ")}"))
@@ -553,12 +558,20 @@ object RoadGen {
         val a = town(d.first) ?: return "Unknown town ${d.first}"
         val b = town(d.second) ?: return "Unknown town ${d.second}"
         val closed = LongOpenHashSet()
-        RoadPlanner.trace.set(closed); RoadPlanner.traceEnds.set(null)
+        val rejects = IntArray(RoadPlanner.REJECT_NAMES.size)
+        RoadPlanner.trace.set(closed); RoadPlanner.traceEnds.set(null); RoadPlanner.traceRejects.set(rejects)
         val exitA = a.exitToward(b.cell); val exitB = b.exitToward(a.cell)
         val t0 = System.nanoTime()
-        val route = try { RoadPlanner.routeHierarchical(terrain, coarse, COARSE_CELL / CELL_SIZE, exitA, exitB, req.costs, a.reach, b.reach) } finally { RoadPlanner.trace.set(null) }
+        val route = try { RoadPlanner.routeHierarchical(terrain, coarse, COARSE_CELL / CELL_SIZE, exitA, exitB, req.costs, a.reach, b.reach) } finally { RoadPlanner.trace.set(null); RoadPlanner.traceRejects.set(null) }
         val ends = RoadPlanner.traceEnds.get()
         val ms = (System.nanoTime() - t0) / 1_000_000
+        // Unreachable: what the wall is made of, and whether the piece grid's turn rules are it.
+        val wall = if (route != null) "" else {
+            val free = LongOpenHashSet(); RoadPlanner.trace.set(free)
+            val freeRoute = try { RoadPlanner.routeHierarchical(terrain, coarse, COARSE_CELL / CELL_SIZE, exitA, exitB, req.costs, a.reach, b.reach, freeTurns = true) } finally { RoadPlanner.trace.set(null) }
+            "; refused neighbours: " + RoadPlanner.REJECT_NAMES.indices.filter { rejects[it] > 0 }.joinToString(", ") { "${RoadPlanner.REJECT_NAMES[it]} ${rejects[it]}" } +
+                "; without the turn rules: " + (if (freeRoute != null) "route of ${freeRoute.size} cells" else "still unreachable") + " (${free.size} closed)"
+        }
         // Draw: the closed cells' bounding box plus both exits, 12 cells of margin, 4 px per cell.
         var minX = minOf(exitA.x, exitB.x); var maxX = maxOf(exitA.x, exitB.x); var minZ = minOf(exitA.z, exitB.z); var maxZ = maxOf(exitA.z, exitB.z)
         val iter = closed.iterator()
@@ -603,7 +616,7 @@ object RoadGen {
         val it2 = closed.iterator()
         while (it2.hasNext()) { val k = it2.nextLong(); val x = Terrain.keyX(k); val z = Terrain.keyZ(k); val hh = terrain.heightAt(x, z)
             for ((dx, dz) in listOf(1 to 0, 0 to 1)) { if (terrain.has(x + dx, z + dz, Terrain.BLOCKED)) continue; steps++; if (kotlin.math.abs(terrain.heightAt(x + dx, z + dz) - hh) > limit) tooSteep++ } }
-        return "Pair $pairId ${d.first} -> ${d.second}: ${if (route != null) "route of ${route.size} cells" else "unreachable: ${RoadPlanner.lastFailure.get()}"}; exits $exitA / $exitB, resolved $ends, ${closed.size} fine cell(s) closed in $ms ms, $tooSteep of $steps cardinal steps off closed cells exceed rise $limit; drawn to $file (${minX * CELL_SIZE}, ${minZ * CELL_SIZE}) to (${maxX * CELL_SIZE}, ${maxZ * CELL_SIZE}), $px px per cell"
+        return "Pair $pairId ${d.first} -> ${d.second}: ${if (route != null) "route of ${route.size} cells" else "unreachable: ${RoadPlanner.lastFailure.get()}"}; exits $exitA / $exitB, resolved $ends, ${closed.size} fine cell(s) closed in $ms ms, $tooSteep of $steps cardinal steps off closed cells exceed rise $limit$wall; drawn to $file (${minX * CELL_SIZE}, ${minZ * CELL_SIZE}) to (${maxX * CELL_SIZE}, ${maxZ * CELL_SIZE}), $px px per cell"
     }
 
     fun exportImage(level: ServerLevel, center: BlockPos, radius: Int): java.nio.file.Path? {

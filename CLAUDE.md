@@ -90,7 +90,9 @@ live in `docs/` (one per increment). This file is about the code.
   `/postroad roads debug terrain` draws the planner's cells (step class colours, flags, estimate-vs-real ticks,
   estimates faint). `TownFinder` replays every structure set: villages become towns, other surface structures
   obstacles (`PlannedObstacle`, blocked with `plan.structureMargin`); structures that come out buried a few times
-  in a row are skipped for good.
+  in a row are skipped for good. Structures tagged `#postroad:passable` (landscape structures such as BWG's
+  plateaus and arches, underground ones whose box reaches the surface such as mineshafts) are neither town nor
+  obstacle — the tag file is `data/postroad/tags/worldgen/structure/passable.json`, a pack extends it.
 - `roads/Routing` — Dijkstra over anchors (nodes + link ends) on the path polylines.
 - `travel/` — `Fares`, `TravelService` (open list, depart: fare, fresh-loot mailing, teleport), `SignNodes`
   (map-on-sign links/unlinks, left-click opens travel; block tag `#postroad:sign_nodes`), payloads + `TravelClient`.

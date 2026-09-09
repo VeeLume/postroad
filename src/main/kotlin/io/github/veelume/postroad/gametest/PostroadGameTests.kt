@@ -975,6 +975,14 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun planner_passable_structure_tag_is_loaded(helper: GameTestHelper) {
+        val tag = helper.level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE).getTag(io.github.veelume.postroad.roads.gen.TownFinder.PASSABLE)
+        helper.assertTrue(tag.isPresent, "#postroad:passable exists (tags/worldgen/structure)")
+        helper.assertTrue(tag.get().any { it.unwrapKey().map { k -> k.location().toString() }.orElse("") == "minecraft:mineshaft" }, "mineshafts are passable")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun pieces_transforms_cover_every_facing(helper: GameTestHelper) {
         val seen = HashSet<Pair<io.github.veelume.postroad.roads.gen.Facing, io.github.veelume.postroad.roads.gen.Facing>>()
         for (t in io.github.veelume.postroad.roads.gen.Transform.ALL) seen.add(t.apply(io.github.veelume.postroad.roads.gen.Facing(-1, 0)) to t.apply(io.github.veelume.postroad.roads.gen.Facing(1, 1)))
