@@ -245,38 +245,54 @@ object PostroadCommands {
         val centre = BlockPos.containing(ctx.source.position)
         val snapshot = io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.placements
         var withStart = 0; var without = 0; var absent = 0
-        // Planned height against the generated ground, per planned point in generated chunks: how far the plan's
-        // idea of the surface is from what the world got (negative = the plan lies under the real ground).
-        val buckets = IntArray(11) // <=-5, -4, -3, -2, -1, 0, +1, +2, +3, +4, >=5
-        var waterPoints = 0
+        // The road against the plan, and the ground beside the road against the plan, per anchor in generated chunks.
+        // Heights are the first air above ground or liquid, read from the blocks (the heightmaps give the top
+        // block's y): road minus plan should be 0 everywhere; beside minus plan is +1 where the road cuts one
+        // block into the ground on that side, -1 where it stands one block proud of it.
         val bucketNames = listOf("<=-5", "-4", "-3", "-2", "-1", "0", "+1", "+2", "+3", "+4", ">=5")
-        val deep = ArrayList<String>()
+        val onRoad = IntArray(11); val beside = IntArray(11)
+        var waterPoints = 0; var besideSkipped = 0
+        val cuts = ArrayList<String>()
         fun bucket(d: Int): Int = (d + 5).coerceIn(0, 10)
+        fun firstAir(x: Int, z: Int): Pair<Int, Boolean>? {
+            if (!level.hasChunk(x shr 4, z shr 4)) return null
+            var y = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE, x, z) - 1 // the highest block of any kind
+            var guard = 0
+            while (y > level.minBuildHeight && guard++ < 64) {
+                val st = level.getBlockState(BlockPos(x, y, z))
+                if (!st.fluidState.isEmpty) return (y + 1) to true
+                if (io.github.veelume.postroad.roads.gen.DhTerrain.isGround(st)) return (y + 1) to false
+                y--
+            }
+            return (y + 1) to false
+        }
         for ((key, runs) in snapshot) {
             val cx = net.minecraft.world.level.ChunkPos.getX(key); val cz = net.minecraft.world.level.ChunkPos.getZ(key)
             if (maxOf(kotlin.math.abs(cx * 16 + 8 - centre.x), kotlin.math.abs(cz * 16 + 8 - centre.z)) > radius) continue
             val chunk = level.chunkSource.getChunk(cx, cz, net.minecraft.world.level.chunk.status.ChunkStatus.EMPTY, true)
             if (chunk == null || !chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.STRUCTURE_STARTS)) { absent++; continue }
             val start = if (io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.wasLaid(key)) Unit else null
-            if (chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.SURFACE)) {
+            if (chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.FULL) && level.hasChunk(cx, cz)) {
                 val seen = HashSet<Long>()
-                // Per placement its anchor's road block, +1 = the planned first-air height as before.
+                // Road columns of this chunk and its neighbours, so "beside" never lands on another road.
+                val roadColumns = it.unimi.dsi.fastutil.longs.LongOpenHashSet()
+                for (dz in -1..1) for (dx in -1..1) roadColumns.addAll(io.github.veelume.postroad.roads.gen.RoadPieceLayer.footprintOf(io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.placementsAt(cx + dx, cz + dz).map { it.placement }))
                 for (run in runs) run.placement.anchor.above().let { p ->
                     if ((p.x shr 4) != cx || (p.z shr 4) != cz || !seen.add(p.asLong())) return@let
-                    // Ground as the planner means it: below trees, and the water surface where there is water.
-                    val surface = chunk.getHeight(if (chunk.hasPrimedHeightmap(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG)) net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG else net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE, p.x and 15, p.z and 15)
-                    var ground = chunk.getHeight(if (chunk.hasPrimedHeightmap(net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR_WG)) net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR_WG else net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR, p.x and 15, p.z and 15)
-                    var guard = 0
-                    while (ground > chunk.minBuildHeight && guard++ < 48) {
-                        val s = chunk.getBlockState(BlockPos(p.x, ground - 1, p.z))
-                        if (io.github.veelume.postroad.roads.gen.DhTerrain.isGround(s) || !s.fluidState.isEmpty) break
-                        ground--
+                    val road = firstAir(p.x, p.z) ?: return@let
+                    if (road.second) { waterPoints++; return@let }
+                    onRoad[bucket(road.first - p.y)]++
+                    var worst = 0; var worstAt = ""
+                    for ((dx, dz) in listOf(3 to 0, -3 to 0, 0 to 3, 0 to -3)) {
+                        val x = p.x + dx; val z = p.z + dz
+                        if (roadColumns.contains(io.github.veelume.postroad.roads.gen.RoadPieceLayer.key(x, z))) { besideSkipped++; continue }
+                        val g = firstAir(x, z) ?: continue
+                        if (g.second) continue
+                        val d = g.first - p.y
+                        beside[bucket(d)]++
+                        if (kotlin.math.abs(d) > kotlin.math.abs(worst)) { worst = d; worstAt = "($x, $z)" }
                     }
-                    val water = surface > ground && !chunk.getBlockState(BlockPos(p.x, surface - 1, p.z)).fluidState.isEmpty
-                    if (water) { waterPoints++; continue }
-                    val d = p.y - ground
-                    buckets[bucket(d)]++
-                    if (kotlin.math.abs(d) >= 9 && deep.size < 15) deep.add("${p.toShortString()} planned ${p.y} ground $ground (${if (start != null) "own start" else "no start"})")
+                    if (kotlin.math.abs(worst) >= 2 && cuts.size < 12) cuts.add("${p.toShortString()} planned ${p.y}: ground beside at $worstAt is ${if (worst > 0) "$worst higher" else "${-worst} lower"}")
                 }
             }
             if (start != null) { withStart++; continue }
@@ -290,11 +306,11 @@ object PostroadCommands {
         }
         if (unmarked > 0) storage.setDirty()
         ctx.source.sendSuccess({ Component.literal("Audit within $radius: $withStart road chunk(s) laid by the feature this session, $without finished without it, $absent not past their features step yet${if (fix) "; $unmarked road-chunk mark(s) cleared for the builder" else ""}") }, false)
-        val total = buckets.sum()
+        val total = onRoad.sum()
         if (total > 0) {
-            ctx.source.sendSuccess({ Component.literal("Planned height minus generated ground (below trees) over $total land point(s), $waterPoints on water: " +
-                bucketNames.indices.joinToString(", ") { "${bucketNames[it]}: ${buckets[it]}" }) }, false)
-            for (m in deep) ctx.source.sendSuccess({ Component.literal("  off by 9+: $m") }, false)
+            ctx.source.sendSuccess({ Component.literal("Road first air minus planned height over $total anchor(s), $waterPoints on water: " + bucketNames.indices.filter { onRoad[it] > 0 }.joinToString(", ") { "${bucketNames[it]}: ${onRoad[it]}" }) }, false)
+            ctx.source.sendSuccess({ Component.literal("Ground 3 blocks beside the anchor minus planned height over ${beside.sum()} column(s) ($besideSkipped on other road columns skipped; +1 = the road cuts one block into that side, -1 = it stands one proud): " + bucketNames.indices.filter { beside[it] > 0 }.joinToString(", ") { "${bucketNames[it]}: ${beside[it]}" }) }, false)
+            for (m in cuts) ctx.source.sendSuccess({ Component.literal("  2+: $m") }, false)
         }
         return 1
     }
