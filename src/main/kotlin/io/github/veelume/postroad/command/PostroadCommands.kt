@@ -57,6 +57,8 @@ object PostroadCommands {
                         .then(Commands.literal("planner").requires { it.hasPermission(2) }
                             .then(Commands.literal("off").executes { roadsPlanner(it, false) })
                             .then(Commands.literal("on").executes { roadsPlanner(it, true) }))
+                        .then(Commands.literal("pipeline").requires { it.hasPermission(2) }
+                            .then(Commands.argument("radius", IntegerArgumentType.integer(16, 8192)).executes { roadsPipeline(it, IntegerArgumentType.getInteger(it, "radius")) }))
                         .then(Commands.literal("scan").requires { it.hasPermission(2) }
                             .then(Commands.argument("radius", IntegerArgumentType.integer(16, 8192)).executes { roadsScan(it, IntegerArgumentType.getInteger(it, "radius")) }))
                         .then(Commands.literal("measure").requires { it.hasPermission(2) }.executes { roadsMeasureStatus(it) }
@@ -372,6 +374,20 @@ object PostroadCommands {
     private fun roadsPlanner(ctx: CommandContext<CommandSourceStack>, on: Boolean): Int {
         io.github.veelume.postroad.roads.gen.RoadGen.pausePlanning(!on)
         ctx.source.sendSuccess({ Component.literal(if (on) "Planning resumed." else "Planning and road building paused; chunk generation still runs, so a measurement has the machine to itself.") }, true)
+        return 1
+    }
+
+    /** Towns, then ground, then one plan: the real-terrain pipeline end to end. */
+    private fun roadsPipeline(ctx: CommandContext<CommandSourceStack>, radius: Int): Int {
+        val source = ctx.source
+        val started = io.github.veelume.postroad.roads.gen.RoadPipeline.run(source.level, BlockPos.containing(source.position), radius) { message ->
+            source.sendSuccess({ Component.literal(message) }, true)
+        }
+        if (!started) {
+            source.sendFailure(Component.literal("The pipeline is already running (${io.github.veelume.postroad.roads.gen.RoadPipeline.stage})."))
+            return 0
+        }
+        source.sendSuccess({ Component.literal("Pipeline started within $radius blocks: finding towns, then generating their corridors, then one planning pass. Progress in the log.") }, true)
         return 1
     }
 

@@ -130,7 +130,7 @@ object RoadGen {
         overworld.chunkSource.getGeneratorState().ensureStructuresGenerated()
         RoadPlanSnapshot.publish(RoadPlanStorage.get(event.server), overworld.dimension().location())
         resumeProvisional(event.server, overworld)
-        spawnPlanned = schedule(overworld, overworld.sharedSpawnPos)
+        if (PostroadConfig.planAuto) spawnPlanned = schedule(overworld, overworld.sharedSpawnPos)
     }
 
     /**
@@ -235,6 +235,7 @@ object RoadGen {
             val next = deferred.removeFirst()
             server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, next.dimension))?.let { schedule(it, next.center, next.discoverTowns, next.refresh, next.replace) }
         }
+        if (!PostroadConfig.planAuto) return
         if (executor == null || server.tickCount % 100 != 0 || pending.get() > 0 || deferred.isNotEmpty()) return
         val overworld = server.overworld()
         if (!spawnPlanned) spawnPlanned = schedule(overworld, overworld.sharedSpawnPos)

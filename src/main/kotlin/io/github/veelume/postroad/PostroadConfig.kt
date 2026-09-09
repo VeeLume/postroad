@@ -64,6 +64,7 @@ object PostroadConfig {
     private val FLIP_SIGN_FACES: ModConfigSpec.BooleanValue
     private val TARGET_POOLS: ModConfigSpec.ConfigValue<List<out String>>
     private val PLAN_ENABLED: ModConfigSpec.BooleanValue
+    private val PLAN_AUTO: ModConfigSpec.BooleanValue
     private val PLAN_RADIUS: ModConfigSpec.IntValue
     private val PLAN_MAX_LINK: ModConfigSpec.IntValue
     private val PLAN_NEIGHBOURS: ModConfigSpec.IntValue
@@ -137,6 +138,7 @@ object PostroadConfig {
 
         BUILDER.push("plan")
         PLAN_ENABLED = BUILDER.comment("Plan and build roads between predicted villages in the overworld.").define("enabled", true)
+        PLAN_AUTO = BUILDER.comment("Plan by itself: a pass around spawn at start and around players who have moved. Off leaves the planner ready but idle, for driving it by command.").define("auto", true)
         PLAN_RADIUS = BUILDER.comment("Half-size in blocks of the square around spawn and each player that is searched for villages and planned.").defineInRange("radius", 1500, 256, 10000)
         PLAN_MAX_LINK = BUILDER.comment("Two villages further apart than this many blocks are never linked directly.").defineInRange("maxLink", 900, 64, 10000)
         PLAN_NEIGHBOURS = BUILDER.comment("Each village is linked to this many nearest villages.").defineInRange("neighbours", 3, 1, 8)
@@ -180,6 +182,7 @@ object PostroadConfig {
     val tierFactorGravel: Double get() = TIER_FACTOR_GRAVEL.get() / 100.0
     val tierFactorPaved: Double get() = TIER_FACTOR_PAVED.get() / 100.0
     val planEnabled: Boolean get() = PLAN_ENABLED.get()
+    val planAuto: Boolean get() = PLAN_AUTO.get()
     val planRadius: Int get() = PLAN_RADIUS.get()
     val planMaxLink: Int get() = PLAN_MAX_LINK.get()
     val planNeighbours: Int get() = PLAN_NEIGHBOURS.get()
