@@ -367,28 +367,46 @@ object PostroadCommands {
      * the corridor pre-generation does, finishes the chunk, records again, and reports the difference
      * per column. Says whether the planner's own-chunk heights are the finished world's.
      */
+    /**
+     * Measures where the finished ground moves away from what the corridor pre-generation records: the chunk is
+     * generated status by status (noise, surface, carvers, features, full) and each step's column tops are
+     * compared with the previous step's. Needs a chunk that is not generated yet; on a generated one every
+     * status returns the finished chunk and the histograms are all zero.
+     */
     private fun roadsKnown(ctx: CommandContext<CommandSourceStack>, x: Int, z: Int): Int {
         val level = ctx.source.level
         val cx = x shr 4; val cz = z shr 4
         val before = level.chunkSource.getChunk(cx, cz, net.minecraft.world.level.chunk.status.ChunkStatus.EMPTY, true)?.persistedStatus
-        val carved = level.chunkSource.getChunk(cx, cz, net.minecraft.world.level.chunk.status.ChunkStatus.CARVERS, true) ?: run { ctx.source.sendFailure(Component.literal("no chunk")); return 0 }
-        val a = io.github.veelume.postroad.roads.gen.KnownTerrain.tops(carved)
-        val full = level.chunkSource.getChunk(cx, cz, net.minecraft.world.level.chunk.status.ChunkStatus.FULL, true) ?: run { ctx.source.sendFailure(Component.literal("no full chunk")); return 0 }
-        val b = io.github.veelume.postroad.roads.gen.KnownTerrain.tops(full)
-        val hist = java.util.TreeMap<Int, Int>()
-        val examples = ArrayList<String>()
-        for (lz in 0 until 16) for (lx in 0 until 16) {
-            val i = (lz shl 4) or lx
-            val d = b.top[i] - a.top[i]
-            hist.merge(d, 1, Int::plus)
-            if (d != 0 && examples.size < 6) {
-                val bx = cx * 16 + lx; val bz = cz * 16 + lz
-                val topA = level.getBlockState(BlockPos(bx, a.top[i] - 1, bz)).block
-                val topB = level.getBlockState(BlockPos(bx, b.top[i] - 1, bz)).block
-                examples.add("($bx, $bz) carvers ${a.top[i]} full ${b.top[i]}; block under the full top: ${net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(topB).path}, under the carvers top now: ${net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(topA).path}")
-            }
+        val statuses = listOf(
+            net.minecraft.world.level.chunk.status.ChunkStatus.NOISE, net.minecraft.world.level.chunk.status.ChunkStatus.SURFACE,
+            net.minecraft.world.level.chunk.status.ChunkStatus.CARVERS, net.minecraft.world.level.chunk.status.ChunkStatus.FEATURES,
+            net.minecraft.world.level.chunk.status.ChunkStatus.FULL,
+        )
+        val tops = ArrayList<io.github.veelume.postroad.roads.gen.KnownTerrain.ChunkTops>()
+        for (st in statuses) {
+            val chunk = level.chunkSource.getChunk(cx, cz, st, true) ?: run { ctx.source.sendFailure(Component.literal("no chunk at ${st.name}")); return 0 }
+            tops.add(io.github.veelume.postroad.roads.gen.KnownTerrain.tops(chunk))
         }
-        ctx.source.sendSuccess({ Component.literal("Chunk ($cx, $cz) was $before; full top minus carvers top over 256 columns: " + hist.entries.joinToString(", ") { "${it.key}: ${it.value}" } + (if (examples.isEmpty()) "" else "; e.g. " + examples.joinToString("; "))) }, false)
+        val lines = ArrayList<String>()
+        lines.add("Chunk ($cx, $cz) was $before" + (if (before != null && before != net.minecraft.world.level.chunk.status.ChunkStatus.EMPTY) " - already generated, every status is the finished chunk; pick an ungenerated one" else ""))
+        for (k in 1 until statuses.size) {
+            val a = tops[k - 1]; val b = tops[k]
+            val hist = java.util.TreeMap<Int, Int>()
+            val examples = ArrayList<String>()
+            for (lz in 0 until 16) for (lx in 0 until 16) {
+                val i = (lz shl 4) or lx
+                val d = b.top[i] - a.top[i]
+                hist.merge(d, 1, Int::plus)
+                if (d != 0 && examples.size < 3) {
+                    val bx = cx * 16 + lx; val bz = cz * 16 + lz
+                    val under = level.getBlockState(BlockPos(bx, b.top[i] - 1, bz)).block
+                    val was = level.getBlockState(BlockPos(bx, a.top[i] - 1, bz)).block
+                    examples.add("($bx, $bz) ${a.top[i]} -> ${b.top[i]}, now ${net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(under).path} over ${net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(was).path}")
+                }
+            }
+            lines.add("${statuses[k].name} minus ${statuses[k - 1].name}: " + hist.entries.joinToString(", ") { "${it.key}: ${it.value}" } + (if (examples.isEmpty()) "" else "; e.g. " + examples.joinToString("; ")))
+        }
+        ctx.source.sendSuccess({ Component.literal(lines.joinToString("\n")) }, false)
         return 1
     }
 

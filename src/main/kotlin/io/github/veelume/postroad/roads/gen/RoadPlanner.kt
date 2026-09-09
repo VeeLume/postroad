@@ -286,7 +286,7 @@ object RoadPlanner {
             }
         }
         lastExpansions.set(expansions)
-        if (goal == Long.MIN_VALUE) { lastFailure.set("search from $from exhausted after $expansions cell(s) without reaching $to (cell ${terrain.cellSize})"); return null }
+        if (goal == Long.MIN_VALUE) { lastFailure.set("search from ${from.size} start(s) near ${from.first()} exhausted after $expansions cell(s) without reaching ${to.size} goal(s) near ${to.first()} (cell ${terrain.cellSize})"); return null }
         val cells = ArrayList<Cell>()
         var cur = goal
         while (true) {
