@@ -81,8 +81,8 @@ object RoadPlanner {
     val lastFailure = ThreadLocal<String>()
     /** When set, every cell the fine search (cell size 1 in slope terms) closes is added here; for `/postroad roads trace`. */
     val trace = ThreadLocal<LongOpenHashSet?>()
-    /** The last resolved endpoints of a traced fine search. */
-    val traceEnds = ThreadLocal<Pair<Cell, Cell>?>()
+    /** The last resolved endpoints of a traced fine search: its starts and its goals. */
+    val traceEnds = ThreadLocal<Pair<List<Cell>, List<Cell>>?>()
     /**
      * When set, the fine search counts every neighbour it refused, by [REJECT_NAMES] index: what the wall
      * around an unreachable pair is made of. A neighbour is counted each time a closed cell looks at it.
@@ -103,7 +103,12 @@ object RoadPlanner {
         return "g" + Integer.toHexString(key.hashCode()).padStart(8, '0')
     }
 
-    /** Cost of stepping into cell (x, z) from a neighbour at [fromHeight], or null if impassable. */
+    /**
+     * Cost of stepping into cell (x, z) from a neighbour at [fromHeight], or null if impassable. On the coarse
+     * map ([slopeDivisor] = the cell ratio) a cell stands for that many fine cells, so the terrain extras —
+     * step class, water, band — are paid that many times; the base cost is per cell on either map, which keeps
+     * the coarse search's weighing of distance against terrain the same as the fine search's.
+     */
     private fun stepCost(terrain: Terrain, x: Int, z: Int, fromHeight: Int, diagonal: Boolean, costs: PlannerCosts, slopeDivisor: Double, band: Band?, rejects: IntArray? = null): Double? {
         if (!terrain.inBounds(x, z)) { rejects?.let { it[R_BOUNDS]++ }; return null }
         if (terrain.has(x, z, Terrain.BLOCKED)) { rejects?.let { it[R_BLOCKED]++ }; return null }
@@ -117,19 +122,20 @@ object RoadPlanner {
             val cls = costs.diagonalSteps.firstOrNull { dh <= it.upTo } ?: run { rejects?.let { it[R_STEEP_DIAGONAL]++ }; return null }
             if (onRoad) cost = (cost + cls.cost) * costs.reuseFactor else cost += cls.cost
         } else {
+            // On the coarse map: the slope per fine cell picks the class, and the class is paid per fine cell.
             val dh = abs(h - fromHeight).toDouble() / (slopeDivisor * (if (diagonal) SQRT2 else 1.0))
             // The step class of this change, or impassable beyond the last class — on new ground and on an
             // existing road alike: a road's cells were judged on the heights of its day (perhaps estimates),
             // and this route's heights may differ. Riding a road only discounts the cost.
             val cls = costs.steps.firstOrNull { dh <= it.upTo } ?: run { rejects?.let { it[R_STEEP]++ }; return null }
-            if (onRoad) cost = (cost + cls.cost) * costs.reuseFactor else cost += cls.cost
+            if (onRoad) cost = (cost + cls.cost * slopeDivisor) * costs.reuseFactor else cost += cls.cost * slopeDivisor
         }
-        if (terrain.has(x, z, Terrain.WATER)) cost += costs.water
+        if (terrain.has(x, z, Terrain.WATER)) cost += costs.water * slopeDivisor
         if (band != null && !onRoad) {
             val above = h - band.high
             val below = band.low - h
-            if (above > 0) cost += costs.bandPenalty * above
-            if (below > 0) cost += costs.bandPenalty * below
+            if (above > 0) cost += costs.bandPenalty * above * slopeDivisor
+            if (below > 0) cost += costs.bandPenalty * below * slopeDivisor
         }
         return cost
     }
@@ -193,8 +199,8 @@ object RoadPlanner {
         repeat(ENDPOINT_TRIES) {
             val from = resolveEndpoint(terrain, fromTown, toward = toTown, exclude = triedFrom) ?: run { lastFailure.set("no passable cell within reach of $fromTown (cell ${terrain.cellSize})"); return null }
             val to = resolveEndpoint(terrain, toTown, toward = fromTown, exclude = triedTo) ?: run { lastFailure.set("no passable cell within reach of $toTown (cell ${terrain.cellSize})"); return null }
-            if (slopeDivisor == 1.0) traceEnds.set(from to to)
-            val found = search(terrain, from, to, costs, slopeDivisor, freeTurns)
+            if (slopeDivisor == 1.0) traceEnds.set(listOf(from) to listOf(to))
+            val found = search(terrain, listOf(from), listOf(to), costs, slopeDivisor, freeTurns)
             if (found != null) return found
             if (lastExpansions.get() <= ISLAND_CELLS) triedFrom.add(from) else triedTo.add(to)
         }
@@ -208,38 +214,41 @@ object RoadPlanner {
 
     /** [freeTurns]: ignore the piece grid's turn rules (turning back, turn limits) — for finding out whether they are the wall. */
     /**
-     * A* with one state per cell. The moves out of a cell depend on the direction it was entered in (no
-     * turning back, the turn limits), which a per-cell closed set ignores: a cell is closed on its first,
-     * cheapest arrival. That is complete here because turns of up to 90° are allowed: whatever the arrival,
-     * the cell before it can always sidestep into the neighbour the closed cell may not reach, and the turn
-     * limits only refuse rises the step classes refuse anyway (every turn kind of the catalog carries the
-     * classes' largest rise). Measured 2026-09-09 with `/postroad roads trace`: switching the turn rules off
-     * changed no unreachable pair except two that need a hairpin, which no piece builds. Should the catalog
-     * lose a turn kind, the state must become (cell, direction entered); not before — it costs up to nine
-     * expansions per cell.
+     * A* from any of [from] to any of [to], one state per cell. The moves out of a cell depend on the
+     * direction it was entered in (no turning back, the turn limits), which a per-cell closed set ignores:
+     * a cell is closed on its first, cheapest arrival. That is complete here because turns of up to 90° are
+     * allowed: whatever the arrival, the cell before it can always sidestep into the neighbour the closed
+     * cell may not reach, and the turn limits only refuse rises the step classes refuse anyway (every turn
+     * kind of the catalog carries the classes' largest rise). Measured 2026-09-09 with `/postroad roads
+     * trace`: switching the turn rules off changed no unreachable pair except two that need a hairpin, which
+     * no piece builds. Should the catalog lose a turn kind, the state must become (cell, direction entered);
+     * not before — it costs up to nine expansions per cell.
      *
      * [freeTurns]: ignore the piece grid's turn rules (turning back, turn limits) — for finding out whether they are the wall.
      */
-    private fun search(terrain: Terrain, from: Cell, to: Cell, costs: PlannerCosts, slopeDivisor: Double, freeTurns: Boolean = false): List<Cell>? {
-        val hFrom = terrain.heightAt(from.x, from.z).toDouble()
-        val hTo = terrain.heightAt(to.x, to.z).toDouble()
-        val band = Band(min(hFrom, hTo) - costs.bandMargin, maxOf(hFrom, hTo) + costs.bandMargin)
+    private fun search(terrain: Terrain, from: List<Cell>, to: List<Cell>, costs: PlannerCosts, slopeDivisor: Double, freeTurns: Boolean = false): List<Cell>? {
+        val heights = (from + to).map { terrain.heightAt(it.x, it.z).toDouble() }
+        val band = Band(heights.min() - costs.bandMargin, heights.max() + costs.bandMargin)
         val g = Long2DoubleOpenHashMap().apply { defaultReturnValue(Double.POSITIVE_INFINITY) }
         val parent = Long2LongOpenHashMap().apply { defaultReturnValue(Long.MIN_VALUE) }
         val closed = LongOpenHashSet()
-        val start = from.key
-        val goal = to.key
-        g.put(start, 0.0)
+        val goals = LongOpenHashSet(); for (c in to) goals.add(c.key)
+        fun heuristic(x: Int, z: Int): Double {
+            var best = Double.MAX_VALUE
+            for (t in to) { val d = Cell(x, z).distanceTo(t); if (d < best) best = d }
+            return best * costs.base * costs.heuristicWeight
+        }
         val open = PriorityQueue<Node>(compareBy { it.f })
-        open.add(Node(start, from.distanceTo(to) * costs.base * costs.heuristicWeight))
+        for (c in from) { g.put(c.key, 0.0); open.add(Node(c.key, heuristic(c.x, c.z))) }
         var expansions = 0
+        var goal = Long.MIN_VALUE
         val rejects = if (slopeDivisor == 1.0) traceRejects.get() else null
         while (open.isNotEmpty()) {
             val node = open.poll()
             val i = node.key
             if (!closed.add(i)) continue
             if (slopeDivisor == 1.0) trace.get()?.add(i)
-            if (i == goal) break
+            if (goals.contains(i)) { goal = i; break }
             if (++expansions > costs.maxExpansions) { lastExpansions.set(expansions); lastFailure.set("budget of ${costs.maxExpansions} expansions spent between $from and $to (cell ${terrain.cellSize})"); return null }
             val cx = Terrain.keyX(i)
             val cz = Terrain.keyZ(i)
@@ -272,23 +281,64 @@ object RoadPlanner {
                 if (tentative < g.get(j)) {
                     g.put(j, tentative)
                     parent.put(j, i)
-                    val heuristic = Cell(nx, nz).distanceTo(to) * costs.base * costs.heuristicWeight
-                    open.add(Node(j, tentative + heuristic))
+                    open.add(Node(j, tentative + heuristic(nx, nz)))
                 }
             }
         }
         lastExpansions.set(expansions)
-        if (goal != start && parent.get(goal) == Long.MIN_VALUE) { lastFailure.set("search from $from exhausted after $expansions cell(s) without reaching $to (cell ${terrain.cellSize})"); return null }
+        if (goal == Long.MIN_VALUE) { lastFailure.set("search from $from exhausted after $expansions cell(s) without reaching $to (cell ${terrain.cellSize})"); return null }
         val cells = ArrayList<Cell>()
         var cur = goal
         while (true) {
             cells.add(Cell.of(cur))
-            if (cur == start) break
-            cur = parent.get(cur)
-            if (cur == Long.MIN_VALUE) return null
+            val p = parent.get(cur)
+            if (p == Long.MIN_VALUE) break
+            cur = p
         }
         cells.reverse()
         return cells
+    }
+
+    /**
+     * The road between two towns: from any of [a]'s exits to any of [b]'s, whichever pair is cheapest to
+     * join — a town on a ledge is entered from the side a road can reach, not the side that faces the other
+     * town. With [coarse], a corridor is found first as in [routeHierarchical], between the towns' exits on
+     * the coarse map, and widened to cover both boxes.
+     */
+    fun routeTowns(fine: Terrain, coarse: Terrain?, ratio: Int, a: Town, b: Town, costs: PlannerCosts = PlannerCosts(), freeTurns: Boolean = false): List<Cell>? {
+        val starts = endpoints(fine, a, b.cell) ?: run { lastFailure.set("no passable cell within reach of ${a.id}'s exits (cell ${fine.cellSize})"); return null }
+        val goals = endpoints(fine, b, a.cell) ?: run { lastFailure.set("no passable cell within reach of ${b.id}'s exits (cell ${fine.cellSize})"); return null }
+        traceEnds.set(starts to goals)
+        if (coarse == null) return search(fine, starts, goals, costs, 1.0, freeTurns)
+        fun onCoarse(t: Town) = Town(t.id, Cell(Math.floorDiv(t.cell.x, ratio), Math.floorDiv(t.cell.z, ratio)), t.exits.map { Cell(Math.floorDiv(it.x, ratio), Math.floorDiv(it.z, ratio)) }.distinct(), t.reach)
+        val ca = onCoarse(a); val cb = onCoarse(b)
+        val cs = endpoints(coarse, ca, cb.cell) ?: run { lastFailure.set("coarse: no passable cell within reach of ${a.id}'s exits"); return null }
+        val cg = endpoints(coarse, cb, ca.cell) ?: run { lastFailure.set("coarse: no passable cell within reach of ${b.id}'s exits"); return null }
+        val coarsePath = search(coarse, cs, cg, costs.copy(heuristicWeight = costs.reuseFactor), ratio.toDouble()) ?: run { lastFailure.set("coarse: " + lastFailure.get()); return null }
+        val allowed = corridor(coarse, coarsePath, listOf(ca.cell to a.reach, cb.cell to b.reach), ratio)
+        return search(CorridorTerrain(fine, ratio, allowed), starts, goals, costs, 1.0, freeTurns)
+    }
+
+    /** A town's exits resolved to passable cells (its own cell when it has no exits); null when none resolves. */
+    private fun endpoints(terrain: Terrain, town: Town, toward: Cell): List<Cell>? {
+        val cells = (if (town.exits.isEmpty()) listOf(town.cell) else town.exits).mapNotNull { resolveEndpoint(terrain, it, toward = toward) }.distinct()
+        return cells.ifEmpty { null }
+    }
+
+    /**
+     * The corridor on the coarse map: [CORRIDOR_HALF] blocks either side of [path], whatever the coarse cell
+     * is, plus a disc around each of [discs] (a cell and a reach in fine cells) — each town's whole box, so
+     * a route can get from an exit inside it to the corridor outside.
+     */
+    private fun corridor(coarse: Terrain, path: List<Cell>, discs: List<Pair<Cell, Int>>, ratio: Int): LongOpenHashSet {
+        val allowed = LongOpenHashSet()
+        val half = maxOf(1, Math.ceilDiv(CORRIDOR_HALF, coarse.cellSize))
+        for (c in path) for (dz in -half..half) for (dx in -half..half) allowed.add(Terrain.key(c.x + dx, c.z + dz))
+        for ((c, reach) in discs) {
+            val r = half + Math.ceilDiv(reach, ratio)
+            for (dz in -r..r) for (dx in -r..r) allowed.add(Terrain.key(c.x + dx, c.z + dz))
+        }
+        return allowed
     }
 
     /**
@@ -300,15 +350,7 @@ object RoadPlanner {
         val cf = Cell(Math.floorDiv(from.x, ratio), Math.floorDiv(from.z, ratio))
         val ct = Cell(Math.floorDiv(to.x, ratio), Math.floorDiv(to.z, ratio))
         val coarsePath = route(coarse, cf, ct, costs.copy(heuristicWeight = costs.reuseFactor), slopeDivisor = ratio.toDouble()) ?: run { lastFailure.set("coarse: " + lastFailure.get()); return null }
-        val allowed = LongOpenHashSet()
-        // The corridor: CORRIDOR_HALF blocks either side of the coarse path, whatever the coarse cell is,
-        val half = maxOf(1, Math.ceilDiv(CORRIDOR_HALF, coarse.cellSize))
-        for (c in coarsePath) for (dz in -half..half) for (dx in -half..half) allowed.add(Terrain.key(c.x + dx, c.z + dz))
-        // and each town's whole box, so an exit inside it can reach the corridor outside.
-        for ((c, reach) in listOf(cf to fromReach, ct to toReach)) {
-            val r = half + Math.ceilDiv(reach, ratio)
-            for (dz in -r..r) for (dx in -r..r) allowed.add(Terrain.key(c.x + dx, c.z + dz))
-        }
+        val allowed = corridor(coarse, coarsePath, listOf(cf to fromReach, ct to toReach), ratio)
         return route(CorridorTerrain(fine, ratio, allowed), from, to, costs, freeTurns = freeTurns)
     }
 
@@ -363,12 +405,9 @@ object RoadPlanner {
         for ((i, j) in ordered) {
             val id = routeId(towns[i].id, towns[j].id)
             if (id in known) continue
-            val a = towns[i].exitToward(towns[j].cell)
-            val b = towns[j].exitToward(towns[i].cell)
-            val raw = (if (coarse != null) routeHierarchical(terrain, coarse, ratio, a, b, costs, towns[i].reach, towns[j].reach)
-                else route(terrain, a, b, costs))
+            val raw = routeTowns(terrain, coarse, ratio, towns[i], towns[j], costs)
             if (raw == null) {
-                io.github.veelume.postroad.Postroad.LOGGER.info("Pair {} unreachable from exit {} to exit {}: {}", id, a, b, lastFailure.get())
+                io.github.veelume.postroad.Postroad.LOGGER.info("Pair {} ({} -> {}) unreachable: {}", id, towns[i].id, towns[j].id, lastFailure.get())
                 dropped.add(DroppedPair(id, towns[i], towns[j], "unreachable")); known.add(id); continue
             }
             if (longestWaterRun(terrain, raw) > costs.maxWaterRun) { dropped.add(DroppedPair(id, towns[i], towns[j], "water")); known.add(id); continue }

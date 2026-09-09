@@ -562,13 +562,13 @@ object RoadGen {
         RoadPlanner.trace.set(closed); RoadPlanner.traceEnds.set(null); RoadPlanner.traceRejects.set(rejects)
         val exitA = a.exitToward(b.cell); val exitB = b.exitToward(a.cell)
         val t0 = System.nanoTime()
-        val route = try { RoadPlanner.routeHierarchical(terrain, coarse, COARSE_CELL / CELL_SIZE, exitA, exitB, req.costs, a.reach, b.reach) } finally { RoadPlanner.trace.set(null); RoadPlanner.traceRejects.set(null) }
+        val route = try { RoadPlanner.routeTowns(terrain, coarse, COARSE_CELL / CELL_SIZE, a, b, req.costs) } finally { RoadPlanner.trace.set(null); RoadPlanner.traceRejects.set(null) }
         val ends = RoadPlanner.traceEnds.get()
         val ms = (System.nanoTime() - t0) / 1_000_000
         // Unreachable: what the wall is made of, and whether the piece grid's turn rules are it.
         val wall = if (route != null) "" else {
             val free = LongOpenHashSet(); RoadPlanner.trace.set(free)
-            val freeRoute = try { RoadPlanner.routeHierarchical(terrain, coarse, COARSE_CELL / CELL_SIZE, exitA, exitB, req.costs, a.reach, b.reach, freeTurns = true) } finally { RoadPlanner.trace.set(null) }
+            val freeRoute = try { RoadPlanner.routeTowns(terrain, coarse, COARSE_CELL / CELL_SIZE, a, b, req.costs, freeTurns = true) } finally { RoadPlanner.trace.set(null) }
             "; refused neighbours: " + RoadPlanner.REJECT_NAMES.indices.filter { rejects[it] > 0 }.joinToString(", ") { "${RoadPlanner.REJECT_NAMES[it]} ${rejects[it]}" } +
                 "; without the turn rules: " + (if (freeRoute != null) "route of ${freeRoute.size} cells" else "still unreachable") + " (${free.size} closed)"
         }
@@ -604,7 +604,7 @@ object RoadGen {
         g2.color = java.awt.Color.MAGENTA
         for (c in listOf(exitA, exitB)) g2.fillRect((c.x - minX) * px - 2, (c.z - minZ) * px - 2, px + 4, px + 4)
         g2.color = java.awt.Color.YELLOW
-        ends?.let { (f, t) -> for (c in listOf(f, t)) g2.fillRect((c.x - minX) * px - 1, (c.z - minZ) * px - 1, px + 2, px + 2) }
+        ends?.let { (f, t) -> for (c in f + t) g2.fillRect((c.x - minX) * px - 1, (c.z - minZ) * px - 1, px + 2, px + 2) }
         if (route != null) { g2.color = java.awt.Color.GREEN; for (c in route) g2.fillRect((c.x - minX) * px + 1, (c.z - minZ) * px + 1, px - 2, px - 2) }
         g2.dispose()
         val file = level.server.getWorldPath(LevelResource("postroad")).resolve("trace_$pairId.png")
@@ -616,7 +616,7 @@ object RoadGen {
         val it2 = closed.iterator()
         while (it2.hasNext()) { val k = it2.nextLong(); val x = Terrain.keyX(k); val z = Terrain.keyZ(k); val hh = terrain.heightAt(x, z)
             for ((dx, dz) in listOf(1 to 0, 0 to 1)) { if (terrain.has(x + dx, z + dz, Terrain.BLOCKED)) continue; steps++; if (kotlin.math.abs(terrain.heightAt(x + dx, z + dz) - hh) > limit) tooSteep++ } }
-        return "Pair $pairId ${d.first} -> ${d.second}: ${if (route != null) "route of ${route.size} cells" else "unreachable: ${RoadPlanner.lastFailure.get()}"}; exits $exitA / $exitB, resolved $ends, ${closed.size} fine cell(s) closed in $ms ms, $tooSteep of $steps cardinal steps off closed cells exceed rise $limit$wall; drawn to $file (${minX * CELL_SIZE}, ${minZ * CELL_SIZE}) to (${maxX * CELL_SIZE}, ${maxZ * CELL_SIZE}), $px px per cell"
+        return "Pair $pairId ${d.first} -> ${d.second}: ${if (route != null) "route of ${route.size} cells" else "unreachable: ${RoadPlanner.lastFailure.get()}"}; facing exits $exitA / $exitB, ${ends?.first?.size ?: 0} start(s) / ${ends?.second?.size ?: 0} goal(s), ${closed.size} fine cell(s) closed in $ms ms, $tooSteep of $steps cardinal steps off closed cells exceed rise $limit$wall; drawn to $file (${minX * CELL_SIZE}, ${minZ * CELL_SIZE}) to (${maxX * CELL_SIZE}, ${maxZ * CELL_SIZE}), $px px per cell"
     }
 
     fun exportImage(level: ServerLevel, center: BlockPos, radius: Int): java.nio.file.Path? {

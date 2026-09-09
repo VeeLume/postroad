@@ -975,6 +975,28 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun planner_enters_a_town_by_the_exit_it_can_reach(helper: GameTestHelper) {
+        // Town B sits on a plateau 6 blocks up: a cliff on the west, the side facing A, a ramp on the east.
+        // Its pieces block the plateau but for two street exits. The road comes round and up the ramp to
+        // the east exit; the old single-goal search would have ended at the cliff foot under the west exit.
+        val T = io.github.veelume.postroad.roads.gen.TerrainGrid(0, 0, 3, 50, 30)
+        for (z in 0 until 30) for (x in 0 until 50) T.setHeight(x, z, 64)
+        for (z in 8..22) for (x in 26..40) T.setHeight(x, z, 70)
+        for (z in 8..22) { T.setHeight(41, z, 68); T.setHeight(42, z, 66) }
+        for (z in 8..22) for (x in 26..40) if (!(x == 26 && z == 15) && !(x >= 34 && z == 15)) T.set(x, z, io.github.veelume.postroad.roads.gen.Terrain.BLOCKED)
+        val A = io.github.veelume.postroad.roads.gen.Town("a", io.github.veelume.postroad.roads.gen.Cell(5, 15))
+        val B = io.github.veelume.postroad.roads.gen.Town("b", io.github.veelume.postroad.roads.gen.Cell(33, 15), listOf(io.github.veelume.postroad.roads.gen.Cell(26, 15), io.github.veelume.postroad.roads.gen.Cell(34, 15)), reach = 8)
+        val costs = io.github.veelume.postroad.roads.gen.PlannerCosts(steps = io.github.veelume.postroad.roads.gen.RoadPieces.current.stepClasses(), diagonalSteps = io.github.veelume.postroad.roads.gen.RoadPieces.current.diagonalStepClasses(), turnLimits = io.github.veelume.postroad.roads.gen.RoadPieces.current.turnLimits())
+        for (coarse in listOf(null, T.downsample(4))) {
+            val route = io.github.veelume.postroad.roads.gen.RoadPlanner.routeTowns(T, coarse, 4, A, B, costs)
+            helper.assertTrue(route != null, "a route exists (coarse ${coarse != null})")
+            helper.assertValueEqual(route!!.last(), io.github.veelume.postroad.roads.gen.Cell(34, 15), "it ends at the east exit (coarse ${coarse != null})")
+            helper.assertTrue(route.any { it.x >= 41 }, "it climbs the ramp (coarse ${coarse != null})")
+        }
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun planner_passable_structure_tag_is_loaded(helper: GameTestHelper) {
         val tag = helper.level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE).getTag(io.github.veelume.postroad.roads.gen.TownFinder.PASSABLE)
         helper.assertTrue(tag.isPresent, "#postroad:passable exists (tags/worldgen/structure)")
