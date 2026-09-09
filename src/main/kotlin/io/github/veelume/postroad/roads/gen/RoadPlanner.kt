@@ -112,6 +112,7 @@ object RoadPlanner {
      */
     @Volatile
     var realTerrainOnly: Boolean = false
+        private set
     private const val R_ROAD_CORNER = 8
 
     /**
@@ -448,7 +449,12 @@ object RoadPlanner {
         coarse: Terrain? = null,
         ratio: Int = 4,
         skip: Set<String> = emptySet(),
+        /** Estimated ground is impassable: only heights the world really has may carry a route. */
+        realTerrain: Boolean = false,
     ): RoadPlan {
+        // Set here rather than left standing, so a caller that plans without a pass — a test, the
+        // refiner — never inherits the last pass's rule.
+        realTerrainOnly = realTerrain
         fun markRoad(cell: Cell) {
             terrain.set(cell.x, cell.z, Terrain.ROAD)
             coarse?.set(Math.floorDiv(cell.x, ratio), Math.floorDiv(cell.z, ratio), Terrain.ROAD)

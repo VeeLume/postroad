@@ -38,8 +38,14 @@ object RoadGen {
     const val CELL_SIZE = 3
     /** The corridor map's cell; must be a multiple of [CELL_SIZE]. */
     const val COARSE_CELL = 12
-    /** Chunks either side of a provisional road that are generated before it is planned again. */
-    const val CORRIDOR_CHUNKS = 1
+    /**
+     * Chunks either side of a provisional road that are generated before it is planned again.
+     *
+     * The shape pass plans over estimated heights, so the route it draws is roughly right but not
+     * exactly where the real ground would put it. The corridor has to be wide enough to hold that
+     * difference, or the replan finds no route on real terrain and the pair is dropped.
+     */
+    const val CORRIDOR_CHUNKS = 3
     const val MAX_REPLANS = 2
     /** Clearance around a village piece (a house) when pieces are known. */
     const val PIECE_MARGIN = 2
@@ -72,6 +78,13 @@ object RoadGen {
          * to keep the road at its estimated heights and lay it there.
          */
         val include: Set<String> = emptySet(),
+        /**
+         * Whether estimated ground is off limits. The first pass over a pair runs with this false:
+         * it is only after a shape, so its heights may be guesses and its roads are provisional and
+         * never laid. The replan, once the corridor along that shape is real, runs with it true and
+         * so can only produce a road that stands on ground the world has.
+         */
+        val realTerrainOnly: Boolean = false,
     )
 
     class JunctionResult(val pos: BlockPos, val joinedRoad: String, val joinedIndex: Int, val joiningRoad: String, val joiningIndex: Int)
@@ -110,7 +123,7 @@ object RoadGen {
      * roads and dropped pairs the earlier passes produced; a request built at scheduling time would plan
      * the same pairs again and, once applied, re-request their corridors — a loop (2026-09-09).
      */
-    private class Deferred(val dimension: ResourceLocation, val center: BlockPos, val discoverTowns: Boolean, val refresh: LongOpenHashSet, val replace: Set<String>)
+    private class Deferred(val dimension: ResourceLocation, val center: BlockPos, val discoverTowns: Boolean, val refresh: LongOpenHashSet, val replace: Set<String>, val realTerrainOnly: Boolean)
     private val deferred = ArrayDeque<Deferred>()
     private val lastPass = HashMap<UUID, BlockPos>()
     private var spawnPlanned = false
@@ -233,7 +246,7 @@ object RoadGen {
         if (planningPaused) return
         if (pending.get() == 0 && deferred.isNotEmpty()) {
             val next = deferred.removeFirst()
-            server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, next.dimension))?.let { schedule(it, next.center, next.discoverTowns, next.refresh, next.replace) }
+            server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, next.dimension))?.let { schedule(it, next.center, next.discoverTowns, next.refresh, next.replace, next.realTerrainOnly) }
         }
         if (!PostroadConfig.planAuto) return
         if (executor == null || server.tickCount % 100 != 0 || pending.get() > 0 || deferred.isNotEmpty()) return
@@ -265,14 +278,14 @@ object RoadGen {
     // ---- scheduling -----------------------------------------------------------------------------
 
     /** Queues a pass around [center]; false if the planner is off. */
-    fun schedule(level: ServerLevel, center: BlockPos, discoverTowns: Boolean = true, refresh: LongOpenHashSet = LongOpenHashSet(), replace: Set<String> = emptySet()): Boolean {
+    fun schedule(level: ServerLevel, center: BlockPos, discoverTowns: Boolean = true, refresh: LongOpenHashSet = LongOpenHashSet(), replace: Set<String> = emptySet(), realTerrainOnly: Boolean = false): Boolean {
         val exec = executor ?: return false
         if (pending.get() > 0 || results.isNotEmpty()) {
             val dim = level.dimension().location()
-            if (deferred.none { it.dimension == dim && it.center == center && it.discoverTowns == discoverTowns && it.replace == replace }) deferred.add(Deferred(dim, center, discoverTowns, refresh, replace))
+            if (deferred.none { it.dimension == dim && it.center == center && it.discoverTowns == discoverTowns && it.replace == replace }) deferred.add(Deferred(dim, center, discoverTowns, refresh, replace, realTerrainOnly))
             return true
         }
-        val request = request(level, center, discoverTowns, refresh, replace)
+        val request = request(level, center, discoverTowns, refresh, replace, realTerrainOnly)
         val worker = workerFor(level)
         pending.incrementAndGet()
         exec.execute {
@@ -299,7 +312,7 @@ object RoadGen {
     }
 
     /** Snapshot for a pass, from config and storage, on the server thread. */
-    fun request(level: ServerLevel, center: BlockPos, discoverTowns: Boolean = true, refresh: LongOpenHashSet = LongOpenHashSet(), replace: Set<String> = emptySet()): PassRequest {
+    fun request(level: ServerLevel, center: BlockPos, discoverTowns: Boolean = true, refresh: LongOpenHashSet = LongOpenHashSet(), replace: Set<String> = emptySet(), realTerrainOnly: Boolean = false): PassRequest {
         val storage = RoadPlanStorage.get(level.server)
         val dimension = level.dimension().location()
         return PassRequest(
@@ -320,6 +333,7 @@ object RoadGen {
             refresh = refresh,
             replace = replace,
             include = replace.flatMapTo(HashSet()) { id -> storage.roads[id]?.let { listOf(it.from, it.to) } ?: emptyList() },
+            realTerrainOnly = realTerrainOnly,
         )
     }
 
@@ -427,7 +441,7 @@ object RoadGen {
             if (!road.provisional) for ((i, c) in cells.withIndex()) terrain.setHeight(c.x, c.z, road.points[i].y)
             PlannedRoute(road.id, townById[road.from] ?: Town(road.from, cells.first()), townById[road.to] ?: Town(road.to, cells.last()), cells)
         }
-        val plan = RoadPlanner.planNetwork(terrain, towns, req.costs, req.neighbours, req.maxLink.toDouble() / CELL_SIZE, existing, coarse, COARSE_CELL / CELL_SIZE, req.dropped)
+        val plan = RoadPlanner.planNetwork(terrain, towns, req.costs, req.neighbours, req.maxLink.toDouble() / CELL_SIZE, existing, coarse, COARSE_CELL / CELL_SIZE, req.dropped, req.realTerrainOnly)
 
         // 4. Back to blocks. A route over any estimated cell is provisional: its corridor is generated
         //    and the route planned again on the real terrain.
@@ -520,13 +534,12 @@ object RoadGen {
             if (fresh == null) {
                 if (result.dropped.none { it.id == id }) {
                     // The pass did not plan the pair at all (a town out of its reach, or no longer among the
-                    // nearest): the road stays as it is, and final — nothing would plan it again. Its heights
-                    // are still estimates, so fit them to the ground before it is ever laid.
-                    old.provisional = false
-                    refit(storage, result.dimension, old)
-                    storage.setDirty()
-                    RoadBuilder.enqueueLoaded(level, old)
-                    Postroad.LOGGER.info("Road {} ({} -> {}) kept as planned: its replan pass did not plan the pair", id, old.from, old.to)
+                    // nearest). This used to keep the road and mark it final, which laid its estimated heights
+                    // into the world — the roads found hanging two blocks over the landscape. An estimate is a
+                    // shape, never geometry, so the road goes and the pair is left to a later pass.
+                    storage.removeRoad(id)
+                    network.removePath(id)
+                    Postroad.LOGGER.info("Road {} ({} -> {}) dropped: its replan pass did not plan the pair, and its heights were only estimates", id, old.from, old.to)
                     continue
                 }
                 // No route for the pair on the real terrain: the estimate-based road goes with it.
@@ -675,9 +688,10 @@ object RoadGen {
         if (!road.provisional) return
         val level = server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, dimension)) ?: return
         val touched = road.builtChunks.isNotEmpty() || road.chunks().any { road.id in RoadPlanSnapshot.laidRoads(it) }
-        if (touched || road.replans >= MAX_REPLANS) {
-            // Final as it is: from now on the feature and the builder lay it. Its heights are still
-            // estimates, so fit them to the ground first (refit leaves a touched road alone).
+        if (touched) {
+            // Already partly in the world: its built chunks and its unbuilt ones must meet, so it
+            // stays as it is. Only a road the feature laid before the plan settled can be in this
+            // state, and it is the one case where estimated heights still reach the ground.
             road.provisional = false
             refit(storage, dimension, road)
             storage.setDirty()
@@ -685,9 +699,17 @@ object RoadGen {
             RoadBuilder.enqueueLoaded(level, road)
             return
         }
+        if (road.replans >= MAX_REPLANS) {
+            // Tried often enough and the ground still will not take it. Keeping it would mean laying
+            // estimates, so the pair goes instead and a later pass may find it once more ground exists.
+            storage.removeRoad(road.id)
+            Network.get(server).removePath(road.id)
+            Postroad.LOGGER.info("Road {} ({} -> {}) dropped after {} replan(s): no route on the real ground", road.id, road.from, road.to, road.replans)
+            return
+        }
         // The pass plans this pair again without the old road in the way; apply swaps the two.
         val mid = road.points[road.points.size / 2]
-        schedule(level, mid, discoverTowns = false, refresh = corridor, replace = setOf(roadId))
+        schedule(level, mid, discoverTowns = false, refresh = corridor, replace = setOf(roadId), realTerrainOnly = true)
         Postroad.LOGGER.info("Road {} ({} -> {}): corridor generated, planning again (attempt {})", roadId, road.from, road.to, road.replans + 1)
     }
 
