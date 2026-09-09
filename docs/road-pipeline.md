@@ -390,3 +390,31 @@ Symmetric: no bias is left. The cut Valerie found before that (plan 65 on a
 cache copied from the previous world, where the same trunk had been laid one
 low by the recorder bug — the copied tiles carried the old trench into the
 new plan. Caches are not copied between worlds any more.
+
+## Addendum 2026-09-09 (4) — planning from scratch, and the loop
+
+Caches are not copied between worlds any more, so a fresh world plans on the
+estimate, pre-generates corridors and replans on own chunks. Two things that
+pipeline needed:
+
+- **Dropped pairs judged on estimated terrain are provisional** (like
+  provisional roads): a water drop keeps the route it found, an unreachable
+  pair the coarse corridor it searched; that is pre-generated and the pair
+  planned again, up to `MAX_REPLANS` tries, persisted. Eight pairs of the
+  cached world had been lost this way; the river road among them is back.
+- **One pass at a time, requests built when the pass starts.** Retries and
+  replans queue passes back to back; a request built at scheduling time saw
+  a stale storage, planned the same pair again and, once applied, requested
+  an already generated corridor — an immediate replan, a replace-pass, and
+  round again (192 passes, 198 copies of junctions on the first retry world).
+  A queued pass is now deferred until nothing is pending; corridors are
+  requested only for roads the result added; junctions are deduplicated; a
+  replaced road whose pair the replan pass did not plan at all is kept and
+  made final.
+- **A rider follows the road round its corners**: no diagonal between two
+  road cells that skips a road cell beside them; the snapping bridge follows
+  the road's own cells; each excursion is snapped on its own merits. Corner
+  walks on shared stretches: 13 → 3.
+
+Final world of the day (build df3e7be): 46 roads, 48 junctions, 1225 of 1225
+anchors at the planned height, beside symmetric (641 at −1, 387 at +1).
