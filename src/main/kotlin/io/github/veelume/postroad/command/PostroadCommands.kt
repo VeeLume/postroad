@@ -255,7 +255,8 @@ object PostroadCommands {
         val cuts = ArrayList<String>()
         fun bucket(d: Int): Int = (d + 5).coerceIn(0, 10)
         fun firstAir(x: Int, z: Int): Pair<Int, Boolean>? {
-            if (!level.hasChunk(x shr 4, z shr 4)) return null
+            // Loads the chunk from disk when it is not loaded: after a restart nothing within the radius is.
+            if (level.chunkSource.getChunk(x shr 4, z shr 4, net.minecraft.world.level.chunk.status.ChunkStatus.FULL, true) == null) return null
             var y = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE, x, z) - 1 // the highest block of any kind
             var guard = 0
             while (y > level.minBuildHeight && guard++ < 64) {
@@ -272,7 +273,7 @@ object PostroadCommands {
             val chunk = level.chunkSource.getChunk(cx, cz, net.minecraft.world.level.chunk.status.ChunkStatus.EMPTY, true)
             if (chunk == null || !chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.STRUCTURE_STARTS)) { absent++; continue }
             val start = if (io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.wasLaid(key)) Unit else null
-            if (chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.FULL) && level.hasChunk(cx, cz)) {
+            if (chunk.persistedStatus.isOrAfter(net.minecraft.world.level.chunk.status.ChunkStatus.FULL)) {
                 val seen = HashSet<Long>()
                 // Road columns of this chunk and its neighbours, so "beside" never lands on another road.
                 val roadColumns = it.unimi.dsi.fastutil.longs.LongOpenHashSet()
