@@ -376,3 +376,17 @@ blocks down from the highest block past plants, logs, leaves and snow to the
 first ground or liquid block and records the air above it; heightmaps are
 only the starting point. The road feature's step stays at
 `surface_structures`.
+
+## Addendum 2026-09-09 (3) — the audit measures the road now, and the last cut
+
+Part 4 item 2 is done: `/postroad roads audit` reports the road's first air
+minus the planned height per anchor (0 everywhere on a correct build) and
+the ground three blocks beside the anchor minus the planned height, other
+road columns skipped, with a list of the places that are two or more off.
+On the world planned from scratch (build 716c5bd): 769 of 769 anchors at 0;
+beside, 1050 of 1941 columns at 0, 247 at +1, 231 at −1, the rest hillsides.
+Symmetric: no bias is left. The cut Valerie found before that (plan 65 on a
+66 terrain with everything else saying 66) was the Distant Horizons tile
+cache copied from the previous world, where the same trunk had been laid one
+low by the recorder bug — the copied tiles carried the old trench into the
+new plan. Caches are not copied between worlds any more.
