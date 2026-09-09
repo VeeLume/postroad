@@ -186,7 +186,8 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
         val exits = ArrayList<Pair<net.minecraft.core.BlockPos, net.minecraft.core.Direction>>()
         val all = start.pieces
         fun nameOf(p: net.minecraft.world.level.levelgen.structure.StructurePiece) = (p as? net.minecraft.world.level.levelgen.structure.PoolElementStructurePiece)?.element?.toString() ?: ""
-        fun isStreet(n: String) = n.contains("street", ignoreCase = true)
+        // Vanilla, Towns & Towers and BWG say "street"; ChoiceTheorem's Overhauled Village says "road".
+        fun isStreet(n: String) = n.contains("street", ignoreCase = true) || n.contains("road", ignoreCase = true) || n.contains("path", ignoreCase = true)
         fun isTerminator(n: String) = n.contains("terminator", ignoreCase = true)
         val jigsawRandom = WorldgenRandom(LegacyRandomSource(0L))
         for (piece in all) {
@@ -203,7 +204,7 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
                 // Only the jigsaws that continue the street (their target pool is a streets pool): the ones along
                 // the sides face house lots, and an unfilled lot is not a stub.
                 val pool = info.nbt()?.getString("pool") ?: ""
-                if (!pool.contains("street", ignoreCase = true)) continue
+                if (!isStreet(pool)) continue
                 val outside = info.pos().relative(facing)
                 val neighbour = all.firstOrNull { it !== piece && it.boundingBox.isInside(outside) }
                 val exit = when {
