@@ -43,7 +43,9 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
      * and the centres of its street pieces (where a road may join the village's own roads).
      */
     data class Candidate(val id: String, val structure: ResourceLocation, val chunk: ChunkPos, val box: BoundingBox,
-                         val pieces: List<BoundingBox>, val streets: List<net.minecraft.core.BlockPos>)
+                         val pieces: List<BoundingBox>, val streets: List<net.minecraft.core.BlockPos>,
+                         /** Street stubs at the village edge: the block just outside the stub and the direction the street faces there. */
+                         val exits: List<Pair<net.minecraft.core.BlockPos, net.minecraft.core.Direction>> = emptyList())
 
     /** A predicted surface structure that is not a town: something to route around. */
     data class Obstacle(val structure: ResourceLocation, val chunk: ChunkPos, val box: BoundingBox)
@@ -181,16 +183,52 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
         val id = "$dimension/${chunkPos.x}/${chunkPos.z}"
         val pieces = ArrayList<BoundingBox>()
         val streets = ArrayList<net.minecraft.core.BlockPos>()
-        for (piece in start.pieces) {
-            val name = (piece as? net.minecraft.world.level.levelgen.structure.PoolElementStructurePiece)?.element?.toString() ?: ""
-            if (name.contains("street", ignoreCase = true)) streets.add(piece.boundingBox.center) else pieces.add(piece.boundingBox)
+        val exits = ArrayList<Pair<net.minecraft.core.BlockPos, net.minecraft.core.Direction>>()
+        val all = start.pieces
+        fun nameOf(p: net.minecraft.world.level.levelgen.structure.StructurePiece) = (p as? net.minecraft.world.level.levelgen.structure.PoolElementStructurePiece)?.element?.toString() ?: ""
+        fun isStreet(n: String) = n.contains("street", ignoreCase = true)
+        fun isTerminator(n: String) = n.contains("terminator", ignoreCase = true)
+        val jigsawRandom = WorldgenRandom(LegacyRandomSource(0L))
+        for (piece in all) {
+            val name = nameOf(piece)
+            // Streets and their terminators (the dead-end stubs at the village edge) are open ground for a road; everything else is not.
+            if (isStreet(name) || isTerminator(name)) streets.add(piece.boundingBox.center) else pieces.add(piece.boundingBox)
+            if (!isStreet(name)) continue
+            // A street's jigsaw blocks face along the street. One that leads into a terminator, or into nothing,
+            // is a stub: the road joins there, on the street's axis, at the far side of the terminator.
+            val pe = piece as net.minecraft.world.level.levelgen.structure.PoolElementStructurePiece
+            for (info in pe.element.getShuffledJigsawBlocks(templates, pe.position, pe.rotation, jigsawRandom)) {
+                val facing = net.minecraft.world.level.block.JigsawBlock.getFrontFacing(info.state())
+                if (facing.axis.isVertical) continue
+                val outside = info.pos().relative(facing)
+                val neighbour = all.firstOrNull { it !== piece && it.boundingBox.isInside(outside) }
+                val exit = when {
+                    neighbour == null -> outside
+                    isTerminator(nameOf(neighbour)) -> {
+                        val nb = neighbour.boundingBox; val c = nb.center
+                        when (facing) {
+                            net.minecraft.core.Direction.EAST -> net.minecraft.core.BlockPos(nb.maxX() + 1, outside.y, c.z)
+                            net.minecraft.core.Direction.WEST -> net.minecraft.core.BlockPos(nb.minX() - 1, outside.y, c.z)
+                            net.minecraft.core.Direction.SOUTH -> net.minecraft.core.BlockPos(c.x, outside.y, nb.maxZ() + 1)
+                            else -> net.minecraft.core.BlockPos(c.x, outside.y, nb.minZ() - 1)
+                        }
+                    }
+                    else -> continue
+                }
+                // A stub over broken ground (a street that stair-steps down a slope) is no place to join.
+                val hs = listOf(surface(exit.x, exit.z), surface(outside.x, outside.z), surface(info.pos().x, info.pos().z))
+                if (hs.max() - hs.min() > STUB_STEP) continue
+                if (exits.none { it.first.x == exit.x && it.first.z == exit.z }) exits.add(exit to facing)
+            }
         }
-        return Outcome(true, candidate = Candidate(id, structureId, chunkPos, box, pieces, streets))
+        return Outcome(true, candidate = Candidate(id, structureId, chunkPos, box, pieces, streets, exits))
     }
 
     companion object {
         /** Structures a road may cross: landscape features and underground structures. Neither town nor obstacle. */
         val PASSABLE: TagKey<Structure> = TagKey.create(Registries.STRUCTURE, ResourceLocation.fromNamespaceAndPath(Postroad.MOD_ID, "passable"))
+        /** A street stub whose ground varies by more than this between the street's end and the stub is not offered as a road end. */
+        const val STUB_STEP = 3
         /** A structure whose box mid-height is this far under the surface is buried and ignored. */
         const val BURIED_BELOW = 4
         /** After this many layouts that all came out buried, a structure is skipped for good. */

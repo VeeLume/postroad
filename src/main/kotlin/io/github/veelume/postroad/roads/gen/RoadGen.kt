@@ -224,6 +224,17 @@ object RoadGen {
         return true
     }
 
+    /**
+     * A stored town as the planner sees it: its street stubs with the direction the street faces there when the
+     * finder found any, else its street centres (older records, villages without terminators), and its reach.
+     */
+    fun townFor(t: PlannedTown, terrain: Terrain, margin: Int): Town {
+        val stubs = t.exits.isNotEmpty()
+        val cells = (if (stubs) t.exits else t.streets).map { s -> terrain.blockToCell(s.x, s.z) }
+        val facings = if (stubs) t.facings.map { f -> if (f < 0) null else net.minecraft.core.Direction.from2DDataValue(f).let { Facing(it.stepX, it.stepZ) } } else emptyList()
+        return Town(t.id, terrain.blockToCell(t.pos.x, t.pos.z), cells, reach = (maxOf(t.box.xSpan, t.box.zSpan) / 2 + margin) / CELL_SIZE + 1, facings = facings)
+    }
+
     /** Snapshot for a pass, from config and storage, on the server thread. */
     fun request(level: ServerLevel, center: BlockPos, discoverTowns: Boolean = true, refresh: LongOpenHashSet = LongOpenHashSet(), replace: Set<String> = emptySet()): PassRequest {
         val storage = RoadPlanStorage.get(level.server)
@@ -295,7 +306,7 @@ object RoadGen {
                         known.add(c.id)
                         val centre = c.box.center
                         val cell = terrain.blockToCell(centre.x, centre.z)
-                        newTowns.add(PlannedTown(c.id, req.dimension, c.structure, BlockPos(centre.x, terrain.heightAt(cell.x, cell.z), centre.z), c.box, c.pieces, c.streets))
+                        newTowns.add(PlannedTown(c.id, req.dimension, c.structure, BlockPos(centre.x, terrain.heightAt(cell.x, cell.z), centre.z), c.box, c.pieces, c.streets, c.exits.map { it.first }, c.exits.map { it.second.get2DDataValue() }))
                     }
                     discoveredNow.add(key)
                     pace(PACE_SQUARE_MS)
@@ -342,8 +353,7 @@ object RoadGen {
         val townById = HashMap<String, Town>()
         val towns = allTowns
             .filter { it.pos.distSqr(req.center) <= reach.toDouble() * reach }
-            .map { Town(it.id, terrain.blockToCell(it.pos.x, it.pos.z), it.streets.map { s -> terrain.blockToCell(s.x, s.z) },
-                        reach = (maxOf(it.box.xSpan, it.box.zSpan) / 2 + req.margin) / CELL_SIZE + 1).also { t -> townById[t.id] = t } }
+            .map { townFor(it, terrain, req.margin).also { t -> townById[t.id] = t } }
         // An existing road's cells are at its stored heights now (built, or about to be), so the search
         // judges steps onto and along it by those, not by the terrain of its day.
         // A provisional road's heights are estimates; lending them would pass a wrong level from
@@ -631,11 +641,7 @@ object RoadGen {
         val d = Triple(dd.from, dd.to, dd.reason)
         val req = request(level, BlockPos.ZERO)
         val terrain = worker.terrain; val coarse = worker.coarse
-        fun town(id: String): Town? {
-            val t = storage.towns[id] ?: return null
-            return Town(t.id, terrain.blockToCell(t.pos.x, t.pos.z), t.streets.map { s -> terrain.blockToCell(s.x, s.z) },
-                        reach = (maxOf(t.box.xSpan, t.box.zSpan) / 2 + req.margin) / CELL_SIZE + 1)
-        }
+        fun town(id: String): Town? = storage.towns[id]?.let { townFor(it, terrain, req.margin) }
         val a = town(d.first) ?: return "Unknown town ${d.first}"
         val b = town(d.second) ?: return "Unknown town ${d.second}"
         val closed = LongOpenHashSet()

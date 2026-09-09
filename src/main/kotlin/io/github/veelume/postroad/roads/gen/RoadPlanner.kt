@@ -50,7 +50,9 @@ data class StepClass(val name: String, val upTo: Double, val cost: Double)
  * as exits, and [reach], the half-extent of its box in cells — the corridor of a hierarchical route
  * covers the whole box so a route can get from an exit inside it to the corridor outside.
  */
-data class Town(val id: String, val cell: Cell, val exits: List<Cell> = emptyList(), val reach: Int = 0) {
+data class Town(val id: String, val cell: Cell, val exits: List<Cell> = emptyList(), val reach: Int = 0,
+                /** Per exit, the direction the street faces at that stub (null: a street centre, no direction). */
+                val facings: List<Facing?> = emptyList()) {
     /** The exit (a street cell) facing [other], else the town cell itself. */
     fun exitToward(other: Cell): Cell {
         if (exits.isEmpty()) return cell
@@ -324,10 +326,11 @@ object RoadPlanner {
      * the coarse map, and widened to cover both boxes.
      */
     fun routeTowns(fine: Terrain, coarse: Terrain?, ratio: Int, a: Town, b: Town, costs: PlannerCosts = PlannerCosts(), freeTurns: Boolean = false): List<Cell>? {
-        val starts = endpoints(fine, a, b.cell) ?: run { lastFailure.set("no passable cell within reach of ${a.id}'s exits (cell ${fine.cellSize})"); return null }
-        val goals = endpoints(fine, b, a.cell) ?: run { lastFailure.set("no passable cell within reach of ${b.id}'s exits (cell ${fine.cellSize})"); return null }
+        val startEnds = ends(fine, a, b.cell) ?: run { lastFailure.set("no passable cell within reach of ${a.id}'s exits (cell ${fine.cellSize})"); return null }
+        val goalEnds = ends(fine, b, a.cell) ?: run { lastFailure.set("no passable cell within reach of ${b.id}'s exits (cell ${fine.cellSize})"); return null }
+        val starts = startEnds.map { it.goal }; val goals = goalEnds.map { it.goal }
         traceEnds.set(starts to goals); lastCorridor.set(emptyList())
-        if (coarse == null) return search(fine, starts, goals, costs, 1.0, freeTurns)
+        if (coarse == null) return search(fine, starts, goals, costs, 1.0, freeTurns)?.let { withStubs(it, startEnds, goalEnds) }
         fun onCoarse(t: Town) = Town(t.id, Cell(Math.floorDiv(t.cell.x, ratio), Math.floorDiv(t.cell.z, ratio)), t.exits.map { Cell(Math.floorDiv(it.x, ratio), Math.floorDiv(it.z, ratio)) }.distinct(), t.reach)
         val ca = onCoarse(a); val cb = onCoarse(b)
         val cs = endpoints(coarse, ca, cb.cell) ?: run { lastFailure.set("coarse: no passable cell within reach of ${a.id}'s exits"); return null }
@@ -335,7 +338,45 @@ object RoadPlanner {
         val coarsePath = search(coarse, cs, cg, costs.copy(heuristicWeight = costs.reuseFactor), ratio.toDouble()) ?: run { lastFailure.set("coarse: " + lastFailure.get()); return null }
         val allowed = corridor(coarse, coarsePath, listOf(ca.cell to a.reach, cb.cell to b.reach), ratio)
         lastCorridor.set(allowed.map { Cell.of(it) })
-        return search(CorridorTerrain(fine, ratio, allowed), starts, goals, costs, 1.0, freeTurns)
+        return search(CorridorTerrain(fine, ratio, allowed), starts, goals, costs, 1.0, freeTurns)?.let { withStubs(it, startEnds, goalEnds) }
+    }
+
+    /** An end of a route: the cell the search starts or stops at, and the street stub behind it when the town has one. */
+    private class End(val goal: Cell, val stub: Cell?, val facing: Facing?)
+
+    /**
+     * A town's road ends. A street stub with a direction is entered along that direction: the search runs
+     * to the cell just outside the stub and the stub itself is added afterwards ([withStubs]). Other exits
+     * resolve to a passable cell as before.
+     */
+    private fun ends(terrain: Terrain, town: Town, toward: Cell): List<End>? {
+        val out = ArrayList<End>()
+        val cells = if (town.exits.isEmpty()) listOf(town.cell) else town.exits
+        for ((i, e) in cells.withIndex()) {
+            val f = town.facings.getOrNull(i)
+            if (f != null) {
+                val outside = Cell(e.x + f.dx, e.z + f.dz)
+                if (passable(terrain, outside.x, outside.z) && passable(terrain, e.x, e.z)) { out.add(End(outside, e, f)); continue }
+            }
+            resolveEndpoint(terrain, e, toward = toward)?.let { out.add(End(it, null, null)) }
+        }
+        val seen = HashSet<Cell>()
+        return out.filter { seen.add(it.goal) }.ifEmpty { null }
+    }
+
+    /** The stubs on both ends of [cells], when the road can turn into them without a turn past 90°. */
+    private fun withStubs(cells: List<Cell>, starts: List<End>, goals: List<End>): List<Cell> {
+        if (cells.size < 2) return cells
+        var out = cells
+        starts.firstOrNull { it.goal == out.first() && it.stub != null }?.let { s ->
+            val dx = out[1].x - out[0].x; val dz = out[1].z - out[0].z
+            if (s.facing!!.dx * dx + s.facing.dz * dz >= 0 && s.stub!! !in out) out = listOf(s.stub) + out
+        }
+        goals.firstOrNull { it.goal == out.last() && it.stub != null }?.let { g ->
+            val n = out.size; val dx = out[n - 1].x - out[n - 2].x; val dz = out[n - 1].z - out[n - 2].z
+            if (-(g.facing!!.dx) * dx - g.facing.dz * dz >= 0 && g.stub!! !in out) out = out + g.stub
+        }
+        return out
     }
 
     /** A town's exits resolved to passable cells (its own cell when it has no exits); null when none resolves. */
