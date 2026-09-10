@@ -30,6 +30,17 @@ data class PlannerCosts(
     /** A cell already on a road costs base × this; well below 1 so routes merge. */
     val reuseFactor: Double = 0.15,
     /**
+     * Per block of ground fall *across* the road, per cell.
+     *
+     * The step classes only ever look along the direction of travel, so a road traversing a hillside
+     * looks flat to them however steep the slope it is cut into. It is not flat to build: a 3-wide
+     * road on a side slope needs the uphill side cut away and the downhill side filled, which is what
+     * the pieces' `fit` does and why such roads end up sitting in a trench or on an embankment.
+     * Charging for the cross-slope is what makes a route round a hillside on the contour instead of
+     * straight across it, the way a real road does.
+     */
+    val crossSlope: Double = 0.25,
+    /**
      * The A* heuristic is straight-line distance × base × this. [reuseFactor] would be admissible
      * (a road all the way is the cheapest imaginable) but explores nearly everything; 0.5 still
      * finds a merge whenever riding the road saves more than half the remaining distance, and
@@ -141,7 +152,7 @@ object RoadPlanner {
      * step class, water, band — are paid that many times; the base cost is per cell on either map, which keeps
      * the coarse search's weighing of distance against terrain the same as the fine search's.
      */
-    private fun stepCost(terrain: Terrain, x: Int, z: Int, fromHeight: Int, diagonal: Boolean, costs: PlannerCosts, slopeDivisor: Double, band: Band?, rejects: IntArray? = null): Double? {
+    private fun stepCost(terrain: Terrain, x: Int, z: Int, fromHeight: Int, diagonal: Boolean, costs: PlannerCosts, slopeDivisor: Double, band: Band?, rejects: IntArray? = null, dx: Int = 0, dz: Int = 0): Double? {
         if (!terrain.inBounds(x, z)) { rejects?.let { it[R_BOUNDS]++ }; return null }
         if (terrain.has(x, z, Terrain.BLOCKED)) { rejects?.let { it[R_BLOCKED]++ }; return null }
         if (realTerrainOnly && terrain.has(x, z, Terrain.ESTIMATED)) { rejects?.let { it[R_BLOCKED]++ }; return null }
@@ -162,6 +173,16 @@ object RoadPlanner {
             // and this route's heights may differ. Riding a road only discounts the cost.
             val cls = costs.steps.firstOrNull { dh <= it.upTo } ?: run { rejects?.let { it[R_STEEP]++ }; return null }
             if (onRoad) cost = (cost + cls.cost * slopeDivisor) * costs.reuseFactor else cost += cls.cost * slopeDivisor
+        }
+        // How far the ground falls across the road here: the two cells either side of the direction of
+        // travel. Only where both are known — at the edge of the corridor there is nothing to compare.
+        if (costs.crossSlope > 0.0 && (dx != 0 || dz != 0)) {
+            val lx = x - dz; val lz = z + dx
+            val rx = x + dz; val rz = z - dx
+            if (terrain.inBounds(lx, lz) && terrain.inBounds(rx, rz)) {
+                val across = abs(terrain.heightAt(lx, lz) - terrain.heightAt(rx, rz)) / 2.0
+                cost += costs.crossSlope * across * slopeDivisor
+            }
         }
         if (terrain.has(x, z, Terrain.WATER)) cost += costs.water * slopeDivisor
         if (band != null && !onRoad) {
@@ -311,7 +332,7 @@ object RoadPlanner {
                     }
                 }
                 if (k >= 4 && slopeDivisor == 1.0 && cutsRoadCorner(terrain, cx, cz, d[0], d[1])) { rejects?.let { it[R_ROAD_CORNER]++ }; continue }
-                val step = stepCost(terrain, nx, nz, h, k >= 4, costs, slopeDivisor, band, rejects) ?: continue
+                val step = stepCost(terrain, nx, nz, h, k >= 4, costs, slopeDivisor, band, rejects, d[0], d[1]) ?: continue
                 val tentative = gi + step
                 if (tentative < g.get(j)) {
                     g.put(j, tentative)

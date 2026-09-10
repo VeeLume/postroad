@@ -1329,6 +1329,48 @@ class PostroadGameTests {
         helper.succeed()
     }
 
+    /**
+     * A road would rather go round a hillside than traverse it. The step classes only see the slope
+     * along the way, so a shelf cut across a hill looks flat to them; the cross-slope term is what
+     * makes the route take the level ground instead, the way a real road does.
+     */
+    @GameTest(template = ARENA)
+    fun a_route_avoids_traversing_a_side_slope(helper: GameTestHelper) {
+        val planner = io.github.veelume.postroad.roads.gen.RoadPlanner
+        // A band of hillside across the middle: flat at the top and bottom, a steady fall in between.
+        // Both the direct line (through the slope) and a detour along the flat reach the far side.
+        fun grid(): io.github.veelume.postroad.roads.gen.TerrainGrid {
+            val t = io.github.veelume.postroad.roads.gen.TerrainGrid(0, 0, 3, 40, 21)
+            for (z in 0 until 21) for (x in 0 until 40) {
+                // z 0..7 flat low, z 8..12 a side slope rising with z, z 13..20 flat high — except a
+                // level corridor at the far end (x >= 34) where the slope flattens out.
+                val h = when {
+                    x >= 34 -> 64
+                    z <= 7 -> 64
+                    z >= 13 -> 64
+                    else -> 64 + (z - 7) * 2
+                }
+                t.setHeight(x, z, h)
+            }
+            return t
+        }
+        val from = io.github.veelume.postroad.roads.gen.Cell(2, 10)
+        val to = io.github.veelume.postroad.roads.gen.Cell(37, 10)
+
+        val flat = planner.route(grid(), from, to, io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 0.0))
+        val steep = planner.route(grid(), from, to, io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 2.0))
+        helper.assertTrue(flat != null, "a route exists with the cross-slope term off")
+        helper.assertTrue(steep != null, "a route exists with the cross-slope term on")
+
+        // Charging for cross-slope should push the route off the side slope onto level ground.
+        fun onSlope(cells: List<io.github.veelume.postroad.roads.gen.Cell>) = cells.count { it.z in 8..12 && it.x < 34 }
+        helper.assertTrue(
+            onSlope(steep!!) < onSlope(flat!!),
+            "with cross-slope charged the route spends less of itself on the side slope (${onSlope(steep)} against ${onSlope(flat)})",
+        )
+        helper.succeed()
+    }
+
     companion object {
         private const val ARENA = "arena"
     }
