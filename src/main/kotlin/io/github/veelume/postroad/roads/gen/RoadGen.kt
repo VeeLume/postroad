@@ -464,7 +464,14 @@ object RoadGen {
         for (road in req.knownRoads) { if (road.provisional) continue; for (p in road.points) { val c = terrain.blockToCell(p.x, p.z); existingY.putIfAbsent(Terrain.key(c.x, c.z), p.y) } }
         val catalog = RoadPieces.current
         val newRoads = plan.routes.mapNotNull { route ->
-            val points = route.cells.map { c -> val b = terrain.cellToBlock(c.x, c.z); existingY[Terrain.key(c.x, c.z)]?.let { BlockPos(b.x, it, b.z) } ?: b }
+            val frozen = HashSet<Int>()
+            val raw = route.cells.mapIndexed { i, c ->
+                val b = terrain.cellToBlock(c.x, c.z)
+                val kept = existingY[Terrain.key(c.x, c.z)]
+                if (kept == null) b else { frozen.add(i); BlockPos(b.x, kept, b.z) }
+            }
+            // The ground's own one-block wobble is not road geometry; see RoadProfile.
+            val points = RoadProfile.level(raw, frozen)
             // What cannot be built is not stored: every point must have a catalog piece.
             val bad = points.indices.firstOrNull { i -> catalog.needsAt(points, i)?.let { catalog.match(it) } == null }
             if (bad != null) {
@@ -540,6 +547,7 @@ object RoadGen {
             obstacles++
         }
         // Replanned roads: the old provisional version goes only when the pass produced a new one for the same pair.
+        var removed = 0
         for (id in result.replaced) {
             val old = storage.roads[id] ?: continue
             val fresh = result.newRoads.firstOrNull { it.id == id }
@@ -551,18 +559,21 @@ object RoadGen {
                     // shape, never geometry, so the road goes and the pair is left to a later pass.
                     storage.removeRoad(id)
                     network.removePath(id)
+                    removed++
                     Postroad.LOGGER.info("Road {} ({} -> {}) dropped: its replan pass did not plan the pair, and its heights were only estimates", id, old.from, old.to)
                     continue
                 }
                 // No route for the pair on the real terrain: the estimate-based road goes with it.
                 storage.removeRoad(id)
                 network.removePath(id)
+                removed++
                 Postroad.LOGGER.info("Road {} ({} -> {}) dropped: no route on the generated terrain", id, old.from, old.to)
                 continue
             }
             fresh.replans = old.replans + 1
             storage.removeRoad(id)
             network.removePath(id)
+            removed++
             replanned++
         }
         var provisional = 0
@@ -591,7 +602,9 @@ object RoadGen {
             network.addLink(PathLink(j.joiningRoad, j.joiningIndex, j.joinedRoad, j.joinedIndex))
             junctions++
         }
-        if (roads > 0) RoadPlanSnapshot.publish(storage, result.dimension)
+        // Any change to the road set, not just an addition: a pass that only drops roads used to leave
+        // the snapshot naming one that is gone, and the anchors it claimed with it.
+        if (roads > 0 || removed > 0) RoadPlanSnapshot.publish(storage, result.dimension)
         storage.markDiscovered(result.dimension, result.discovered)
         // Dropped pairs judged on estimated terrain are provisional: generate what they searched, plan them again.
         val droppedInfo = LinkedHashMap<String, RoadPlanStorage.DroppedInfo>()
@@ -729,6 +742,7 @@ object RoadGen {
             storage.removeRoad(road.id)
             Network.get(server).removePath(road.id)
             Postroad.LOGGER.info("Road {} ({} -> {}) dropped after {} replan(s): no route on the real ground", road.id, road.from, road.to, road.replans)
+            RoadPlanSnapshot.publish(storage, road.dimension)
             return
         }
         // The pass plans this pair again without the old road in the way; apply swaps the two.

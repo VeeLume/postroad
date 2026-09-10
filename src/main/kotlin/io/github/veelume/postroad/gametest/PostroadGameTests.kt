@@ -1221,6 +1221,8 @@ class PostroadGameTests {
         storage.addRoad(road)
         network.addPath(io.github.veelume.postroad.roads.RoadPath(road.id, dim, points.toMutableList(), MutableList(points.size) { io.github.veelume.postroad.roads.Tier.PAVED },
             io.github.veelume.postroad.roads.gen.RoadGen.GENERATED_BY, 0, charted = false))
+        // The server publishes on every change to the road set; the builder lays what the publish claimed.
+        io.github.veelume.postroad.roads.gen.RoadPlanSnapshot.publish(storage, dim)
         // The arena may straddle a chunk border (its position depends on the test count): build every chunk the road's width touches.
         val chunks = (-3..3).flatMap { dz -> (-3..6).map { dx -> net.minecraft.world.level.ChunkPos.asLong((start.x + dx) shr 4, (start.z + dz) shr 4) } }.distinct()
         val placed = chunks.sumOf { io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, it) }
@@ -1520,6 +1522,51 @@ class PostroadGameTests {
                 "the diamond reaches its endpoint ${end.toShortString()}",
             )
         }
+        helper.succeed()
+    }
+
+    /**
+     * The ground dips a block and comes straight back up; a road does not. Following it produced the
+     * `--\/--` seen in the world, one piece down and the next up for nothing.
+     */
+    @GameTest(template = ARENA)
+    fun a_road_fills_a_one_block_hollow_instead_of_diving_into_it(helper: GameTestHelper) {
+        val points = listOf(0, 0, -1, 0, 0).mapIndexed { i, dy -> BlockPos(i * 3, 64 + dy, 0) }
+        val levelled = io.github.veelume.postroad.roads.gen.RoadProfile.level(points)
+        helper.assertTrue(levelled.all { it.y == 64 }, "the hollow is filled, not followed (${levelled.map { it.y }})")
+        helper.assertTrue(levelled.map { it.x } == points.map { it.x }, "levelling moves height only")
+        helper.succeed()
+    }
+
+    /** A hump of two cells is shaved off; a real climb of the same height is left alone. */
+    @GameTest(template = ARENA)
+    fun a_short_hump_is_shaved_but_a_real_climb_is_kept(helper: GameTestHelper) {
+        val hump = listOf(0, 1, 1, 0, 0).mapIndexed { i, dy -> BlockPos(i * 3, 64 + dy, 0) }
+        helper.assertTrue(
+            io.github.veelume.postroad.roads.gen.RoadProfile.level(hump).all { it.y == 64 },
+            "a two-cell hump between level ground is cut away",
+        )
+        val climb = listOf(0, 1, 2, 3, 4).mapIndexed { i, dy -> BlockPos(i * 3, 64 + dy, 0) }
+        helper.assertTrue(
+            io.github.veelume.postroad.roads.gen.RoadProfile.level(climb) == climb,
+            "a hillside is a hillside: nothing to level",
+        )
+        helper.succeed()
+    }
+
+    /**
+     * Levelling never raises a rise: a profile the catalog could build stays one it can build, and a
+     * point shared with a road already in the world keeps its height.
+     */
+    @GameTest(template = ARENA)
+    fun levelling_only_ever_flattens_and_never_moves_a_shared_point(helper: GameTestHelper) {
+        val rough = listOf(0, 2, -1, 2, 3, 3, 1, 3).mapIndexed { i, dy -> BlockPos(i * 3, 64 + dy, 0) }
+        val levelled = io.github.veelume.postroad.roads.gen.RoadProfile.level(rough)
+        val before = rough.zipWithNext().maxOf { (a, b) -> kotlin.math.abs(b.y - a.y) }
+        val after = levelled.zipWithNext().maxOf { (a, b) -> kotlin.math.abs(b.y - a.y) }
+        helper.assertTrue(after <= before, "the steepest rise did not grow ($before -> $after)")
+        val frozen = io.github.veelume.postroad.roads.gen.RoadProfile.level(rough, setOf(2))
+        helper.assertTrue(frozen[2].y == rough[2].y, "a point another road already laid keeps its level")
         helper.succeed()
     }
 

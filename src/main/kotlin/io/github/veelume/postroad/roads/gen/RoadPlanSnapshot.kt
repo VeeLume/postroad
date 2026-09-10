@@ -19,6 +19,19 @@ object RoadPlanSnapshot {
     var placements: Map<Long, List<Placed>> = emptyMap()
         private set
 
+    /**
+     * Who owns each shared anchor, as of the last publish.
+     *
+     * Both the feature and the builder need this, and both used to work it out for themselves from
+     * the roads of the moment. Retries add and drop roads all through a cycle, so a point owned by
+     * one road when the snapshot was published could be owned by another by the time the builder
+     * reached it — and then both laid a piece there, one on top of the other. One map, published
+     * with the placements it belongs to.
+     */
+    @Volatile
+    var claims: Map<Long, String> = emptyMap()
+        private set
+
     /** Per chunk, the ids of the roads the feature laid there this session; the builder lays the others. */
     val laid = ConcurrentHashMap<Long, MutableSet<String>>()
 
@@ -42,6 +55,7 @@ object RoadPlanSnapshot {
         // A point two roads share (a junction) gets one piece: the road with the smaller id lays it, the
         // other skips it there. Junction pieces come later; this keeps two pieces from stacking.
         val claims = anchorClaims(finalRoads)
+        this.claims = claims
         for (road in finalRoads) {
             // A provisional road's heights are estimates; laying it would fix the wrong road into the
             // world (and freeze it: a touched road is never replanned). It is laid once it is final.

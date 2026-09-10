@@ -309,7 +309,9 @@ object RoadBuilder {
             return cx in (r[0] shr 4)..(r[3] shr 4) && cz in (r[2] shr 4)..(r[5] shr 4)
         }
         // A shared anchor (a junction) belongs to the road with the smaller id; see RoadPlanSnapshot.anchorClaims.
-        val claims = RoadPlanSnapshot.anchorClaims(RoadPlanStorage.get(level.server).roadsIn(level.dimension().location()).filter { !it.provisional })
+        // The published map, not one worked out again here: computing it twice let a shared anchor
+        // change hands between the snapshot and the build, and both roads laid a piece on it.
+        val claims = RoadPlanSnapshot.claims
         var placed = 0
         var i = job.pointIndex
         while (i < placements.size) {
