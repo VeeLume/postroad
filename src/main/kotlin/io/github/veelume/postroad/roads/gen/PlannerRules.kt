@@ -35,6 +35,7 @@ object PlannerRules : SimpleJsonResourceReloadListener(Gson(), "roads") {
                 water = GsonHelper.getAsDouble(obj, "water", d.water),
                 reuseFactor = GsonHelper.getAsDouble(obj, "reuseFactor", d.reuseFactor),
                 crossSlope = GsonHelper.getAsDouble(obj, "crossSlope", d.crossSlope),
+                ascent = GsonHelper.getAsDouble(obj, "ascent", d.ascent),
                 heuristicWeight = GsonHelper.getAsDouble(obj, "heuristicWeight", d.heuristicWeight),
                 maxExpansions = GsonHelper.getAsInt(obj, "maxExpansions", d.maxExpansions),
                 maxWaterRun = GsonHelper.getAsInt(obj, "maxWaterRun", d.maxWaterRun),

@@ -27,6 +27,7 @@
   "water": 40.0,
   "reuseFactor": 0.15,
   "crossSlope": 0.25,
+  "ascent": 1.0,
   "heuristicWeight": 0.5,
   "maxExpansions": 600000,
   "maxWaterRun": 6

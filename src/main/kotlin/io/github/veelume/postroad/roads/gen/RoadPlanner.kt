@@ -41,6 +41,20 @@ data class PlannerCosts(
      */
     val crossSlope: Double = 0.25,
     /**
+     * Per block of height *gained*, on top of the step class.
+     *
+     * The step classes charge a rise and a fall alike, so rolling over a crest and coming down the
+     * far side costs the same as a steady climb of the same total — and a road that ends where it
+     * began can spend any amount of height for nothing. Charging only the gain is the local stand-in
+     * for that waste: level ground pays nothing, every crest pays, and for a road returning to its
+     * own height the gain is exactly half the climb it wasted.
+     *
+     * It pulls against [crossSlope], which will happily send a route over hills to get off a side
+     * slope. Which of them should win on rolling ground is a question about how the roads ought to
+     * feel; the bench in the game tests is where that is settled.
+     */
+    val ascent: Double = 1.0,
+    /**
      * The A* heuristic is straight-line distance × base × this. [reuseFactor] would be admissible
      * (a road all the way is the cheapest imaginable) but explores nearly everything; 0.5 still
      * finds a merge whenever riding the road saves more than half the remaining distance, and
@@ -183,6 +197,13 @@ object RoadPlanner {
                 val across = abs(terrain.heightAt(lx, lz) - terrain.heightAt(rx, rz)) / 2.0
                 cost += costs.crossSlope * across * slopeDivisor
             }
+        }
+        // The gain itself, not scaled by the cell ratio: a coarse cell's rise is already the whole
+        // rise of the fine cells it stands for, so the total charged along a route is the same on
+        // either map.
+        if (costs.ascent > 0.0) {
+            val gain = h - fromHeight
+            if (gain > 0) cost += costs.ascent * gain
         }
         if (terrain.has(x, z, Terrain.WATER)) cost += costs.water * slopeDivisor
         if (band != null && !onRoad) {

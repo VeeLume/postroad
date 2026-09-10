@@ -1451,15 +1451,18 @@ class PostroadGameTests {
 
         val terrains = listOf("hillside" to ::hillside, "ridge" to ::ridge, "rough" to ::rough, "rolling" to ::rolling, "ramp" to ::ramp)
         val variants = listOf(
-            "crossSlope 0.0" to io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 0.0),
-            "crossSlope 0.25" to io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 0.25),
-            "crossSlope 1.0" to io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 1.0),
+            "cross 0.0  ascent 0" to io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 0.0, ascent = 0.0),
+            "cross 0.25 ascent 0" to io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 0.25, ascent = 0.0),
+            "cross 0.25 ascent 1" to io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 0.25, ascent = 1.0),
+            "cross 0.25 ascent 2" to io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 0.25, ascent = 2.0),
+            "cross 0.25 ascent 4" to io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 0.25, ascent = 4.0),
         )
         val from = io.github.veelume.postroad.roads.gen.Cell(2, 10)
         val to = io.github.veelume.postroad.roads.gen.Cell(57, 10)
 
         io.github.veelume.postroad.Postroad.LOGGER.info("Planner bench:")
         val crossFall = HashMap<String, Double>()
+        val wasted = HashMap<String, Int>()
         for ((terrainName, build) in terrains) {
             for ((variantName, costs) in variants) {
                 val grid = build()
@@ -1472,15 +1475,23 @@ class PostroadGameTests {
                 val m = io.github.veelume.postroad.roads.gen.PlanMetrics.of(listOf(points), grid)
                 io.github.veelume.postroad.Postroad.LOGGER.info("  {} / {}: {}", terrainName, variantName, m)
                 crossFall["$terrainName|$variantName"] = m.crossFallPerCell
+                wasted["$terrainName|$variantName"] = m.wastedClimb
             }
         }
 
         // The ridge is the fair case: a saddle stands right beside the crossing, so going round it
         // is cheap and charging for cross-fall should take it.
-        val off = crossFall["ridge|crossSlope 0.0"]
-        val on = crossFall["ridge|crossSlope 0.25"]
+        val off = crossFall["ridge|cross 0.0  ascent 0"]
+        val on = crossFall["ridge|cross 0.25 ascent 0"]
         helper.assertTrue(off != null && on != null, "the ridge routed under both settings")
         helper.assertTrue(on!! < off!!, "charging for cross-fall lowers it at a ridge ($on against $off)")
+        // Charging for height gained buys back the level route that cross-slope alone gave up: on
+        // rolling ground the planner went over every crest to get off the side slopes, and paying
+        // for the gain sends it round again — without giving the cross-fall back.
+        val rollingFlat = wasted["rolling|cross 0.25 ascent 0"]
+        val rollingLevel = wasted["rolling|cross 0.25 ascent 1"]
+        helper.assertTrue(rollingFlat != null && rollingLevel != null, "the rolling ground routed under both settings")
+        helper.assertTrue(rollingLevel!! < rollingFlat!!, "paying for height gained wastes less of it ($rollingLevel against $rollingFlat)")
         // The hillside is here to show the other half of the bargain: both its ends sit mid-slope and
         // the level ground is eight cells down a stairs-class descent, so the detour costs more than
         // the cross-fall it saves and the route rightly stays on the slope. A terrain cost that always
