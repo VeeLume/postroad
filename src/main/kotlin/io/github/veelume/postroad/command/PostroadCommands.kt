@@ -59,6 +59,7 @@ object PostroadCommands {
                             .then(Commands.literal("on").executes { roadsPlanner(it, true) }))
                         .then(Commands.literal("pipeline").requires { it.hasPermission(2) }
                             .then(Commands.argument("radius", IntegerArgumentType.integer(16, 8192)).executes { roadsPipeline(it, IntegerArgumentType.getInteger(it, "radius")) }))
+                        .then(Commands.literal("metrics").requires { it.hasPermission(2) }.executes { roadsMetrics(it) })
                         .then(Commands.literal("scan").requires { it.hasPermission(2) }
                             .then(Commands.argument("radius", IntegerArgumentType.integer(16, 8192)).executes { roadsScan(it, IntegerArgumentType.getInteger(it, "radius")) }))
                         .then(Commands.literal("measure").requires { it.hasPermission(2) }.executes { roadsMeasureStatus(it) }
@@ -388,6 +389,22 @@ object PostroadCommands {
             return 0
         }
         source.sendSuccess({ Component.literal("Pipeline started within $radius blocks: finding towns, then generating their corridors, then one planning pass. Progress in the log.") }, true)
+        return 1
+    }
+
+    /** What the stored plan costs to walk and to build — the numbers a terrain cost is judged by. */
+    private fun roadsMetrics(ctx: CommandContext<CommandSourceStack>): Int {
+        val level = ctx.source.level
+        val dim = level.dimension().location()
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(level.server)
+        val routes = storage.roadsIn(dim).map { it.points.toList() }
+        if (routes.isEmpty()) {
+            ctx.source.sendSuccess({ Component.literal("No roads planned in this dimension yet.") }, false)
+            return 0
+        }
+        val terrain = io.github.veelume.postroad.roads.gen.RoadGen.workerFor(level).terrain
+        val m = io.github.veelume.postroad.roads.gen.PlanMetrics.of(routes, terrain)
+        ctx.source.sendSuccess({ Component.literal(m.toString()) }, false)
         return 1
     }
 

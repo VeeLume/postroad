@@ -1371,6 +1371,94 @@ class PostroadGameTests {
         helper.succeed()
     }
 
+    /**
+     * The planner bench: a few shapes of ground, a few sets of costs, and [PlanMetrics] over what
+     * comes out. Tuning a terrain cost used to mean a thirty-minute world cycle whose only readouts
+     * were road and junction counts, which barely move when routes do; this runs in milliseconds and
+     * measures the thing the cost is actually for.
+     *
+     * The assertion is narrow on purpose — charging for cross-fall must reduce cross-fall — and the
+     * table goes to the log for the numbers a person wants to look at.
+     */
+    @GameTest(template = ARENA)
+    fun planner_bench_reports_what_terrain_costs_buy(helper: GameTestHelper) {
+        val planner = io.github.veelume.postroad.roads.gen.RoadPlanner
+        val cell = 3
+
+        /** A long side slope with level ground along its northern edge: the shape a road may contour. */
+        fun hillside(): io.github.veelume.postroad.roads.gen.TerrainGrid {
+            val t = io.github.veelume.postroad.roads.gen.TerrainGrid(0, 0, cell, 60, 24)
+            for (z in 0 until 24) for (x in 0 until 60) {
+                val h = when {
+                    z <= 4 -> 64
+                    z >= 18 -> 64 + 28
+                    else -> 64 + (z - 4) * 2
+                }
+                t.setHeight(x, z, h)
+            }
+            return t
+        }
+
+        /** A ridge across the way with a low saddle: over the top, or round through the saddle. */
+        fun ridge(): io.github.veelume.postroad.roads.gen.TerrainGrid {
+            val t = io.github.veelume.postroad.roads.gen.TerrainGrid(0, 0, cell, 60, 30)
+            for (z in 0 until 30) for (x in 0 until 60) {
+                val fromCrest = kotlin.math.abs(x - 30)
+                val crest = if (z in 12..17) 6 else 26
+                t.setHeight(x, z, 64 + (crest - fromCrest).coerceAtLeast(0))
+            }
+            return t
+        }
+
+        /** Choppy ground: the same average height, but never flat. */
+        fun rough(): io.github.veelume.postroad.roads.gen.TerrainGrid {
+            val t = io.github.veelume.postroad.roads.gen.TerrainGrid(0, 0, cell, 60, 24)
+            for (z in 0 until 24) for (x in 0 until 60) {
+                val bumpy = if (z in 8..15) ((x * 7 + z * 13) % 5) else 0
+                t.setHeight(x, z, 64 + bumpy)
+            }
+            return t
+        }
+
+        val terrains = listOf("hillside" to ::hillside, "ridge" to ::ridge, "rough" to ::rough)
+        val variants = listOf(
+            "crossSlope 0.0" to io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 0.0),
+            "crossSlope 0.25" to io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 0.25),
+            "crossSlope 1.0" to io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 1.0),
+        )
+        val from = io.github.veelume.postroad.roads.gen.Cell(2, 10)
+        val to = io.github.veelume.postroad.roads.gen.Cell(57, 10)
+
+        io.github.veelume.postroad.Postroad.LOGGER.info("Planner bench:")
+        val crossFall = HashMap<String, Double>()
+        for ((terrainName, build) in terrains) {
+            for ((variantName, costs) in variants) {
+                val grid = build()
+                val route = planner.route(grid, from, to, costs)
+                if (route == null) {
+                    io.github.veelume.postroad.Postroad.LOGGER.info("  {} / {}: no route", terrainName, variantName)
+                    continue
+                }
+                val points = route.map { grid.cellToBlock(it.x, it.z) }
+                val m = io.github.veelume.postroad.roads.gen.PlanMetrics.of(listOf(points), grid)
+                io.github.veelume.postroad.Postroad.LOGGER.info("  {} / {}: {}", terrainName, variantName, m)
+                crossFall["$terrainName|$variantName"] = m.crossFallPerCell
+            }
+        }
+
+        // The ridge is the fair case: a saddle stands right beside the crossing, so going round it
+        // is cheap and charging for cross-fall should take it.
+        val off = crossFall["ridge|crossSlope 0.0"]
+        val on = crossFall["ridge|crossSlope 0.25"]
+        helper.assertTrue(off != null && on != null, "the ridge routed under both settings")
+        helper.assertTrue(on!! < off!!, "charging for cross-fall lowers it at a ridge ($on against $off)")
+        // The hillside is here to show the other half of the bargain: both its ends sit mid-slope and
+        // the level ground is eight cells down a stairs-class descent, so the detour costs more than
+        // the cross-fall it saves and the route rightly stays on the slope. A terrain cost that always
+        // won would only mean it was priced too high.
+        helper.succeed()
+    }
+
     companion object {
         private const val ARENA = "arena"
     }
