@@ -15,6 +15,8 @@ interface Terrain {
     /** Overrides a cell's height: an existing road's stored level, which is the ground there now. */
     fun setHeight(cx: Int, cz: Int, y: Int)
     fun has(cx: Int, cz: Int, flag: Int): Boolean
+    /** Every flag of a cell at once: one lookup where [has] would be one per flag. */
+    fun flagsAt(cx: Int, cz: Int): Int
     fun set(cx: Int, cz: Int, flag: Int)
     fun family(cx: Int, cz: Int): Int
 
@@ -133,6 +135,13 @@ class TiledTerrain(override val cellSize: Int, private val sampler: TileSampler)
         val tile = tiles[key] ?: return null
         val i = idx(cx, cz)
         return tile.flags[i].toInt() or (overlays[key]?.get(i)?.toInt() ?: 0)
+    }
+
+    override fun flagsAt(cx: Int, cz: Int): Int {
+        val i = idx(cx, cz)
+        val sampled = tileOf(cx, cz).flags[i].toInt()
+        val overlay = overlayOf(cx, cz, create = false)?.get(i)?.toInt() ?: 0
+        return sampled or overlay
     }
 
     override fun has(cx: Int, cz: Int, flag: Int): Boolean {

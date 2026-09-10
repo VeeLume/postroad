@@ -49,6 +49,8 @@ object RoadGen {
     const val MAX_REPLANS = 2
     /** Clearance around a village piece (a house) when pieces are known. */
     const val PIECE_MARGIN = 2
+    /** Widest a plan picture gets before a pixel starts standing for more than one cell. */
+    const val MAX_PLAN_PIXELS = 900
 
     /** Everything a pass needs, copied on the server thread. */
     class PassRequest(
@@ -897,7 +899,12 @@ object RoadGen {
         file: java.nio.file.Path,
     ): Long {
         val started = System.nanoTime()
-        val size = radius * 2 / CELL_SIZE
+        val cells = radius * 2 / CELL_SIZE
+        // One pixel per cell is 2.5 million samples at the radius a whole plan wants, which took
+        // minutes and held the planner thread while it did. A picture wider than this shows nothing
+        // more, so above it a pixel stands for several cells.
+        val step = ((cells + MAX_PLAN_PIXELS - 1) / MAX_PLAN_PIXELS).coerceAtLeast(1)
+        val size = cells / step
         val x0 = Math.floorDiv(center.x - radius, CELL_SIZE)
         val z0 = Math.floorDiv(center.z - radius, CELL_SIZE)
         val image = java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_RGB)
@@ -907,14 +914,10 @@ object RoadGen {
         val heights = IntArray(size * size)
         val flags = IntArray(size * size)
         for (pz in 0 until size) for (px in 0 until size) {
-            val cx = x0 + px
-            val cz = z0 + pz
+            val cx = x0 + px * step
+            val cz = z0 + pz * step
             heights[pz * size + px] = worker.terrain.heightAt(cx, cz)
-            var f = 0
-            for (bit in intArrayOf(Terrain.WATER, Terrain.LAVA, Terrain.BLOCKED, Terrain.ESTIMATED)) {
-                if (worker.terrain.has(cx, cz, bit)) f = f or bit
-            }
-            flags[pz * size + px] = f
+            flags[pz * size + px] = worker.terrain.flagsAt(cx, cz)
         }
         var minH = Int.MAX_VALUE
         var maxH = Int.MIN_VALUE
@@ -987,12 +990,12 @@ object RoadGen {
         }
 
         val g2 = image.createGraphics()
-        fun cellX(x: Int) = Math.floorDiv(x, CELL_SIZE) - x0
-        fun cellZ(z: Int) = Math.floorDiv(z, CELL_SIZE) - z0
+        fun cellX(x: Int) = (Math.floorDiv(x, CELL_SIZE) - x0) / step
+        fun cellZ(z: Int) = (Math.floorDiv(z, CELL_SIZE) - z0) / step
         g2.color = java.awt.Color.RED
         for (pair in dropped) g2.drawLine(cellX(pair.first.x), cellZ(pair.first.z), cellX(pair.second.x), cellZ(pair.second.z))
         g2.color = java.awt.Color(160, 40, 40)
-        for (b in obstacles) g2.drawRect(cellX(b.minX()), cellZ(b.minZ()), Math.floorDiv(b.xSpan, CELL_SIZE), Math.floorDiv(b.zSpan, CELL_SIZE))
+        for (b in obstacles) g2.drawRect(cellX(b.minX()), cellZ(b.minZ()), Math.floorDiv(b.xSpan, CELL_SIZE) / step, Math.floorDiv(b.zSpan, CELL_SIZE) / step)
         g2.color = java.awt.Color.WHITE
         for (points in roads) for (i in 1 until points.size) {
             val a = points[i - 1]
