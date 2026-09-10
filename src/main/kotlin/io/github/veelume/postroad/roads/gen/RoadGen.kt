@@ -847,33 +847,86 @@ object RoadGen {
         return "Pair $pairId ${d.first} -> ${d.second}: ${if (route != null) "route of ${route.size} cells" else "unreachable: ${RoadPlanner.lastFailure.get()}"}; facing exits $exitA / $exitB, ${ends?.first?.size ?: 0} start(s) / ${ends?.second?.size ?: 0} goal(s), ${closed.size} fine cell(s) closed in $ms ms, $tooSteep of $steps cardinal steps off closed cells exceed rise $limit$wall; drawn to $file (${minX * CELL_SIZE}, ${minZ * CELL_SIZE}) to (${maxX * CELL_SIZE}, ${maxZ * CELL_SIZE}), $px px per cell"
     }
 
-    fun exportImage(level: ServerLevel, center: BlockPos, radius: Int): java.nio.file.Path? {
-        if (pending.get() > 0) return null
-        val worker = workers[level.dimension().location()] ?: return null
-        val storage = RoadPlanStorage.get(level.server)
+    /**
+     * Draws the plan over the terrain and writes a PNG.
+     *
+     * The terrain is *sampled*, not taken from whatever the last pass happened to leave in memory.
+     * A picture that depends on what the session has done so far is worth little — after a restart
+     * it came out almost blank, and after a re-run it showed guessed ground where the plan had
+     * really been made on generated chunks. Sampling a thousand cells square is far too slow for the
+     * server thread, so the whole thing runs on the planner's own thread, which also serialises it
+     * against passes: they share that thread and the same terrain.
+     */
+    fun exportImage(level: ServerLevel, center: BlockPos, radius: Int): String {
+        val exec = executor ?: return "The planner is off, so there is no terrain to draw."
         val dim = level.dimension().location()
+        val worker = workerFor(level)
+        val storage = RoadPlanStorage.get(level.server)
+        // Everything the drawing needs, copied here on the server thread.
+        val roads = storage.roadsIn(dim).map { it.points.toList() }
+        val towns = storage.townsIn(dim).map { it.pos }
+        val junctions = storage.junctions.filter { it.dimension == dim }.map { it.pos }
+        val obstacles = storage.obstaclesIn(dim).map { it.box }
+        val dropped = storage.droppedDetails.values.mapNotNull { d ->
+            val a = storage.towns[d.from]?.pos
+            val b = storage.towns[d.to]?.pos
+            if (a == null || b == null) null else a to b
+        }
+        val file = level.server.getWorldPath(LevelResource("postroad")).resolve("plan_" + center.x + "_" + center.z + ".png")
+        exec.execute {
+            try {
+                val ms = drawPlan(worker, center, radius, roads, towns, junctions, obstacles, dropped, file)
+                Postroad.LOGGER.info("Plan drawn to {} in {} ms: {} road(s), {} town(s), {} dropped pair(s)", file, ms, roads.size, towns.size, dropped.size)
+            } catch (e: Throwable) {
+                Postroad.LOGGER.error("Drawing the plan failed", e)
+            }
+        }
+        return "Drawing the plan around " + center.x + ", " + center.z + " on the planner thread; the log says when it lands in world/postroad/."
+    }
+
+    /** The drawing itself, on the planner thread: samples the terrain, then paints the plan over it. */
+    private fun drawPlan(
+        worker: Worker,
+        center: BlockPos,
+        radius: Int,
+        roads: List<List<BlockPos>>,
+        towns: List<BlockPos>,
+        junctions: List<BlockPos>,
+        obstacles: List<net.minecraft.world.level.levelgen.structure.BoundingBox>,
+        dropped: List<Pair<BlockPos, BlockPos>>,
+        file: java.nio.file.Path,
+    ): Long {
+        val started = System.nanoTime()
         val size = radius * 2 / CELL_SIZE
         val x0 = Math.floorDiv(center.x - radius, CELL_SIZE)
         val z0 = Math.floorDiv(center.z - radius, CELL_SIZE)
-        val ratio = COARSE_CELL / CELL_SIZE
         val image = java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_RGB)
-        // Height range for the shade, from whatever is loaded.
-        var minH = Int.MAX_VALUE; var maxH = Int.MIN_VALUE
-        for (pz in 0 until size) for (px in 0 until size) {
-            val h = worker.terrain.loadedHeightAt(x0 + px, z0 + pz) ?: worker.coarse.loadedHeightAt(Math.floorDiv(x0 + px, ratio), Math.floorDiv(z0 + pz, ratio)) ?: continue
-            if (h < minH) minH = h
-            if (h > maxH) maxH = h
-        }
-        if (minH > maxH) { minH = 60; maxH = 120 }
-        /** Height of a cell from whichever map has it, fine first. */
-        fun heightOf(cx: Int, cz: Int): Int? =
-            worker.terrain.loadedHeightAt(cx, cz) ?: worker.coarse.loadedHeightAt(Math.floorDiv(cx, ratio), Math.floorDiv(cz, ratio))
 
-        /**
-         * Land colour by height, low to high: green flats, then yellow, brown, grey rock and snow.
-         * A flat brown ramp made a mountain and a meadow look much the same, which is no use for
-         * judging whether a road went round a mountain or over it.
-         */
+        // Sampled once into arrays: the shading needs each cell's neighbours, and sampling is the
+        // expensive part — a tile at a time behind the scenes, but a million cells all told.
+        val heights = IntArray(size * size)
+        val flags = IntArray(size * size)
+        for (pz in 0 until size) for (px in 0 until size) {
+            val cx = x0 + px
+            val cz = z0 + pz
+            heights[pz * size + px] = worker.terrain.heightAt(cx, cz)
+            var f = 0
+            for (bit in intArrayOf(Terrain.WATER, Terrain.LAVA, Terrain.BLOCKED, Terrain.ESTIMATED)) {
+                if (worker.terrain.has(cx, cz, bit)) f = f or bit
+            }
+            flags[pz * size + px] = f
+        }
+        var minH = Int.MAX_VALUE
+        var maxH = Int.MIN_VALUE
+        for (h in heights) { if (h < minH) minH = h; if (h > maxH) maxH = h }
+        if (minH >= maxH) { minH = 60; maxH = 120 }
+
+        fun heightAt(px: Int, pz: Int): Int? =
+            if (px in 0 until size && pz in 0 until size) heights[pz * size + px] else null
+
+        // Land colour by height, low to high: green flats, then yellow, brown, grey rock and snow.
+        // A flat brown ramp made a mountain and a meadow look much the same, which is no use for
+        // judging whether a road went round a mountain or over it.
         fun hypsometric(t: Double): Triple<Int, Int, Int> {
             val stops = listOf(
                 0.00 to Triple(60, 120, 70),
@@ -884,42 +937,45 @@ object RoadGen {
                 1.00 to Triple(240, 240, 245),
             )
             val hi = stops.indexOfFirst { it.first >= t }.coerceAtLeast(1)
-            val (t0, c0) = stops[hi - 1]
-            val (t1, c1) = stops[hi]
-            val f = ((t - t0) / (t1 - t0).coerceAtLeast(1e-9)).coerceIn(0.0, 1.0)
+            val low = stops[hi - 1]
+            val high = stops[hi]
+            val f = ((t - low.first) / (high.first - low.first).coerceAtLeast(1e-9)).coerceIn(0.0, 1.0)
             return Triple(
-                (c0.first + (c1.first - c0.first) * f).toInt(),
-                (c0.second + (c1.second - c0.second) * f).toInt(),
-                (c0.third + (c1.third - c0.third) * f).toInt(),
+                (low.second.first + (high.second.first - low.second.first) * f).toInt(),
+                (low.second.second + (high.second.second - low.second.second) * f).toInt(),
+                (low.second.third + (high.second.third - low.second.third) * f).toInt(),
             )
         }
 
         for (pz in 0 until size) for (px in 0 until size) {
-            val cx = x0 + px; val cz = z0 + pz
-            val fine = worker.terrain.loadedHeightAt(cx, cz)
-            val h = heightOf(cx, cz)
-            val flags = (if (fine != null) worker.terrain.loadedFlagsAt(cx, cz) else worker.coarse.loadedFlagsAt(Math.floorDiv(cx, ratio), Math.floorDiv(cz, ratio))) ?: 0
+            val h = heights[pz * size + px]
+            val f = flags[pz * size + px]
             val rgb = when {
-                h == null -> 0x202020
-                flags and Terrain.BLOCKED != 0 -> 0x803030
-                flags and Terrain.WATER != 0 -> 0x2050a0
+                f and Terrain.LAVA != 0 -> 0xc04010
+                f and Terrain.BLOCKED != 0 -> 0x803030
+                f and Terrain.WATER != 0 -> 0x2050a0
                 else -> {
                     val t = ((h - minH).toDouble() / (maxH - minH).coerceAtLeast(1)).coerceIn(0.0, 1.0)
-                    var (r, g, b) = hypsometric(t)
+                    val base = hypsometric(t)
+                    var r = base.first
+                    var g = base.second
+                    var b = base.third
                     // Relief shading with the light in the north-west: the slope across the cell,
-                    // which is what turns a height map into something a person can read as terrain.
-                    val west = heightOf(cx - 1, cz); val east = heightOf(cx + 1, cz)
-                    val north = heightOf(cx, cz - 1); val south = heightOf(cx, cz + 1)
+                    // which is what turns a height map into something a person reads as terrain.
+                    val west = heightAt(px - 1, pz)
+                    val east = heightAt(px + 1, pz)
+                    val north = heightAt(px, pz - 1)
+                    val south = heightAt(px, pz + 1)
                     if (west != null && east != null && north != null && south != null) {
                         val slope = ((west - east) + (north - south)) / 2.0
-                        val shade = (1.0 + (slope / 6.0).coerceIn(-1.0, 1.0) * 0.45)
+                        val shade = 1.0 + (slope / 6.0).coerceIn(-1.0, 1.0) * 0.45
                         r = (r * shade).toInt().coerceIn(0, 255)
                         g = (g * shade).toInt().coerceIn(0, 255)
                         b = (b * shade).toInt().coerceIn(0, 255)
                     }
                     // Ground the planner only guessed at: tinted violet, so a road crossing one is
                     // obvious. After a pipeline run there should be none under any road.
-                    if (flags and Terrain.ESTIMATED != 0) {
+                    if (f and Terrain.ESTIMATED != 0) {
                         r = (r * 0.75 + 70).toInt().coerceIn(0, 255)
                         b = (b * 0.75 + 90).toInt().coerceIn(0, 255)
                         g = (g * 0.70).toInt().coerceIn(0, 255)
@@ -927,35 +983,30 @@ object RoadGen {
                     (r shl 16) or (g shl 8) or b
                 }
             }
-            image.setRGB(px, pz, if (fine == null && h != null) (rgb shr 1) and 0x7f7f7f else rgb)
+            image.setRGB(px, pz, rgb)
         }
+
         val g2 = image.createGraphics()
-        g2.color = java.awt.Color.WHITE
-        for (road in storage.roadsIn(dim)) {
-            for (i in 1 until road.points.size) {
-                val a = road.points[i - 1]; val b = road.points[i]
-                g2.drawLine(Math.floorDiv(a.x, CELL_SIZE) - x0, Math.floorDiv(a.z, CELL_SIZE) - z0, Math.floorDiv(b.x, CELL_SIZE) - x0, Math.floorDiv(b.z, CELL_SIZE) - z0)
-            }
-        }
+        fun cellX(x: Int) = Math.floorDiv(x, CELL_SIZE) - x0
+        fun cellZ(z: Int) = Math.floorDiv(z, CELL_SIZE) - z0
         g2.color = java.awt.Color.RED
-        for ((_, d) in storage.droppedDetails) {
-            val a = storage.towns[d.from]?.pos ?: continue
-            val b = storage.towns[d.to]?.pos ?: continue
-            g2.drawLine(Math.floorDiv(a.x, CELL_SIZE) - x0, Math.floorDiv(a.z, CELL_SIZE) - z0, Math.floorDiv(b.x, CELL_SIZE) - x0, Math.floorDiv(b.z, CELL_SIZE) - z0)
+        for (pair in dropped) g2.drawLine(cellX(pair.first.x), cellZ(pair.first.z), cellX(pair.second.x), cellZ(pair.second.z))
+        g2.color = java.awt.Color(160, 40, 40)
+        for (b in obstacles) g2.drawRect(cellX(b.minX()), cellZ(b.minZ()), Math.floorDiv(b.xSpan, CELL_SIZE), Math.floorDiv(b.zSpan, CELL_SIZE))
+        g2.color = java.awt.Color.WHITE
+        for (points in roads) for (i in 1 until points.size) {
+            val a = points[i - 1]
+            val b = points[i]
+            g2.drawLine(cellX(a.x), cellZ(a.z), cellX(b.x), cellZ(b.z))
         }
         g2.color = java.awt.Color.YELLOW
-        for (j in storage.junctions) if (j.dimension == dim) g2.fillRect(Math.floorDiv(j.pos.x, CELL_SIZE) - x0 - 1, Math.floorDiv(j.pos.z, CELL_SIZE) - z0 - 1, 3, 3)
-        g2.color = java.awt.Color(160, 40, 40)
-        for (o in storage.obstaclesIn(dim)) {
-            val b = o.box
-            g2.drawRect(Math.floorDiv(b.minX(), CELL_SIZE) - x0, Math.floorDiv(b.minZ(), CELL_SIZE) - z0, Math.floorDiv(b.xSpan, CELL_SIZE), Math.floorDiv(b.zSpan, CELL_SIZE))
-        }
+        for (j in junctions) g2.fillRect(cellX(j.x) - 1, cellZ(j.z) - 1, 3, 3)
         g2.color = java.awt.Color.MAGENTA
-        for (t in storage.townsIn(dim)) g2.fillRect(Math.floorDiv(t.pos.x, CELL_SIZE) - x0 - 2, Math.floorDiv(t.pos.z, CELL_SIZE) - z0 - 2, 5, 5)
+        for (t in towns) g2.fillRect(cellX(t.x) - 2, cellZ(t.z) - 2, 5, 5)
         g2.dispose()
-        val file = level.server.getWorldPath(LevelResource("postroad")).resolve("plan_${center.x}_${center.z}.png")
+
         java.nio.file.Files.createDirectories(file.parent)
         javax.imageio.ImageIO.write(image, "png", file.toFile())
-        return file
+        return (System.nanoTime() - started) / 1_000_000
     }
 }

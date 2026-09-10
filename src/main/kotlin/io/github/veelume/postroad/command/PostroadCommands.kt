@@ -473,9 +473,9 @@ object PostroadCommands {
     private fun roadsExport(ctx: CommandContext<CommandSourceStack>): Int {
         val level = ctx.source.level
         val pos = BlockPos.containing(ctx.source.position)
-        val file = io.github.veelume.postroad.roads.gen.RoadGen.exportImage(level, pos, io.github.veelume.postroad.PostroadConfig.planRadius + io.github.veelume.postroad.PostroadConfig.planMaxLink)
-        ctx.source.sendSuccess({ Component.literal(if (file != null) "Plan drawn to $file" else "Nothing to draw: no planner data for this dimension, or a pass is running.") }, true)
-        return if (file != null) 1 else 0
+        val message = io.github.veelume.postroad.roads.gen.RoadGen.exportImage(level, pos, io.github.veelume.postroad.PostroadConfig.planRadius + io.github.veelume.postroad.PostroadConfig.planMaxLink)
+        ctx.source.sendSuccess({ Component.literal(message) }, true)
+        return 1
     }
 
     /**
