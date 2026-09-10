@@ -1420,7 +1420,36 @@ class PostroadGameTests {
             return t
         }
 
-        val terrains = listOf("hillside" to ::hillside, "ridge" to ::ridge, "rough" to ::rough)
+        /**
+         * Rolling hills across the way, with a level lane along the north edge. Going straight is a
+         * climb over every crest; the lane trades length for no climb at all. This is where "wasted
+         * climb" — up only to come down again — shows up if the planner is spending it.
+         */
+        fun rolling(): io.github.veelume.postroad.roads.gen.TerrainGrid {
+            val t = io.github.veelume.postroad.roads.gen.TerrainGrid(0, 0, cell, 60, 24)
+            for (z in 0 until 24) for (x in 0 until 60) {
+                val hill = if (z <= 3) 0 else (kotlin.math.sin(x / 4.0) * 5.0).toInt().coerceAtLeast(0)
+                t.setHeight(x, z, 64 + hill)
+            }
+            return t
+        }
+
+        /**
+         * A plateau reached either by a short steep face or by a long gentle ramp along the north
+         * edge. The step classes cap the rise of one step but say nothing about a grade held for a
+         * long way, so this is where a sustained-grade rule would show its worth.
+         */
+        fun ramp(): io.github.veelume.postroad.roads.gen.TerrainGrid {
+            val t = io.github.veelume.postroad.roads.gen.TerrainGrid(0, 0, cell, 60, 24)
+            for (z in 0 until 24) for (x in 0 until 60) {
+                val plateau = if (x >= 40) 24 else 0
+                val ramped = if (z <= 3 && x >= 16) ((x - 16) * 24 / 24).coerceAtMost(24) else plateau
+                t.setHeight(x, z, 64 + ramped)
+            }
+            return t
+        }
+
+        val terrains = listOf("hillside" to ::hillside, "ridge" to ::ridge, "rough" to ::rough, "rolling" to ::rolling, "ramp" to ::ramp)
         val variants = listOf(
             "crossSlope 0.0" to io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 0.0),
             "crossSlope 0.25" to io.github.veelume.postroad.roads.gen.PlannerCosts(crossSlope = 0.25),
