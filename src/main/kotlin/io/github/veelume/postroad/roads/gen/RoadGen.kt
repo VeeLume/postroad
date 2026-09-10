@@ -47,6 +47,16 @@ object RoadGen {
      */
     const val CORRIDOR_CHUNKS = 3
     const val MAX_REPLANS = 2
+    /**
+     * Half-width in blocks of the diamond opened for a dropped pair, multiplied by the try.
+     *
+     * A pair is dropped when no route exists on the ground that has been generated. Widening only
+     * for that pair, and only after it has failed, spends chunks where they are demonstrably needed
+     * instead of paying a wider corridor everywhere for the minority that need one.
+     */
+    const val DROP_RETRY_HALF = 64
+    /** How many times a dropped pair is tried again, each with a wider diamond than the last. */
+    const val MAX_DROP_TRIES = 3
     /** Clearance around a village piece (a house) when pieces are known. */
     const val PIECE_MARGIN = 2
     /** Widest a plan picture gets before a pixel starts standing for more than one cell. */
@@ -585,13 +595,25 @@ object RoadGen {
         storage.markDiscovered(result.dimension, result.discovered)
         // Dropped pairs judged on estimated terrain are provisional: generate what they searched, plan them again.
         val droppedInfo = LinkedHashMap<String, RoadPlanStorage.DroppedInfo>()
-        for (d in result.dropped) droppedInfo[d.id] = RoadPlanStorage.DroppedInfo(d.from.id, d.to.id, d.reason, provisional = d.estimated && (storage.droppedDetails[d.id]?.tries ?: 0) < MAX_REPLANS)
+        for (d in result.dropped) droppedInfo[d.id] = RoadPlanStorage.DroppedInfo(d.from.id, d.to.id, d.reason, provisional = d.estimated && (storage.droppedDetails[d.id]?.tries ?: 0) < MAX_DROP_TRIES)
         storage.markDropped(droppedInfo)
         if (PostroadConfig.planPregenInFlight > 0) for (d in result.dropped) {
             if (droppedInfo[d.id]?.provisional != true) continue
-            val chunks = result.droppedCorridors[d.id] ?: continue
+            val chunks = LongOpenHashSet(result.droppedCorridors[d.id] ?: LongOpenHashSet())
+            // Generating only what the search already looked at is why retries used to plateau: the
+            // pair is dropped *because* that ground had no way through, so making it real changes
+            // nothing. Each further try opens a diamond between the two towns instead, wider every
+            // time — ground the search has never seen, and the only honest answer to "no route" when
+            // the shape the estimate drew has already been proved wrong.
+            val tries = storage.droppedDetails[d.id]?.tries ?: 0
+            if (tries > 0) {
+                val a = storage.towns[d.from.id]?.pos
+                val b = storage.towns[d.to.id]?.pos
+                if (a != null && b != null) chunks.addAll(Corridor.diamond(a, b, DROP_RETRY_HALF * tries))
+            }
             if (chunks.isEmpty()) continue
             pendingDropped[d.id] = chunks
+            Postroad.LOGGER.info("Dropped pair {} ({}): {} chunk(s) to generate for try {}", d.id, d.reason, chunks.size, tries + 1)
             ChunkPregen.request(result.dimension, chunks) { ok, failed -> droppedCorridorDone(server, result.dimension, d.id, ok, failed) }
         }
         passesRun++

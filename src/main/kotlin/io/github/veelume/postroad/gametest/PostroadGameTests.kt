@@ -1499,6 +1499,30 @@ class PostroadGameTests {
         helper.succeed()
     }
 
+    /**
+     * A dropped pair is tried again with a wider diamond each time. The widening is the whole point:
+     * generating what the search already rejected cannot change its mind, so each try has to open
+     * ground it has never seen.
+     */
+    @GameTest(template = ARENA)
+    fun a_wider_diamond_contains_the_narrower_one(helper: GameTestHelper) {
+        val a = BlockPos(0, 64, 0)
+        val b = BlockPos(600, 64, 200)
+        val narrow = io.github.veelume.postroad.roads.gen.Corridor.diamond(a, b, 64)
+        val wide = io.github.veelume.postroad.roads.gen.Corridor.diamond(a, b, 128)
+        helper.assertTrue(narrow.isNotEmpty(), "the narrow diamond covers something")
+        helper.assertTrue(wide.size > narrow.size, "the wider diamond is bigger (${wide.size} against ${narrow.size})")
+        helper.assertTrue(wide.containsAll(narrow), "the wider diamond covers everything the narrow one did")
+        // Both ends are in it, or a route could not start or finish.
+        for (end in listOf(a, b)) {
+            helper.assertTrue(
+                narrow.contains(net.minecraft.world.level.ChunkPos.asLong(end.x shr 4, end.z shr 4)),
+                "the diamond reaches its endpoint ${end.toShortString()}",
+            )
+        }
+        helper.succeed()
+    }
+
     companion object {
         private const val ARENA = "arena"
     }
