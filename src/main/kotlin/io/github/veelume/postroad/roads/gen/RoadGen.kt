@@ -865,10 +865,39 @@ object RoadGen {
             if (h > maxH) maxH = h
         }
         if (minH > maxH) { minH = 60; maxH = 120 }
+        /** Height of a cell from whichever map has it, fine first. */
+        fun heightOf(cx: Int, cz: Int): Int? =
+            worker.terrain.loadedHeightAt(cx, cz) ?: worker.coarse.loadedHeightAt(Math.floorDiv(cx, ratio), Math.floorDiv(cz, ratio))
+
+        /**
+         * Land colour by height, low to high: green flats, then yellow, brown, grey rock and snow.
+         * A flat brown ramp made a mountain and a meadow look much the same, which is no use for
+         * judging whether a road went round a mountain or over it.
+         */
+        fun hypsometric(t: Double): Triple<Int, Int, Int> {
+            val stops = listOf(
+                0.00 to Triple(60, 120, 70),
+                0.25 to Triple(110, 155, 80),
+                0.45 to Triple(190, 185, 110),
+                0.65 to Triple(160, 130, 90),
+                0.82 to Triple(130, 120, 115),
+                1.00 to Triple(240, 240, 245),
+            )
+            val hi = stops.indexOfFirst { it.first >= t }.coerceAtLeast(1)
+            val (t0, c0) = stops[hi - 1]
+            val (t1, c1) = stops[hi]
+            val f = ((t - t0) / (t1 - t0).coerceAtLeast(1e-9)).coerceIn(0.0, 1.0)
+            return Triple(
+                (c0.first + (c1.first - c0.first) * f).toInt(),
+                (c0.second + (c1.second - c0.second) * f).toInt(),
+                (c0.third + (c1.third - c0.third) * f).toInt(),
+            )
+        }
+
         for (pz in 0 until size) for (px in 0 until size) {
             val cx = x0 + px; val cz = z0 + pz
             val fine = worker.terrain.loadedHeightAt(cx, cz)
-            val h = fine ?: worker.coarse.loadedHeightAt(Math.floorDiv(cx, ratio), Math.floorDiv(cz, ratio))
+            val h = heightOf(cx, cz)
             val flags = (if (fine != null) worker.terrain.loadedFlagsAt(cx, cz) else worker.coarse.loadedFlagsAt(Math.floorDiv(cx, ratio), Math.floorDiv(cz, ratio))) ?: 0
             val rgb = when {
                 h == null -> 0x202020
@@ -876,7 +905,25 @@ object RoadGen {
                 flags and Terrain.WATER != 0 -> 0x2050a0
                 else -> {
                     val t = ((h - minH).toDouble() / (maxH - minH).coerceAtLeast(1)).coerceIn(0.0, 1.0)
-                    val g = (90 + 130 * t).toInt(); val r = (50 + 150 * t).toInt(); val b = (40 + 60 * t).toInt()
+                    var (r, g, b) = hypsometric(t)
+                    // Relief shading with the light in the north-west: the slope across the cell,
+                    // which is what turns a height map into something a person can read as terrain.
+                    val west = heightOf(cx - 1, cz); val east = heightOf(cx + 1, cz)
+                    val north = heightOf(cx, cz - 1); val south = heightOf(cx, cz + 1)
+                    if (west != null && east != null && north != null && south != null) {
+                        val slope = ((west - east) + (north - south)) / 2.0
+                        val shade = (1.0 + (slope / 6.0).coerceIn(-1.0, 1.0) * 0.45)
+                        r = (r * shade).toInt().coerceIn(0, 255)
+                        g = (g * shade).toInt().coerceIn(0, 255)
+                        b = (b * shade).toInt().coerceIn(0, 255)
+                    }
+                    // Ground the planner only guessed at: tinted violet, so a road crossing one is
+                    // obvious. After a pipeline run there should be none under any road.
+                    if (flags and Terrain.ESTIMATED != 0) {
+                        r = (r * 0.75 + 70).toInt().coerceIn(0, 255)
+                        b = (b * 0.75 + 90).toInt().coerceIn(0, 255)
+                        g = (g * 0.70).toInt().coerceIn(0, 255)
+                    }
                     (r shl 16) or (g shl 8) or b
                 }
             }
