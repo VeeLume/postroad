@@ -60,6 +60,8 @@ object PostroadCommands {
                         .then(Commands.literal("pipeline").requires { it.hasPermission(2) }
                             .then(Commands.argument("radius", IntegerArgumentType.integer(16, 8192)).executes { roadsPipeline(it, IntegerArgumentType.getInteger(it, "radius")) }))
                         .then(Commands.literal("metrics").requires { it.hasPermission(2) }.executes { roadsMetrics(it) })
+                        .then(Commands.literal("towns").requires { it.hasPermission(2) }.executes { roadsTowns(it, 2000) }
+                            .then(Commands.argument("radius", IntegerArgumentType.integer(16, 100000)).executes { roadsTowns(it, IntegerArgumentType.getInteger(it, "radius")) }))
                         .then(Commands.literal("scan").requires { it.hasPermission(2) }
                             .then(Commands.argument("radius", IntegerArgumentType.integer(16, 8192)).executes { roadsScan(it, IntegerArgumentType.getInteger(it, "radius")) }))
                         .then(Commands.literal("measure").requires { it.hasPermission(2) }.executes { roadsMeasureStatus(it) }
@@ -245,6 +247,62 @@ object PostroadCommands {
     private fun samplerFor(level: ServerLevel): io.github.veelume.postroad.roads.gen.WorldTerrainSampler {
         probeSampler?.let { if (it.first === level) return it.second }
         return io.github.veelume.postroad.roads.gen.WorldTerrainSampler(level, null, io.github.veelume.postroad.roads.gen.RoadGen.CELL_SIZE).also { probeSampler = level to it }
+    }
+
+    /**
+     * `/postroad roads towns [radius]`: how far a planned road stops from the village it names.
+     *
+     * A road ends at the town cell the planner aimed at, which is not the same place as the village's
+     * own street. This measures the two gaps that matter — endpoint to the nearest street stub the
+     * finder recorded, and endpoint to the town anchor — so the town-connection work has a number to
+     * beat instead of an impression.
+     */
+    private fun roadsTowns(ctx: CommandContext<CommandSourceStack>, radius: Int): Int {
+        val level = ctx.source.level
+        val dim = level.dimension().location()
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(level.server)
+        val origin = BlockPos.containing(ctx.source.position)
+        val towns = storage.townsIn(dim).filter { it.pos.distSqr(origin) <= radius.toDouble() * radius }
+        if (towns.isEmpty()) { ctx.source.sendFailure(Component.literal("No towns within $radius")); return 0 }
+        val roads = storage.roadsIn(dim).filter { !it.provisional }
+
+        var ends = 0
+        var noExits = 0
+        val toStub = ArrayList<Int>()
+        val toAnchor = ArrayList<Int>()
+        var insideBox = 0
+        val worst = ArrayList<String>()
+        var unconnected = 0
+        for (town in towns) {
+            val here = roads.filter { it.from == town.id || it.to == town.id }
+            if (here.isEmpty()) { unconnected++; continue }
+            for (road in here) {
+                // The end that belongs to this town: roads are stored from `from` to `to`.
+                val end = if (road.from == town.id) road.points.first() else road.points.last()
+                ends++
+                if (town.box.isInside(BlockPos(end.x, town.box.minY(), end.z))) insideBox++
+                val anchor = kotlin.math.sqrt(end.distSqr(BlockPos(town.pos.x, end.y, town.pos.z))).toInt()
+                toAnchor.add(anchor)
+                if (town.exits.isEmpty()) { noExits++; continue }
+                val stub = town.exits.minOf { kotlin.math.sqrt(end.distSqr(BlockPos(it.x, end.y, it.z))).toInt() }
+                toStub.add(stub)
+                if (stub >= 24 && worst.size < 10) worst.add("${road.id} at ${end.toShortString()} is $stub from ${town.id}'s nearest of ${town.exits.size} stub(s)")
+            }
+        }
+        fun spread(name: String, v: List<Int>) {
+            if (v.isEmpty()) { ctx.source.sendSuccess({ Component.literal("$name: nothing to measure") }, false); return }
+            val sorted = v.sorted()
+            ctx.source.sendSuccess({ Component.literal(
+                "$name over ${v.size}: median ${sorted[v.size / 2]}, worst ${sorted.last()}, " +
+                    "within 8 blocks ${v.count { it <= 8 } * 100 / v.size}%, within 24 ${v.count { it <= 24 } * 100 / v.size}%") }, false)
+        }
+        ctx.source.sendSuccess({ Component.literal(
+            "${towns.size} town(s) within $radius: $unconnected with no final road, $ends road end(s) measured, " +
+                "$insideBox of them inside the village box, $noExits at a town whose street stubs are unknown") }, false)
+        spread("Road end to the nearest village street stub", toStub)
+        spread("Road end to the town anchor", toAnchor)
+        for (w in worst) ctx.source.sendSuccess({ Component.literal("  $w") }, false)
+        return 1
     }
 
     /**
