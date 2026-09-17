@@ -1,0 +1,40 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The tag is the version: a release whose jar says something else would be
+      # installed under one name and report another.
+      - name: The tag and mod_version must agree
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(sed -n 's/^mod_version=//p' gradle.properties)"
+          echo "tag $tag, gradle.properties $version"
+          test "$tag" = "$version"
+
+      - run: ./gradlew build runGameTestServer --no-daemon
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes=".github/notes-${GITHUB_REF_NAME}.md"
+          # The changelog's section for this version, when it has one.
+          awk -v v="## ${GITHUB_REF_NAME#v}" '$0 == v {found=1; next} found && /^## / {exit} found' CHANGELOG.md > "$notes"
+          test -s "$notes" || echo "See CHANGELOG.md." > "$notes"
+          gh release create "$GITHUB_REF_NAME" build/libs/*.jar --title "$GITHUB_REF_NAME" --notes-file "$notes"
