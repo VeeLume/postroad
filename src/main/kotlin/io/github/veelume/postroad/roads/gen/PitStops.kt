@@ -122,13 +122,19 @@ object PitStops {
             if (road.from == town.id && road.endsDone and PlannedRoad.END_FROM == 0) return false
             if (road.to == town.id && road.endsDone and PlannedRoad.END_TO == 0) return false
         }
-        return storage.droppedDetails.values.none { it.provisional && (it.from == town.id || it.to == town.id) }
+        return !awaitingRetry(storage, town)
     }
+
+    /**
+     * A dropped pair of [town] that a pass will take up again. A pair keeps its provisional flag after its
+     * tries are spent, so asking for "no provisional pair" held 27 of 46 towns back for ever.
+     */
+    private fun awaitingRetry(storage: RoadPlanStorage, town: PlannedTown): Boolean =
+        storage.droppedDetails.values.any { it.provisional && it.tries < PostroadConfig.planMaxReplans && (it.from == town.id || it.to == town.id) }
 
     /** No road to [town] is provisional, and no dropped pair of it waits for a replan. */
     private fun roadsFinal(storage: RoadPlanStorage, town: PlannedTown): Boolean =
-        storage.roads.values.none { it.provisional && (it.from == town.id || it.to == town.id) } &&
-            storage.droppedDetails.values.none { it.provisional && (it.from == town.id || it.to == town.id) }
+        storage.roads.values.none { it.provisional && (it.from == town.id || it.to == town.id) } && !awaitingRetry(storage, town)
 
     /**
      * Takes down the road-end posts within `build.endSignClear` of [at] (a junction sign went up there that says
@@ -402,9 +408,11 @@ object PitStops {
             Triple(r, b, if (b == PlannedRoad.END_FROM) r.points else r.points.asReversed())
         }
         val stops = storage.townsIn(town.dimension).mapNotNull { it.stop }
+        var notReady = false
         for (k in 2..minOf(6, line.size - 2)) {
             val p = line[k]
-            if (!level.hasChunk((p.x - 8) shr 4, (p.z - 8) shr 4) || !level.hasChunk((p.x + 8) shr 4, (p.z + 8) shr 4)) return null
+            // One spot whose chunks are not loaded is not the end of the search; the next may be fine.
+            if (!level.hasChunk((p.x - 8) shr 4, (p.z - 8) shr 4) || !level.hasChunk((p.x + 8) shr 4, (p.z + 8) shr 4)) { notReady = true; continue }
             val arms = ArrayList<Pair<String, SignWriter.Arm>>()
             arms.add(road.id to SignWriter.Arm(placeName(level, town.id), line[0]))
             for ((r, b, l) in listOf(Triple(road, bit, line)) + siblings) {
@@ -429,7 +437,7 @@ object PitStops {
                 return n
             }
         }
-        return 0
+        return if (notReady) null else 0
     }
 
     /** Road ends this close (blocks, Manhattan) leave the town through the same exit. */
