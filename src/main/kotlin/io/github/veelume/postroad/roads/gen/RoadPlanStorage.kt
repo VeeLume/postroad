@@ -22,6 +22,11 @@ class PlannedTown(val id: String, val dimension: ResourceLocation, val structure
     /** What a road must not cross: the pieces when known, else the whole box. */
     val footprint: List<BoundingBox> get() = if (pieces.isEmpty()) listOf(box) else pieces
 
+    /** The pit stop's box once it stands (see [PitStops]); roads planned later keep out of it. */
+    var stop: BoundingBox? = null
+    /** No pit stop is sought any more: it stands, or the town had a depot of its own first. */
+    var stopDone: Boolean = false
+
     fun toTag(): CompoundTag {
         val tag = CompoundTag()
         tag.putString("Id", id)
@@ -33,6 +38,8 @@ class PlannedTown(val id: String, val dimension: ResourceLocation, val structure
         tag.putLongArray("Streets", streets.map { it.asLong() }.toLongArray())
         tag.putLongArray("Exits", exits.map { it.asLong() }.toLongArray())
         tag.putIntArray("ExitFacings", facings.toIntArray())
+        stop?.let { tag.putIntArray("Stop", intArrayOf(it.minX(), it.minY(), it.minZ(), it.maxX(), it.maxY(), it.maxZ())) }
+        tag.putBoolean("StopDone", stopDone)
         return tag
     }
 
@@ -47,7 +54,11 @@ class PlannedTown(val id: String, val dimension: ResourceLocation, val structure
             val streets = tag.getLongArray("Streets").map { BlockPos.of(it) }
             val exits = tag.getLongArray("Exits").map { BlockPos.of(it) }
             val facings = tag.getIntArray("ExitFacings").toList().let { if (it.size == exits.size) it else exits.map { -1 } }
-            return PlannedTown(tag.getString("Id"), dimension, structure, BlockPos.of(tag.getLong("Pos")), BoundingBox(b[0], b[1], b[2], b[3], b[4], b[5]), pieces, streets, exits, facings)
+            return PlannedTown(tag.getString("Id"), dimension, structure, BlockPos.of(tag.getLong("Pos")), BoundingBox(b[0], b[1], b[2], b[3], b[4], b[5]), pieces, streets, exits, facings).also { t ->
+                val s = tag.getIntArray("Stop")
+                if (s.size == 6) t.stop = BoundingBox(s[0], s[1], s[2], s[3], s[4], s[5])
+                t.stopDone = tag.getBoolean("StopDone")
+            }
         }
     }
 }
@@ -96,6 +107,10 @@ class PlannedRoad(
     var replans: Int = 0
     /** Road quality, an ordinal of [io.github.veelume.postroad.roads.Tier]: the palette it is laid from. Road works raise it. */
     var tier: Int = 0
+    /** Town ends the pit-stop pass has handled (stop or signpost): [END_FROM] and [END_TO] bits. */
+    var endsDone: Int = 0
+    /** End bit → the lowest way sign of the signpost put up at that end, so a junction sign can replace it. */
+    val endPosts: MutableMap<Int, BlockPos> = HashMap()
 
     /** Chunks this road passes through. */
     fun chunks(): LongOpenHashSet {
@@ -117,10 +132,15 @@ class PlannedRoad(
         tag.putBoolean("Provisional", provisional)
         tag.putInt("Replans", replans)
         tag.putInt("Tier", tier)
+        tag.putInt("EndsDone", endsDone)
+        tag.putLongArray("EndPosts", endPosts.flatMap { (bit, pos) -> listOf(bit.toLong(), pos.asLong()) }.toLongArray())
         return tag
     }
 
     companion object {
+        const val END_FROM = 1
+        const val END_TO = 2
+
         fun fromTag(tag: CompoundTag): PlannedRoad? {
             val dimension = ResourceLocation.tryParse(tag.getString("Dimension")) ?: return null
             val points = tag.getLongArray("Points").map { BlockPos.of(it) }
@@ -131,13 +151,16 @@ class PlannedRoad(
             road.provisional = tag.getBoolean("Provisional")
             road.replans = tag.getInt("Replans")
             road.tier = tag.getInt("Tier")
+            road.endsDone = tag.getInt("EndsDone")
+            tag.getLongArray("EndPosts").toList().chunked(2).forEach { if (it.size == 2) road.endPosts[it[0].toInt()] = BlockPos.of(it[1]) }
             return road
         }
     }
 }
 
 /** Where a planned road joined another: the builder puts a way sign here. */
-class PlannedJunction(val dimension: ResourceLocation, val pos: BlockPos, val roadA: String, val roadB: String) {
+/** [fork]: the roads part here, so the builder puts up a signpost; a plain merge only links the two paths. */
+class PlannedJunction(val dimension: ResourceLocation, val pos: BlockPos, val roadA: String, val roadB: String, val fork: Boolean = true) {
     var signPlaced: Boolean = false
 
     fun toTag(): CompoundTag {
@@ -147,13 +170,15 @@ class PlannedJunction(val dimension: ResourceLocation, val pos: BlockPos, val ro
         tag.putString("RoadA", roadA)
         tag.putString("RoadB", roadB)
         tag.putBoolean("Sign", signPlaced)
+        tag.putBoolean("Fork", fork)
         return tag
     }
 
     companion object {
         fun fromTag(tag: CompoundTag): PlannedJunction? {
             val dimension = ResourceLocation.tryParse(tag.getString("Dimension")) ?: return null
-            return PlannedJunction(dimension, BlockPos.of(tag.getLong("Pos")), tag.getString("RoadA"), tag.getString("RoadB")).also { it.signPlaced = tag.getBoolean("Sign") }
+            val fork = !tag.contains("Fork") || tag.getBoolean("Fork")
+            return PlannedJunction(dimension, BlockPos.of(tag.getLong("Pos")), tag.getString("RoadA"), tag.getString("RoadB"), fork).also { it.signPlaced = tag.getBoolean("Sign") }
         }
     }
 }
@@ -174,9 +199,11 @@ class RoadPlanStorage : SavedData() {
 
     /**
      * A dropped pair: its towns and the reason; [provisional] when the judgement rested on estimated terrain
-     * (its corridor is generated and the pair planned again, [tries] times so far).
+     * (its corridor is generated and the pair planned again, [tries] times so far). [estimated] keeps that
+     * judgement after the tries are spent: such a pair is planned once more whenever a pass finds the ground
+     * between its towns real, which players generate by simply going there.
      */
-    class DroppedInfo(val from: String, val to: String, val reason: String, var provisional: Boolean = false, var tries: Int = 0)
+    class DroppedInfo(val from: String, val to: String, val reason: String, var provisional: Boolean = false, var tries: Int = 0, var estimated: Boolean = false)
 
     /** Why, and between which towns, per dropped pair id. */
     val droppedDetails: MutableMap<String, DroppedInfo> = HashMap()
@@ -222,6 +249,13 @@ class RoadPlanStorage : SavedData() {
         if (pairs.isEmpty()) return
         for ((id, info) in pairs) { droppedRoutes.add(id); info.tries = (droppedDetails[id]?.tries ?: 0); droppedDetails[id] = info }
         setDirty()
+    }
+
+    /** A road exists for the pair now: it is no dropped pair any more, and its details go with it. */
+    fun clearDropped(id: String) {
+        val a = droppedRoutes.remove(id)
+        val b = droppedDetails.remove(id) != null
+        if (a || b) setDirty()
     }
 
     /** Takes a provisional dropped pair out of the skip set so the next pass plans it again; counts the try. */
@@ -271,7 +305,7 @@ class RoadPlanStorage : SavedData() {
         tag.put("Discovered", CompoundTag().also { d -> discovered.forEach { (dim, set) -> d.putLongArray(dim.toString(), set.toLongArray()) } })
         tag.put("Dropped", ListTag().also { list -> droppedRoutes.forEach { list.add(net.minecraft.nbt.StringTag.valueOf(it)) } })
         tag.put("DroppedDetails", ListTag().also { list ->
-            droppedDetails.forEach { (id, d) -> list.add(CompoundTag().also { c -> c.putString("Id", id); c.putString("From", d.from); c.putString("To", d.to); c.putString("Reason", d.reason); c.putBoolean("Provisional", d.provisional); c.putInt("Tries", d.tries) }) }
+            droppedDetails.forEach { (id, d) -> list.add(CompoundTag().also { c -> c.putString("Id", id); c.putString("From", d.from); c.putString("To", d.to); c.putString("Reason", d.reason); c.putBoolean("Provisional", d.provisional); c.putInt("Tries", d.tries); c.putBoolean("Estimated", d.estimated) }) }
         })
         return tag
     }
@@ -282,7 +316,10 @@ class RoadPlanStorage : SavedData() {
         tag.getList("Roads", Tag.TAG_COMPOUND.toInt()).forEach { t -> PlannedRoad.fromTag(t as CompoundTag)?.let { roads[it.id] = it } }
         tag.getList("Junctions", Tag.TAG_COMPOUND.toInt()).forEach { t -> PlannedJunction.fromTag(t as CompoundTag)?.let { junctions.add(it) } }
         tag.getList("Dropped", Tag.TAG_STRING.toInt()).forEach { droppedRoutes.add(it.asString) }
-        tag.getList("DroppedDetails", Tag.TAG_COMPOUND.toInt()).forEach { t -> val c = t as CompoundTag; droppedDetails[c.getString("Id")] = DroppedInfo(c.getString("From"), c.getString("To"), c.getString("Reason"), c.getBoolean("Provisional"), c.getInt("Tries")) }
+        tag.getList("DroppedDetails", Tag.TAG_COMPOUND.toInt()).forEach { t -> val c = t as CompoundTag; droppedDetails[c.getString("Id")] = DroppedInfo(c.getString("From"), c.getString("To"), c.getString("Reason"), c.getBoolean("Provisional"), c.getInt("Tries"), if (c.contains("Estimated")) c.getBoolean("Estimated") else c.getBoolean("Provisional")) }
+        // Details used to outlive the drop: a pair that got its road later kept its entry, and the status
+        // line counted it. Whatever has a road is not dropped.
+        droppedDetails.keys.retainAll { it !in roads }
         val d = tag.getCompound("Discovered")
         for (key in d.allKeys) {
             val dim = ResourceLocation.tryParse(key) ?: continue

@@ -6,6 +6,7 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import java.util.PriorityQueue
 import kotlin.math.abs
 import kotlin.math.min
+import kotlin.math.ceil
 import kotlin.math.sqrt
 
 /** What a step costs. Loaded from `data/postroad/roads/planner.json` ([PlannerRules]); these are the defaults. */
@@ -65,6 +66,17 @@ data class PlannerCosts(
     val maxExpansions: Int = 2_000_000,
     /** A route with more consecutive water cells than this is dropped: no road between islands until bridges exist. */
     val maxWaterRun: Int = 6,
+    /**
+     * A pair is not linked when the roads already there connect its towns within this many times their
+     * straight distance (through other towns' streets too): a road that saves little is clutter. 0: every pair.
+     */
+    val detour: Double = 1.4,
+    /**
+     * Half the corridor's width in blocks: room for an obstacle box and its margin without walling the
+     * corridor off. The corridor is what the fine search may use, so a narrow one is cheaper to plan but
+     * leaves the route less room to bend around what the coarse map could not see.
+     */
+    val corridorHalf: Int = 24,
 )
 
 /** One class of height change per cell: its name, the largest change it covers, and what it costs per cell. */
@@ -89,8 +101,13 @@ data class Town(val id: String, val cell: Cell, val exits: List<Cell> = emptyLis
 /** One planned road: the cells it runs over, in order, and the towns it links. */
 data class PlannedRoute(val id: String, val from: Town, val to: Town, val cells: List<Cell>)
 
-/** A place where a route joined an existing road: the cell and the ids of the two routes. */
-data class Junction(val cell: Cell, val joinedRoute: String, val joiningRoute: String)
+/**
+ * A place where a route joined an existing road: the cell and the ids of the two routes. [fork] when the
+ * roads actually part there — three or more arms leave the cell. A route that merges into a road and
+ * runs along it, or picks up where a road ends, makes a junction (the travel graph needs the link) but
+ * no fork, and so no signpost: a sign at a place where nothing branches only says the road goes on.
+ */
+data class Junction(val cell: Cell, val joinedRoute: String, val joiningRoute: String, val fork: Boolean = true)
 
 /** Routes in planning order and the junctions between them. */
 /**
@@ -224,6 +241,9 @@ object RoadPlanner {
 
     /** How far (blocks) an endpoint may be moved to leave a town's box and reach the corridor: past any village's half-width. */
     const val ENDPOINT_REACH = 160
+
+    /** Cells a street exit may be moved to the nearest open ground; beyond that the exit is not a road end. */
+    const val EXIT_RING = 3
 
     /**
      * The cell itself if passable, else the first passable cell walking from it toward [toward] (a town
@@ -393,7 +413,7 @@ object RoadPlanner {
         val cs = endpoints(coarse, ca, cb.cell) ?: run { lastFailure.set("coarse: no passable cell within reach of ${a.id}'s exits"); return null }
         val cg = endpoints(coarse, cb, ca.cell) ?: run { lastFailure.set("coarse: no passable cell within reach of ${b.id}'s exits"); return null }
         val coarsePath = search(coarse, cs, cg, costs.copy(heuristicWeight = costs.reuseFactor), ratio.toDouble()) ?: run { lastFailure.set("coarse: " + lastFailure.get()); return null }
-        val allowed = corridor(coarse, coarsePath, listOf(ca.cell to a.reach, cb.cell to b.reach), ratio)
+        val allowed = corridor(coarse, coarsePath, listOf(ca.cell to a.reach, cb.cell to b.reach), ratio, costs.corridorHalf)
         lastCorridor.set(allowed.map { Cell.of(it) })
         return search(CorridorTerrain(fine, ratio, allowed), starts, goals, costs, 1.0, freeTurns)?.let { withStubs(it, startEnds, goalEnds) }
     }
@@ -408,14 +428,24 @@ object RoadPlanner {
      */
     private fun ends(terrain: Terrain, town: Town, toward: Cell): List<End>? {
         val out = ArrayList<End>()
-        val cells = if (town.exits.isEmpty()) listOf(town.cell) else town.exits
-        for ((i, e) in cells.withIndex()) {
+        if (town.exits.isEmpty()) {
+            // No street data: the town is its box, and the road leaves it on the side facing the neighbour —
+            // but never further than the box and its margin, which is what [Town.reach] measures (as far as
+            // its corner, since the walk toward a diagonal neighbour meets the box's edge later than its side).
+            resolveEndpoint(terrain, town.cell, maxRing = maxOf(1, ceil(town.reach * SQRT2).toInt() + 1), toward = toward)?.let { out.add(End(it, null, null)) }
+            return out.ifEmpty { null }
+        }
+        for ((i, e) in town.exits.withIndex()) {
             val f = town.facings.getOrNull(i)
             if (f != null) {
                 val outside = Cell(e.x + f.dx, e.z + f.dz)
                 if (passable(terrain, outside.x, outside.z) && passable(terrain, e.x, e.z)) { out.add(End(outside, e, f)); continue }
             }
-            resolveEndpoint(terrain, e, toward = toward)?.let { out.add(End(it, null, null)) }
+            // A street that cannot be entered on its axis is still a road end when there is open ground
+            // right beside it. Not further: an exit used to walk up to ENDPOINT_REACH blocks toward the
+            // neighbour when its own cell was shut, through the village and out the far side, and the
+            // road then ended in a field with the village nowhere in sight.
+            resolveEndpoint(terrain, e, maxRing = EXIT_RING)?.let { out.add(End(it, null, null)) }
         }
         val seen = HashSet<Cell>()
         return out.filter { seen.add(it.goal) }.ifEmpty { null }
@@ -443,13 +473,13 @@ object RoadPlanner {
     }
 
     /**
-     * The corridor on the coarse map: [CORRIDOR_HALF] blocks either side of [path], whatever the coarse cell
+     * The corridor on the coarse map: [corridorHalf] blocks either side of [path], whatever the coarse cell
      * is, plus a disc around each of [discs] (a cell and a reach in fine cells) — each town's whole box, so
      * a route can get from an exit inside it to the corridor outside.
      */
-    private fun corridor(coarse: Terrain, path: List<Cell>, discs: List<Pair<Cell, Int>>, ratio: Int): LongOpenHashSet {
+    private fun corridor(coarse: Terrain, path: List<Cell>, discs: List<Pair<Cell, Int>>, ratio: Int, corridorHalf: Int): LongOpenHashSet {
         val allowed = LongOpenHashSet()
-        val half = maxOf(1, Math.ceilDiv(CORRIDOR_HALF, coarse.cellSize))
+        val half = maxOf(1, Math.ceilDiv(corridorHalf, coarse.cellSize))
         for (c in path) for (dz in -half..half) for (dx in -half..half) allowed.add(Terrain.key(c.x + dx, c.z + dz))
         for ((c, reach) in discs) {
             val r = half + Math.ceilDiv(reach, ratio)
@@ -467,11 +497,11 @@ object RoadPlanner {
         val cf = Cell(Math.floorDiv(from.x, ratio), Math.floorDiv(from.z, ratio))
         val ct = Cell(Math.floorDiv(to.x, ratio), Math.floorDiv(to.z, ratio))
         val coarsePath = route(coarse, cf, ct, costs.copy(heuristicWeight = costs.reuseFactor), slopeDivisor = ratio.toDouble()) ?: run { lastFailure.set("coarse: " + lastFailure.get()); return null }
-        val allowed = corridor(coarse, coarsePath, listOf(cf to fromReach, ct to toReach), ratio)
+        val allowed = corridor(coarse, coarsePath, listOf(cf to fromReach, ct to toReach), ratio, costs.corridorHalf)
         return route(CorridorTerrain(fine, ratio, allowed), from, to, costs, freeTurns = freeTurns)
     }
 
-    /** Half the corridor's width in blocks: room for an obstacle box and its margin without walling the corridor off. */
+    /** Half the corridor's width in blocks when no rules file says otherwise (`planner.json`, `corridorHalf`). */
     const val CORRIDOR_HALF = 24
 
     /**
@@ -509,11 +539,14 @@ object RoadPlanner {
                 .take(neighbours)
                 .forEach { (j, _) -> pairs.add(if (i < j) i to j else j to i) }
         }
-        // Longest pairs first: trunks exist before the spurs that join them.
-        val ordered = pairs.sortedByDescending { (i, j) -> towns[i].cell.distanceTo(towns[j].cell) }
+        // Shortest pairs first, so a longer pair can find itself already served by a chain of shorter
+        // roads (costs.detour) and not be built; a long pair that is built still rides the short roads.
+        val ordered = pairs.sortedBy { (i, j) -> towns[i].cell.distanceTo(towns[j].cell) }
 
         val owner = HashMap<Cell, String>() // road cell → id of the route that owns it
+        val cellsOf = HashMap<String, List<Cell>>() // route id → its cells in order, for the arms at a junction
         for (route in existing) {
+            cellsOf[route.id] = route.cells
             for (cell in route.cells) {
                 if (owner.putIfAbsent(cell, route.id) == null) markRoad(cell)
             }
@@ -524,9 +557,19 @@ object RoadPlanner {
         val routes = ArrayList<PlannedRoute>()
         val junctions = ArrayList<Junction>()
         val dropped = ArrayList<DroppedPair>()
+        val served = ArrayList<PlannedRoute>(existing)
         for ((i, j) in ordered) {
             val id = routeId(towns[i].id, towns[j].id)
             if (id in known) continue
+            if (costs.detour > 0) {
+                val straight = towns[i].cell.distanceTo(towns[j].cell)
+                val via = networkDistance(served, towns[i].id, towns[j].id, straight * costs.detour)
+                if (via != null) {
+                    io.github.veelume.postroad.Postroad.LOGGER.info("Pair {} ({} -> {}) not linked: the roads there connect them in {} cells, {} straight",
+                        id, towns[i].id, towns[j].id, via.toInt(), straight.toInt())
+                    known.add(id); continue
+                }
+            }
             val raw = routeTowns(terrain, coarse, ratio, towns[i], towns[j], costs)
             if (raw == null) {
                 io.github.veelume.postroad.Postroad.LOGGER.info("Pair {} ({} -> {}) unreachable: {}", id, towns[i].id, towns[j].id, lastFailure.get())
@@ -550,18 +593,59 @@ object RoadPlanner {
             for ((k, cell) in cells.withIndex()) {
                 val current = owner[cell]
                 if (k > 0 && k < cells.size - 1) {
-                    if (current != null && previousOwner == null) addJunction(junctions, cell, current, id)
-                    if (current == null && previousOwner != null && k > 1) addJunction(junctions, cells[k - 1], previousOwner, id)
+                    if (current != null && previousOwner == null) addJunction(junctions, cell, current, id, fork = isFork(cellsOf[current], cell, cells, k, owner, current))
+                    if (current == null && previousOwner != null && k > 1) addJunction(junctions, cells[k - 1], previousOwner, id, fork = isFork(cellsOf[previousOwner], cells[k - 1], cells, k - 1, owner, previousOwner))
                 }
                 previousOwner = current
             }
+            cellsOf[id] = cells
             for (cell in cells) {
                 if (owner.putIfAbsent(cell, id) == null) markRoad(cell)
             }
             routes.add(PlannedRoute(id, towns[i], towns[j], cells))
+            served.add(routes.last())
             known.add(id)
         }
         return RoadPlan(routes, junctions, dropped)
+    }
+
+    /**
+     * Length in cells of the shortest way from town [from] to town [to] over [routes], or null when there is
+     * none within [limit]. A route is walked along its cells; routes meet where they share a cell; a town
+     * joins the ends of every route that reaches it, at the straight distance between those ends (its own
+     * streets).
+     */
+    fun networkDistance(routes: List<PlannedRoute>, from: String, to: String, limit: Double): Double? {
+        val ends = HashMap<String, MutableSet<Cell>>()
+        val next = HashMap<Cell, MutableList<Cell>>()
+        for (r in routes) {
+            if (r.cells.isEmpty()) continue
+            ends.getOrPut(r.from.id) { HashSet() }.add(r.cells.first())
+            ends.getOrPut(r.to.id) { HashSet() }.add(r.cells.last())
+            for (k in 1 until r.cells.size) {
+                next.getOrPut(r.cells[k - 1]) { ArrayList() }.add(r.cells[k])
+                next.getOrPut(r.cells[k]) { ArrayList() }.add(r.cells[k - 1])
+            }
+        }
+        val starts = ends[from] ?: return null
+        val targets = ends[to] ?: return null
+        // A town's road ends, by cell, for the hop through its streets.
+        val hubs = HashMap<Cell, MutableList<Cell>>()
+        for (set in ends.values) for (a in set) for (b in set) if (a != b) hubs.getOrPut(a) { ArrayList() }.add(b)
+        val dist = HashMap<Cell, Double>()
+        val queue = java.util.PriorityQueue<Pair<Double, Cell>>(compareBy { it.first })
+        for (s in starts) { dist[s] = 0.0; queue.add(0.0 to s) }
+        while (queue.isNotEmpty()) {
+            val (d, c) = queue.poll()
+            if (d > limit) return null
+            if (d > (dist[c] ?: Double.MAX_VALUE)) continue
+            if (c in targets) return d
+            for (n in (next[c] ?: emptyList<Cell>()) + (hubs[c] ?: emptyList())) {
+                val nd = d + c.distanceTo(n)
+                if (nd < (dist[n] ?: Double.MAX_VALUE)) { dist[n] = nd; queue.add(nd to n) }
+            }
+        }
+        return null
     }
 
     /** The cells on the straight line from [a] to [b], one per step of the longer axis. */
@@ -667,8 +751,25 @@ object RoadPlanner {
         return best
     }
 
-    private fun addJunction(junctions: MutableList<Junction>, cell: Cell, joined: String, joining: String) {
-        if (junctions.none { it.cell == cell }) junctions.add(Junction(cell, joined, joining))
+    private fun addJunction(junctions: MutableList<Junction>, cell: Cell, joined: String, joining: String, fork: Boolean) {
+        if (junctions.none { it.cell == cell }) junctions.add(Junction(cell, joined, joining, fork))
+    }
+
+    /**
+     * Whether the roads part at [cell]: the arms are the road's own neighbours in its sequence there (one at
+     * its end, two inside) plus the route's neighbours at index [k] that the road does not own. Two arms is a
+     * road going on — a route merging in at the road's end, or leaving where the road stops.
+     */
+    private fun isFork(road: List<Cell>?, cell: Cell, route: List<Cell>, k: Int, owner: Map<Cell, String>, roadId: String): Boolean {
+        if (road == null) return true
+        val idx = road.indexOf(cell)
+        if (idx < 0) return true
+        var arms = 0
+        if (idx > 0) arms++
+        if (idx < road.size - 1) arms++
+        if (k > 0 && owner[route[k - 1]] != roadId) arms++
+        if (k < route.size - 1 && owner[route[k + 1]] != roadId) arms++
+        return arms >= 3
     }
 
     /** Cells of route [routeIndex] that no earlier route in [plan] owns — the part that is actually new road. */

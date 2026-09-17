@@ -30,5 +30,7 @@
   "ascent": 1.0,
   "heuristicWeight": 0.5,
   "maxExpansions": 600000,
-  "maxWaterRun": 6
+  "maxWaterRun": 6,
+  "detour": 1.4,
+  "corridorHalf": 24
 }

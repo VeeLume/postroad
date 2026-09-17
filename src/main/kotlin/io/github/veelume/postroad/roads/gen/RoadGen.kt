@@ -45,8 +45,8 @@ object RoadGen {
      * exactly where the real ground would put it. The corridor has to be wide enough to hold that
      * difference, or the replan finds no route on real terrain and the pair is dropped.
      */
-    const val CORRIDOR_CHUNKS = 3
-    const val MAX_REPLANS = 2
+    /** `plan.corridorChunks`: chunks either side of a provisional road that are generated before it is planned again. */
+    private val corridorChunks: Int get() = PostroadConfig.planCorridorChunks
     /**
      * Half-width in blocks of the diamond opened for a dropped pair, multiplied by the try.
      *
@@ -57,6 +57,13 @@ object RoadGen {
     const val DROP_RETRY_HALF = 64
     /** How many times a dropped pair is tried again, each with a wider diamond than the last. */
     const val MAX_DROP_TRIES = 3
+
+    /**
+     * Tries in all for a pair dropped on estimated ground: the corridor tries above, then one more each
+     * time a pass finds the ground between its towns real (players going there generate it). The pair is
+     * final once a search fails on ground that is all real, or once these are spent.
+     */
+    const val MAX_DROP_TRIES_KNOWN = 6
     /** Clearance around a village piece (a house) when pieces are known. */
     const val PIECE_MARGIN = 2
     /** Widest a plan picture gets before a pixel starts standing for more than one cell. */
@@ -97,9 +104,16 @@ object RoadGen {
          * so can only produce a road that stands on ground the world has.
          */
         val realTerrainOnly: Boolean = false,
+        /**
+         * Dropped pairs whose last judgement rested on estimated ground and whose corridor tries are spent,
+         * by id → the two town ids. The pass plans one again when the line between its towns is real now.
+         */
+        val retryKnown: Map<String, Pair<String, String>> = emptyMap(),
+        /** The pit stops that stand: new roads keep out of their middle (the road they stand by is not replanned). */
+        val stops: List<net.minecraft.world.level.levelgen.structure.BoundingBox> = emptyList(),
     )
 
-    class JunctionResult(val pos: BlockPos, val joinedRoad: String, val joinedIndex: Int, val joiningRoad: String, val joiningIndex: Int)
+    class JunctionResult(val pos: BlockPos, val joinedRoad: String, val joinedIndex: Int, val joiningRoad: String, val joiningIndex: Int, val fork: Boolean = true)
 
     class PassResult(
         val dimension: ResourceLocation,
@@ -120,6 +134,8 @@ object RoadGen {
         val chunksChecked: Int = 0,
         val coarseTilesSampled: Int = 0,
         val dropped: List<DroppedPair> = emptyList(),
+        /** Pairs from [PassRequest.retryKnown] this pass planned again because their ground had become real. */
+        val retriedKnown: Set<String> = emptySet(),
     )
 
     /** The worker's view of one dimension; only the planner thread touches it after creation. */
@@ -204,9 +220,9 @@ object RoadGen {
         val dim = level.dimension().location()
         var n = 0
         for (road in storage.roadsIn(dim)) {
-            if (!road.provisional || road.replans >= MAX_REPLANS) continue
+            if (!road.provisional || road.replans >= PostroadConfig.planMaxReplans) continue
             val chunks = LongOpenHashSet()
-            for (p in road.points) for (dz in -CORRIDOR_CHUNKS..CORRIDOR_CHUNKS) for (dx in -CORRIDOR_CHUNKS..CORRIDOR_CHUNKS) chunks.add(ChunkPos.asLong((p.x shr 4) + dx, (p.z shr 4) + dz))
+            for (p in road.points) for (dz in -corridorChunks..corridorChunks) for (dx in -corridorChunks..corridorChunks) chunks.add(ChunkPos.asLong((p.x shr 4) + dx, (p.z shr 4) + dz))
             pendingCorridors[road.id] = chunks
             ChunkPregen.request(dim, chunks) { ok, failed -> corridorDone(server, dim, road.id, ok, failed) }
             n++
@@ -215,7 +231,7 @@ object RoadGen {
         // Provisional dropped pairs: their corridors are not kept across sessions; the next pass simply plans
         // them again (and drops them again with a corridor if the terrain is still estimated).
         var m = 0
-        for ((id, info) in storage.droppedDetails) if (info.provisional && info.tries < MAX_REPLANS && storage.retryDropped(id)) m++
+        for ((id, info) in storage.droppedDetails) if (info.provisional && info.tries < PostroadConfig.planMaxReplans && storage.retryDropped(id)) m++
         if (m > 0) Postroad.LOGGER.info("Resuming {} provisional dropped pair(s): planned again by the next pass", m)
     }
 
@@ -337,8 +353,12 @@ object RoadGen {
             knownTowns = storage.townsIn(dimension),
             knownRoads = storage.roadsIn(dimension).filter { it.id !in replace },
             knownObstacles = storage.obstaclesIn(dimension),
-            passable = level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE).getTag(TownFinder.PASSABLE)
-                .map { set -> set.mapNotNull { h -> h.unwrapKey().orElse(null)?.location() }.toSet() }.orElse(emptySet()),
+            stops = storage.townsIn(dimension).mapNotNull { it.stop },
+            // Passable structures, and towns stored as obstacles before the towns tag knew them, block nothing.
+            passable = listOf(TownFinder.PASSABLE, TownFinder.TOWNS).flatMapTo(HashSet()) { tag ->
+                level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE).getTag(tag)
+                    .map { set -> set.mapNotNull { h -> h.unwrapKey().orElse(null)?.location() } }.orElse(emptyList())
+            },
             discovered = LongOpenHashSet(storage.discovered[dimension] ?: LongOpenHashSet()),
             discoverTowns = discoverTowns,
             dropped = HashSet(storage.droppedRoutes),
@@ -346,6 +366,8 @@ object RoadGen {
             replace = replace,
             include = replace.flatMapTo(HashSet()) { id -> storage.roads[id]?.let { listOf(it.from, it.to) } ?: emptyList() },
             realTerrainOnly = realTerrainOnly,
+            retryKnown = storage.droppedDetails.filter { (id, d) -> id in storage.droppedRoutes && d.estimated && !d.provisional && d.tries < MAX_DROP_TRIES_KNOWN }
+                .mapValues { (_, d) -> d.from to d.to },
         )
     }
 
@@ -427,6 +449,12 @@ object RoadGen {
             val cmax = coarse.blockToCell(b.maxX() + req.margin, b.maxZ() + req.margin)
             coarse.block(CellBox(cmin.x, cmin.z, cmax.x, cmax.z))
         }
+        // Pit stops: only the cells wholly inside one, so a road still reaches the street exit beside it.
+        for (b in req.stops) {
+            val min = terrain.blockToCell(b.minX() + terrain.cellSize - 1, b.minZ() + terrain.cellSize - 1)
+            val max = terrain.blockToCell(b.maxX() - terrain.cellSize + 1, b.maxZ() - terrain.cellSize + 1)
+            if (min.x <= max.x && min.z <= max.z) terrain.block(CellBox(min.x, min.z, max.x, max.z))
+        }
         val allTowns = req.knownTowns + newTowns
         for (town in allTowns) for (b in town.footprint) {
             // Pieces when known (streets stay open), the whole box otherwise; the margin shrinks with pieces.
@@ -453,7 +481,18 @@ object RoadGen {
             if (!road.provisional) for ((i, c) in cells.withIndex()) terrain.setHeight(c.x, c.z, road.points[i].y)
             PlannedRoute(road.id, townById[road.from] ?: Town(road.from, cells.first()), townById[road.to] ?: Town(road.to, cells.last()), cells)
         }
-        val plan = RoadPlanner.planNetwork(terrain, towns, req.costs, req.neighbours, req.maxLink.toDouble() / CELL_SIZE, existing, coarse, COARSE_CELL / CELL_SIZE, req.dropped, req.realTerrainOnly)
+        // A pair dropped for want of ground is tried again once the ground between its towns is real: the
+        // line between them is the cheapest test of that, and a false positive only costs one more search.
+        val retriedKnown = HashSet<String>()
+        for ((id, ends) in req.retryKnown) {
+            val a = townById[ends.first] ?: continue
+            val b = townById[ends.second] ?: continue
+            if (RoadPlanner.lineCells(a.cell, b.cell).any { !terrain.inBounds(it.x, it.z) || terrain.has(it.x, it.z, Terrain.ESTIMATED) }) continue
+            retriedKnown.add(id)
+            Postroad.LOGGER.info("Dropped pair {} ({} -> {}): the ground between its towns is real now, planning again", id, ends.first, ends.second)
+        }
+        val skip = if (retriedKnown.isEmpty()) req.dropped else req.dropped - retriedKnown
+        val plan = RoadPlanner.planNetwork(terrain, towns, req.costs, req.neighbours, req.maxLink.toDouble() / CELL_SIZE, existing, coarse, COARSE_CELL / CELL_SIZE, skip, req.realTerrainOnly)
 
         // 4. Back to blocks. A route over any estimated cell is provisional: its corridor is generated
         //    and the route planned again on the real terrain.
@@ -487,7 +526,7 @@ object RoadGen {
                 val chunks = LongOpenHashSet()
                 for (c in route.cells) {
                     val b = terrain.cellToBlock(c.x, c.z)
-                    for (dz in -CORRIDOR_CHUNKS..CORRIDOR_CHUNKS) for (dx in -CORRIDOR_CHUNKS..CORRIDOR_CHUNKS) chunks.add(ChunkPos.asLong((b.x shr 4) + dx, (b.z shr 4) + dz))
+                    for (dz in -corridorChunks..corridorChunks) for (dx in -corridorChunks..corridorChunks) chunks.add(ChunkPos.asLong((b.x shr 4) + dx, (b.z shr 4) + dz))
                 }
                 corridors[road.id] = chunks
             }
@@ -500,7 +539,7 @@ object RoadGen {
             val joined = cellsOf[j.joinedRoute]?.indexOf(j.cell) ?: -1
             val joining = cellsOf[j.joiningRoute]?.indexOf(j.cell) ?: -1
             if (joined < 0 || joining < 0) null
-            else JunctionResult(terrain.cellToBlock(j.cell.x, j.cell.z), j.joinedRoute, joined, j.joiningRoute, joining)
+            else JunctionResult(terrain.cellToBlock(j.cell.x, j.cell.z), j.joinedRoute, joined, j.joiningRoute, joining, j.fork)
         }
         // Corridors of the provisional dropped pairs, in chunks: a water drop's route with the usual margin, an
         // unreachable pair's coarse corridor.
@@ -510,7 +549,7 @@ object RoadGen {
             val chunks = LongOpenHashSet()
             for (c in d.cells) {
                 val b = terrain.cellToBlock(c.x, c.z)
-                for (dz in -CORRIDOR_CHUNKS..CORRIDOR_CHUNKS) for (dx in -CORRIDOR_CHUNKS..CORRIDOR_CHUNKS) chunks.add(ChunkPos.asLong((b.x shr 4) + dx, (b.z shr 4) + dz))
+                for (dz in -corridorChunks..corridorChunks) for (dx in -corridorChunks..corridorChunks) chunks.add(ChunkPos.asLong((b.x shr 4) + dx, (b.z shr 4) + dz))
             }
             for (c in d.corridor) {
                 val x0 = c.x * COARSE_CELL; val z0 = c.z * COARSE_CELL
@@ -519,7 +558,7 @@ object RoadGen {
             droppedCorridors[d.id] = chunks
         }
         return PassResult(req.dimension, req.center, newTowns, newRoads, newObstacles, corridors, req.replace, newJunctions, discoveredNow, droppedCorridors,
-            (System.nanoTime() - t0) / 1_000_000, worker.sampler.sampled - sampledBefore, discoverMillis, chunksChecked, worker.coarseSampler.sampled - coarseBefore, plan.dropped)
+            (System.nanoTime() - t0) / 1_000_000, worker.sampler.sampled - sampledBefore, discoverMillis, chunksChecked, worker.coarseSampler.sampled - coarseBefore, plan.dropped, retriedKnown)
     }
 
     // ---- applying results (server thread) ------------------------------------------------------
@@ -582,6 +621,7 @@ object RoadGen {
             if (storage.roads.containsKey(road.id)) continue
             added.add(road.id)
             storage.addRoad(road)
+            storage.clearDropped(road.id)
             network.addPath(RoadPath(road.id, road.dimension, road.points.toMutableList(), MutableList(road.points.size) { Tier.PAVED },
                 GENERATED_BY, day, charted = false))
             RoadBuilder.enqueueLoaded(level, road)
@@ -598,7 +638,7 @@ object RoadGen {
         }
         for (j in result.newJunctions) {
             if (network.paths[j.joinedRoad] == null || network.paths[j.joiningRoad] == null) continue
-            if (!storage.addJunction(PlannedJunction(result.dimension, j.pos, j.joinedRoad, j.joiningRoad))) continue
+            if (!storage.addJunction(PlannedJunction(result.dimension, j.pos, j.joinedRoad, j.joiningRoad, j.fork))) continue
             network.addLink(PathLink(j.joiningRoad, j.joiningIndex, j.joinedRoad, j.joinedIndex))
             junctions++
         }
@@ -608,8 +648,10 @@ object RoadGen {
         storage.markDiscovered(result.dimension, result.discovered)
         // Dropped pairs judged on estimated terrain are provisional: generate what they searched, plan them again.
         val droppedInfo = LinkedHashMap<String, RoadPlanStorage.DroppedInfo>()
-        for (d in result.dropped) droppedInfo[d.id] = RoadPlanStorage.DroppedInfo(d.from.id, d.to.id, d.reason, provisional = d.estimated && (storage.droppedDetails[d.id]?.tries ?: 0) < MAX_DROP_TRIES)
+        for (d in result.dropped) droppedInfo[d.id] = RoadPlanStorage.DroppedInfo(d.from.id, d.to.id, d.reason, provisional = d.estimated && (storage.droppedDetails[d.id]?.tries ?: 0) < MAX_DROP_TRIES, estimated = d.estimated)
         storage.markDropped(droppedInfo)
+        // A pair planned again on real ground and dropped again spends a try, so it does not come back every pass.
+        for (id in result.retriedKnown) storage.droppedDetails[id]?.takeIf { id in droppedInfo }?.let { it.tries++; storage.setDirty() }
         if (PostroadConfig.planPregenInFlight > 0) for (d in result.dropped) {
             if (droppedInfo[d.id]?.provisional != true) continue
             val chunks = LongOpenHashSet(result.droppedCorridors[d.id] ?: LongOpenHashSet())
@@ -736,7 +778,7 @@ object RoadGen {
             RoadBuilder.enqueueLoaded(level, road)
             return
         }
-        if (road.replans >= MAX_REPLANS) {
+        if (road.replans >= PostroadConfig.planMaxReplans) {
             // Tried often enough and the ground still will not take it. Keeping it would mean laying
             // estimates, so the pair goes instead and a later pass may find it once more ground exists.
             storage.removeRoad(road.id)

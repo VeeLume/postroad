@@ -3,7 +3,6 @@ package io.github.veelume.postroad.roads.gen
 import io.github.veelume.postroad.Postroad
 import io.github.veelume.postroad.PostroadConfig
 import io.github.veelume.postroad.network.Network
-import io.github.veelume.postroad.roads.RoadNode
 import io.github.veelume.postroad.roads.Tier
 import io.github.veelume.postroad.travel.SignNodes
 import io.github.veelume.postroad.travel.SignWriter
@@ -26,7 +25,9 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import java.util.Random
 import java.util.concurrent.ConcurrentLinkedQueue
+import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -44,7 +45,9 @@ object RoadBuilder {
     private class Job(val dimension: ResourceLocation, val chunk: Long) {
         /** Road blocks laid in this chunk's job, protected from the clearing of later pieces. */
         val protect = HashSet<Long>()
-        /** Resume point: which road of the chunk's list and which point of it comes next. */
+        /** The chunk's road ids, fixed when the job starts. */
+        var roadIds: List<String>? = null
+        /** Resume point: which road of [roadIds] and which point of it comes next. */
         var roadIndex = 0
         var pointIndex = 0
         var startedAt = 0L
@@ -81,6 +84,7 @@ object RoadBuilder {
         val server = event.server
         if (!PostroadConfig.planEnabled || RoadGen.planningPaused) { candidates.clear(); return }
         val storage = RoadPlanStorage.get(server)
+        sweep(server, storage)
         // Filter candidates against the plan; most loaded chunks carry no road.
         var taken = 0
         while (taken < 256) {
@@ -120,16 +124,40 @@ object RoadBuilder {
 
     private fun needsWork(storage: RoadPlanStorage, job: Job): Boolean =
         storage.roadsInChunk(job.dimension, job.chunk).any { !it.provisional && !it.builtChunks.contains(job.chunk) } ||
-            storage.junctions.any { !it.signPlaced && it.dimension == job.dimension && ChunkPos.asLong(it.pos.x shr 4, it.pos.z shr 4) == job.chunk }
+            storage.junctions.any { it.fork && !it.signPlaced && it.dimension == job.dimension && ChunkPos.asLong(it.pos.x shr 4, it.pos.z shr 4) == job.chunk } ||
+            PitStops.pending(storage, job.dimension, job.chunk)
 
     /** Queues every already-loaded chunk of [road]; called when a plan lands after the chunks did. */
     fun enqueueLoaded(level: ServerLevel, road: PlannedRoad) {
         val dim = level.dimension().location()
         for (c in road.chunks()) {
-            if (road.builtChunks.contains(c)) continue
-            if (level.hasChunk(ChunkPos.getX(c), ChunkPos.getZ(c))) offer(Job(dim, c))
+            if (!level.hasChunk(ChunkPos.getX(c), ChunkPos.getZ(c))) continue
+            // A built chunk may still owe a junction sign or a pit stop; the tick filter decides.
+            if (road.builtChunks.contains(c)) candidates.add(Job(dim, c)) else offer(Job(dim, c))
         }
     }
+
+    private var sweepIn = 0
+
+    /**
+     * Signs and stops are built when a chunk loads. A junction or a stop that becomes due while its chunk
+     * is already loaded (a later pass joined a built road, a town became settled) would wait for the next
+     * load, so every `build.sweepSeconds` the loaded chunks that owe one are offered again.
+     */
+    private fun sweep(server: MinecraftServer, storage: RoadPlanStorage) {
+        if (--sweepIn > 0) return
+        sweepIn = PostroadConfig.buildSweepTicks
+        val due = HashSet<Pair<ResourceLocation, Long>>()
+        for (j in storage.junctions) if (j.fork && !j.signPlaced) due.add(j.dimension to ChunkPos.asLong(j.pos.x shr 4, j.pos.z shr 4))
+        due.addAll(PitStops.dueChunks(storage))
+        // Road chunks a final road still owes: a job that ended early, a chunk that loaded while the road was provisional.
+        for (road in storage.roads.values) if (!road.provisional) for (c in road.chunks()) if (!road.builtChunks.contains(c)) due.add(road.dimension to c)
+        for ((dim, c) in due) {
+            val level = server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, dim)) ?: continue
+            if (level.hasChunk(ChunkPos.getX(c), ChunkPos.getZ(c))) candidates.add(Job(dim, c))
+        }
+    }
+
 
     /**
      * `/postroad roads showcase`: every catalog piece laid as authored on its own stone platform in
@@ -268,9 +296,11 @@ object RoadBuilder {
         val chunk = job.chunk
         val styles = RoadStyles.current
         val boxes = storage.townsIn(dim).flatMap { it.footprint }
-        val roads = storage.roadsInChunk(dim, chunk)
-        while (job.roadIndex < roads.size) {
-            val road = roads[job.roadIndex]
+        // The chunk's roads as they were when the job began: a road added or swapped in meanwhile would shift
+        // the resume index past one still to build. Later roads are the next job's (the sweep offers them).
+        val ids = job.roadIds ?: storage.roadsInChunk(dim, chunk).map { it.id }.also { job.roadIds = it }
+        while (job.roadIndex < ids.size) {
+            val road = storage.roads[ids[job.roadIndex]] ?: run { job.roadIndex++; job.pointIndex = 0; null } ?: continue
             // Provisional roads wait for their replan; they are queued again when they turn final.
             if (road.provisional || road.builtChunks.contains(chunk)) { job.roadIndex++; job.pointIndex = 0; continue }
             val next = buildRoadInChunk(level, road, chunk, styles, boxes, job, deadline)
@@ -280,12 +310,29 @@ object RoadBuilder {
             job.roadIndex++; job.pointIndex = 0
         }
         for (junction in storage.junctions) {
-            if (junction.signPlaced || junction.dimension != dim) continue
+            // Only where the roads part: a merge links two paths but has nothing to point at.
+            if (junction.signPlaced || !junction.fork || junction.dimension != dim) continue
             if (ChunkPos.asLong(junction.pos.x shr 4, junction.pos.z shr 4) != chunk) continue
-            job.blocks += placeJunctionSign(level, storage, junction, styles, boxes)
-            junction.signPlaced = true
+            // Forks a few blocks apart are one place on the ground: one signpost for all of them, and none
+            // beside a post one of them already has.
+            fun close(p: BlockPos) = abs(p.x - junction.pos.x) <= PostroadConfig.buildJunctionMerge && abs(p.z - junction.pos.z) <= PostroadConfig.buildJunctionMerge
+            val cluster = storage.junctions.filter { it.dimension == dim && it.fork && !it.signPlaced && close(it.pos) }
+            // Signed already: a junction post nearby (a road-end post does not count; it gives way below).
+            val endPosts = storage.roadsIn(dim).flatMap { it.endPosts.values }.toSet()
+            val signed = Network.get(level.server).nodes.values.any { n ->
+                n.kind == io.github.veelume.postroad.roads.RoadNode.KIND_SIGN && n.dimension == dim && close(n.pos) &&
+                    endPosts.none { it.x == n.pos.x && it.z == n.pos.z }
+            }
+            if (!signed) {
+                val n = placeJunctionSign(level, storage, junction, cluster, styles, boxes)
+                // A road-end post put up before this fork existed repeats what the fork's sign now says.
+                if (n > 0) PitStops.removeEndPostsNear(level, storage, junction.pos)
+                job.blocks += n
+            }
+            cluster.forEach { it.signPlaced = true }
             storage.setDirty()
         }
+        job.blocks += PitStops.build(level, storage, chunk, styles, boxes)
         if (job.blocks > 0) { chunksBuilt++; blocksPlaced += job.blocks }
         return true
     }
@@ -355,58 +402,151 @@ object RoadBuilder {
     private const val SCAN = 16
 
     /**
-     * A signpost one block off the joined road at the junction: the family's post with a way sign
-     * on it (Supplementaries' if present, else a plain sign). Registered as a sign node on the
-     * joined road; arms point at the road's two towns.
+     * A signpost beside the joined road at the junction, on the side away from the branch: the family's
+     * post with a way sign on it (Supplementaries' if present, else a plain sign), standing on the ground
+     * there whatever the road's level. A way sign has two arms, so a fork's third direction gets a second
+     * way sign on top. The lower sign is a node on the joined road, the upper one on the joining road.
      */
-    private fun placeJunctionSign(level: ServerLevel, storage: RoadPlanStorage, junction: PlannedJunction, styles: RoadStyleSet, boxes: List<BoundingBox>): Int {
+    private fun placeJunctionSign(level: ServerLevel, storage: RoadPlanStorage, junction: PlannedJunction, cluster: List<PlannedJunction>,
+                                  styles: RoadStyleSet, boxes: List<BoundingBox>): Int {
         val road = storage.roads[junction.roadA] ?: return 0
-        val index = road.points.indexOfFirst { it.x == junction.pos.x && it.z == junction.pos.z }.takeIf { it >= 0 } ?: return 0
+        val index = pointIndexAt(road, junction.pos) ?: return 0
         val style = styles.style(road.families.getOrElse(index) { 0 }.toInt(), road.tier)
-        // Off the road: perpendicular to the joined road's direction here.
+        val network = Network.get(level.server)
+        val roadIds = (listOf(junction) + cluster).flatMap { listOf(it.roadA, it.roadB) }.distinct()
+        val arms = junctionArms(network, storage, junction.pos, roadIds)
+        // Where the roads only braid (split for a cell and meet again) nothing branches: no sign.
+        if (arms.size < 3) return 0
         val before = road.points.getOrElse(index - 1) { road.points[index] }
         val after = road.points.getOrElse(index + 1) { road.points[index] }
+        // Two arms per way sign, in order (the joined road's first); each sign a node on its first arm's road.
+        val groups = arms.chunked(2).mapNotNull { group ->
+            val roadId = group.first().first
+            val groupIndex = storage.roads[roadId]?.let { pointIndexAt(it, junction.pos, CLUSTER_REACH_SQ) } ?: return@mapNotNull null
+            SignGroup(roadId, groupIndex, group.map { it.second })
+        }.ifEmpty { listOf(SignGroup(road.id, index, emptyList())) }
+        return erectSignpost(level, styles, style, junction.pos, before, after, groups, boxes, emptyList())
+    }
+
+    /** How far a cluster's roads may have their point from the sign, squared: `build.junctionMerge` on both axes. */
+    private val CLUSTER_REACH_SQ: Double get() = 2.0 * PostroadConfig.buildJunctionMerge * PostroadConfig.buildJunctionMerge
+
+    /** One way-sign block of a signpost: the road and point it is a node on, and its arms. */
+    class SignGroup(val roadId: String, val index: Int, val arms: List<SignWriter.Arm>)
+
+    /**
+     * A signpost standing on the ground beside [at], off the road whose direction there runs from [before]
+     * to [after]: the family's post with one way sign per group stacked on it (a plain sign when
+     * Supplementaries is missing), faces toward [at]. The side the arms point to least is tried first, so the
+     * post does not stand in a branch; spots inside [boxes] or [avoid] are skipped. Returns blocks placed, 0
+     * when neither side had room.
+     */
+    internal fun erectSignpost(level: ServerLevel, styles: RoadStyleSet, style: RoadStyle, at: BlockPos, before: BlockPos, after: BlockPos,
+                               groups: List<SignGroup>, boxes: List<BoundingBox>, avoid: List<BoundingBox>,
+                               /** Told the lowest sign's position once the post stands. */
+                               placedAt: (BlockPos) -> Unit = {}): Int {
+        if (groups.isEmpty()) return 0
         val dx = (after.x - before.x).toDouble()
         val dz = (after.z - before.z).toDouble()
         val len = sqrt(dx * dx + dz * dz).takeIf { it > 0 } ?: 1.0
         val offset = PostroadConfig.buildWidth / 2 + 2
-        for (side in intArrayOf(1, -1)) {
-            val x = (junction.pos.x - dz / len * offset * side).roundToInt()
-            val z = (junction.pos.z + dx / len * offset * side).roundToInt()
-            if (!level.hasChunk(x shr 4, z shr 4) || inBox(x, z, boxes)) continue
-            val y = groundY(level, x, z, junction.pos.y, styles)
+        val arms = groups.flatMap { it.arms }
+        fun armward(side: Int): Double = arms.maxOfOrNull { arm ->
+            val ax = (arm.aim.x - at.x).toDouble(); val az = (arm.aim.z - at.z).toDouble()
+            (-dz * side * ax + dx * side * az) / (sqrt(ax * ax + az * az).takeIf { it > 0 } ?: 1.0)
+        } ?: 0.0
+        // Plants and leaves give way to the post; anything else is no room.
+        fun free(pos: BlockPos): Boolean = level.getBlockState(pos).let { styles.isClearable(it) || it.block is net.minecraft.world.level.block.LeavesBlock }
+        val sides = intArrayOf(1, -1).sortedBy { armward(it) }
+        // A side where the whole stack fits first; only then one that takes the lower signs alone.
+        for (whole in booleanArrayOf(true, false)) for (side in sides) {
+            val x = (at.x - dz / len * offset * side).roundToInt()
+            val z = (at.z + dx / len * offset * side).roundToInt()
+            if (!level.hasChunk(x shr 4, z shr 4) || inBox(x, z, boxes) || inBox(x, z, avoid)) continue
+            val y = groundY(level, x, z, at.y, styles)
             if (y <= level.minBuildHeight) continue
             val ground = BlockPos(x, y, z)
             val state = level.getBlockState(ground)
             if (!state.fluidState.isEmpty || !state.isSolid) continue
-            if (!styles.isClearable(level.getBlockState(ground.above())) || !styles.isClearable(level.getBlockState(ground.above(2)))) continue
+            // Never on top of another post: its way sign reads as ground to the scan.
+            if (BuiltInRegistries.BLOCK.getKey(state.block) == WAY_SIGN || state.block is net.minecraft.world.level.block.FenceBlock ||
+                state.block is net.minecraft.world.level.block.WallBlock || state.block is net.minecraft.world.level.block.SignBlock) continue
+            if (!free(ground.above()) || !free(ground.above(2))) continue
+            if (whole && (1 until groups.size).any { !free(ground.above(2 + it)) }) continue
             val signPos = ground.above(2)
             level.setBlock(ground.above(), style.post, 3)
+            placedAt(signPos)
             val waySign = BuiltInRegistries.BLOCK.getOptional(WAY_SIGN).orElse(null)
-            val signState: BlockState = waySign?.defaultBlockState() ?: Blocks.OAK_SIGN.defaultBlockState()
-            level.setBlock(signPos, signState, 3)
-            if (waySign != null) mimic(level, signPos, style.post)
-            val network = Network.get(level.server)
-            val node = SignNodes.linkGenerated(level, signPos, road.id, index) ?: return 2
-            level.getBlockEntity(signPos)?.let { entity ->
-                if (entity !is net.minecraft.world.level.block.entity.SignBlockEntity) {
-                    val targets = listOf(townTarget(network, storage, road.from, road, 0), townTarget(network, storage, road.to, road, road.points.size - 1))
-                    SignWriter.pointWaySign(level, entity, network, node, viewer = null, explicit = targets)
-                } else {
-                    SignWriter.labelSign(level, entity, node.name, "")
+            if (waySign == null) {
+                level.setBlock(signPos, Blocks.OAK_SIGN.defaultBlockState(), 3)
+                val node = SignNodes.linkGenerated(level, signPos, groups[0].roadId, groups[0].index) ?: return 2
+                (level.getBlockEntity(signPos) as? net.minecraft.world.level.block.entity.SignBlockEntity)?.let { SignWriter.labelSign(level, it, node.name, "") }
+                signsPlaced++
+                return 3
+            }
+            var placed = 2
+            for ((k, group) in groups.withIndex()) {
+                val pos = signPos.above(k)
+                // A group above the first needs headroom; without it the post keeps what fits.
+                if (k > 0 && !free(pos)) {
+                    Postroad.LOGGER.info("Signpost at {}: no headroom for {} of its {} way signs", signPos.toShortString(), groups.size - k, groups.size)
+                    break
                 }
+                level.setBlock(pos, waySign.defaultBlockState(), 3)
+                mimic(level, pos, style.post)
+                placed++
+                SignNodes.linkGenerated(level, pos, group.roadId, group.index) ?: continue
+                if (group.arms.isNotEmpty()) level.getBlockEntity(pos)?.let { SignWriter.setArms(level, it, pos, group.arms, viewer = at) }
             }
             signsPlaced++
-            return 3
+            return placed
         }
         return 0
     }
 
-    /** A stand-in node for a road's town end: named after its place if the depot has registered, else "a village". */
-    private fun townTarget(network: Network, storage: RoadPlanStorage, townId: String, road: PlannedRoad, index: Int): RoadNode {
-        val name = network.places[townId]?.name ?: net.minecraft.network.chat.Component.translatable("sign.postroad.village").string
-        return RoadNode("virtual/$townId", RoadNode.KIND_TOWN, road.dimension, road.points[index], road.id, index, name, townId)
+    /** The index of [road]'s point at [pos]'s column, or the nearest point within a piece's reach. */
+    internal fun pointIndexAt(road: PlannedRoad, pos: BlockPos, reachSq: Double = ARM_JOIN_SQ): Int? {
+        road.points.indexOfFirst { it.x == pos.x && it.z == pos.z }.takeIf { it >= 0 }?.let { return it }
+        return road.points.indices.minByOrNull { road.points[it].distSqr(pos) }?.takeIf { road.points[it].distSqr(pos) <= reachSq }
     }
+
+    /**
+     * The directions [roadIds] leave [at] in, each with the town that way (by road id), in the order of
+     * [roadIds] (the joined road first). Roads sharing a stretch leave in one direction, which keeps the
+     * first road's arm. For a cluster of forks the aim is taken past the cluster.
+     */
+    private fun junctionArms(network: Network, storage: RoadPlanStorage, at: BlockPos, roadIds: List<String>): List<Pair<String, SignWriter.Arm>> {
+        val arms = ArrayList<Pair<String, SignWriter.Arm>>()
+        for (roadId in roadIds) {
+            val road = storage.roads[roadId] ?: continue
+            val index = pointIndexAt(road, at, CLUSTER_REACH_SQ) ?: continue
+            val last = road.points.size - 1
+            val aimAhead = if (roadIds.size > 2) ARM_AIM_CLUSTER else ARM_AIM
+            val ends = listOfNotNull(
+                (road.from to road.points[maxOf(0, index - aimAhead)]).takeIf { index > 0 },
+                (road.to to road.points[minOf(last, index + aimAhead)]).takeIf { index < last },
+            )
+            for ((town, aim) in ends) {
+                val ax = (aim.x - at.x).toDouble(); val az = (aim.z - at.z).toDouble()
+                val alen = sqrt(ax * ax + az * az).takeIf { it > 0 } ?: continue
+                val same = arms.any { (_, other) ->
+                    val ox = (other.aim.x - at.x).toDouble(); val oz = (other.aim.z - at.z).toDouble()
+                    (ax * ox + az * oz) / (alen * sqrt(ox * ox + oz * oz)) > ARM_SAME_COS
+                }
+                if (same) continue
+                val name = network.places[town]?.name ?: net.minecraft.network.chat.Component.translatable("sign.postroad.village").string
+                arms.add(roadId to SignWriter.Arm(name, aim))
+            }
+        }
+        return arms
+    }
+
+    /** Plan points out an arm aims at (pieces are 3 blocks apart, so about 12 blocks along the road). */
+    private const val ARM_AIM = 4
+    private const val ARM_AIM_CLUSTER = 8
+    /** Two arms within 45° of each other point the same way. */
+    private val ARM_SAME_COS = cos(Math.toRadians(45.0))
+    private const val ARM_JOIN_SQ = 18.0
 
     /** Sets the fence a way sign renders around, through its tile NBT (Moonlight's mimic tile). */
     private fun mimic(level: ServerLevel, pos: BlockPos, post: BlockState) {

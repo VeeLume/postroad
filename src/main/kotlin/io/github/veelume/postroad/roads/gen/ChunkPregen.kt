@@ -115,6 +115,7 @@ object ChunkPregen {
         // Work already asked for is always finished, even with planning off: the measurement drives
         // this directly, and a queue abandoned mid-flight would leave tickets held.
         if (!PostroadConfig.planEnabled && queue.isEmpty() && inFlight.get() == 0) return
+        if (PostroadConfig.planPregenSortTicks > 0 && ++sinceSort >= PostroadConfig.planPregenSortTicks && queue.size > 1) { sinceSort = 0; sortByPlayers(server) }
         val cap = PostroadConfig.planPregenInFlight
         while (queue.isNotEmpty() && inFlight.get() < cap) {
             val req = queue.removeFirst()
@@ -122,6 +123,33 @@ object ChunkPregen {
             if (level == null) { finish(req, false); continue }
             start(level, req)
         }
+    }
+
+    private var sinceSort = 0
+
+    /**
+     * Players first: a road is laid only once its whole corridor is known, so the corridor (job) nearest a
+     * player goes ahead of the rest, and inside it the chunks nearest the player. Requests of a dimension
+     * without players, and those without a job, keep their order behind.
+     */
+    private fun sortByPlayers(server: MinecraftServer) {
+        val players = server.playerList.players.groupBy({ it.level().dimension().location() }, { it.chunkPosition() })
+        if (players.isEmpty()) return
+        fun dist(req: Request): Long {
+            val here = players[req.dimension] ?: return Long.MAX_VALUE
+            val x = ChunkPos.getX(req.chunk); val z = ChunkPos.getZ(req.chunk)
+            return here.minOf { p -> val dx = (p.x - x).toLong(); val dz = (p.z - z).toLong(); dx * dx + dz * dz }
+        }
+        val d = HashMap<Request, Long>(queue.size * 2)
+        val nearestOfJob = HashMap<Int, Long>()
+        for (req in queue) {
+            val v = dist(req)
+            d[req] = v
+            req.job?.let { j -> nearestOfJob.merge(j.id, v) { a, b -> minOf(a, b) } }
+        }
+        val sorted = queue.sortedWith(compareBy<Request>({ r -> r.job?.let { nearestOfJob[it.id] } ?: d[r] }, { r -> r.job?.id ?: 0 }, { d[it] }))
+        queue.clear()
+        queue.addAll(sorted)
     }
 
     private fun start(level: ServerLevel, req: Request) {

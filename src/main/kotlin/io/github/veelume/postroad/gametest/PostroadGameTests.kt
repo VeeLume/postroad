@@ -555,38 +555,88 @@ class PostroadGameTests {
         helper.succeed()
     }
 
+    /**
+     * A junction is a fork only where the roads part. A route that reaches an existing road at the road's
+     * end and rides it on is a continuation: linked in the graph, but no signpost. A spur meeting the
+     * road's middle is a fork.
+     */
     @GameTest(template = ARENA)
-    fun planner_reuses_roads_and_makes_one_junction(helper: GameTestHelper) {
+    fun planner_marks_forks_but_not_continuations(helper: GameTestHelper) {
         val g = io.github.veelume.postroad.roads.gen.TerrainGrid
         val planner = io.github.veelume.postroad.roads.gen.RoadPlanner
         val cell = { x: Int, z: Int -> io.github.veelume.postroad.roads.gen.Cell(x, z) }
-        // Towns A and B far apart on a line, C off to the side near the middle.
+        val grid = g.flat(100, 60, 64)
+        val west = io.github.veelume.postroad.roads.gen.Town("west", cell(10, 30))
+        val mid = io.github.veelume.postroad.roads.gen.Town("mid", cell(50, 30))
+        val east = io.github.veelume.postroad.roads.gen.Town("east", cell(80, 30))
+        val south = io.github.veelume.postroad.roads.gen.Town("south", cell(30, 50))
+        // An existing road west–mid, straight along z = 30.
+        val trunk = io.github.veelume.postroad.roads.gen.PlannedRoute("trunk", west, mid, (10..50).map { cell(it, 30) })
+        // east–west rides the trunk from its end at mid; south–west joins it in the middle.
+        // Every pair (no detour rule): this is about how routes join, not which are built.
+        val plan = planner.planNetwork(grid, listOf(west, east, south), io.github.veelume.postroad.roads.gen.PlannerCosts(detour = 0.0), neighbours = 2, maxLinkCells = 200.0, existing = listOf(trunk))
+        val ew = plan.routes.firstOrNull { it.from.id == "west" && it.to.id == "east" || it.from.id == "east" && it.to.id == "west" } ?: return helper.fail("no east–west route: " + plan.routes.joinToString { "${it.from.id}-${it.to.id}" })
+        helper.assertTrue(ew.cells.count { it.z == 30 && it.x in 10..50 } > 30, "east–west rides the trunk (${ew.cells.count { it.z == 30 && it.x in 10..50 }} trunk cells)")
+        val atEnd = plan.junctions.firstOrNull { it.cell == cell(50, 30) } ?: return helper.fail("no junction at the trunk's end: " + plan.junctions.joinToString { "${it.cell} fork=${it.fork}" })
+        helper.assertTrue(!atEnd.fork, "picking up the trunk at its end is a continuation, not a fork")
+        val spur = plan.junctions.filter { it.joiningRoute != ew.id && it.cell != cell(50, 30) }
+        helper.assertTrue(spur.isNotEmpty(), "the southern spur makes a junction: " + plan.junctions.joinToString { "${it.cell} ${it.joiningRoute} fork=${it.fork}" })
+        helper.assertTrue(spur.all { it.fork }, "a spur meeting the trunk's middle is a fork: " + spur.joinToString { "${it.cell} fork=${it.fork}" })
+        helper.succeed()
+    }
+
+    /**
+     * A road ends at the village or not at all. A street exit that is shut may move to open ground right
+     * beside it; it never walks off toward the neighbour, and a town without streets stays within its reach.
+     */
+    @GameTest(template = ARENA)
+    fun planner_keeps_road_ends_at_the_village(helper: GameTestHelper) {
+        val g = io.github.veelume.postroad.roads.gen.TerrainGrid
+        val planner = io.github.veelume.postroad.roads.gen.RoadPlanner
+        val cell = { x: Int, z: Int -> io.github.veelume.postroad.roads.gen.Cell(x, z) }
+        val far = io.github.veelume.postroad.roads.gen.Town("far", cell(70, 20))
+        val eastward = io.github.veelume.postroad.roads.gen.Facing(1, 0)
+        // A village whose only street exit sits inside a shut box six cells wide.
+        val shut = g.flat(80, 40, 64)
+        shut.fill(14, 14, 26, 26, g.BLOCKED)
+        val boxed = io.github.veelume.postroad.roads.gen.Town("boxed", cell(20, 20), listOf(cell(20, 20)), reach = 6, facings = listOf(eastward))
+        helper.assertTrue(planner.routeTowns(shut, null, 4, boxed, far) == null, "an exit with no open ground within ${planner.EXIT_RING} cells is no road end")
+        // The same exit with open ground two cells away: the road starts there, not off toward the neighbour.
+        val ajar = g.flat(80, 40, 64)
+        ajar.fill(19, 19, 21, 21, g.BLOCKED)
+        val near = io.github.veelume.postroad.roads.gen.Town("near", cell(20, 20), listOf(cell(20, 20)), reach = 6, facings = listOf(eastward))
+        val route = planner.routeTowns(ajar, null, 4, near, far) ?: return helper.fail("no route from the exit's neighbourhood")
+        helper.assertTrue(route.first().distanceTo(cell(20, 20)) <= 3.0, "the road starts beside the exit (${route.first()})")
+        // A town without streets leaves its box on the side facing the neighbour, but only within its reach.
+        val plain = g.flat(80, 40, 64)
+        plain.fill(10, 10, 30, 30, g.BLOCKED)
+        val wide = io.github.veelume.postroad.roads.gen.Town("wide", cell(20, 20), reach = 12)
+        val out = planner.routeTowns(plain, null, 4, wide, far) ?: return helper.fail("no route out of the box within reach")
+        helper.assertTrue(out.first() == cell(31, 20), "the road leaves the box on the side facing the neighbour (${out.first()})")
+        val tight = io.github.veelume.postroad.roads.gen.Town("tight", cell(20, 20), reach = 5)
+        helper.assertTrue(planner.routeTowns(plain, null, 4, tight, far) == null, "a box wider than the town's reach has no road end")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun planner_serves_a_pair_through_the_town_between(helper: GameTestHelper) {
+        val g = io.github.veelume.postroad.roads.gen.TerrainGrid
+        val planner = io.github.veelume.postroad.roads.gen.RoadPlanner
+        val cell = { x: Int, z: Int -> io.github.veelume.postroad.roads.gen.Cell(x, z) }
+        // Towns A and B far apart on a line, C off to the side near the middle: A–C and C–B are the short
+        // pairs, and together they connect A and B within the detour, so A–B gets no road of its own.
         val grid = g.flat(120, 60, 64)
         val towns = listOf(cell(5, 30), cell(115, 30), cell(60, 50)).mapIndexed { i, c -> io.github.veelume.postroad.roads.gen.Town("t$i", c) }
         val plan = planner.planNetwork(grid, towns, neighbours = 2, maxLinkCells = 200.0, coarse = grid.downsample(4), ratio = 4)
-        helper.assertTrue(plan.routes.size >= 2, "at least two routes planned (${plan.routes.size})")
-        val roadCells = plan.routes.flatMap { it.cells }.toSet().size
-        val summed = plan.routes.sumOf { it.cells.size }
-        helper.assertTrue(summed > roadCells, "later routes ride earlier road cells (reuse happened)")
-        helper.assertTrue(plan.junctions.isNotEmpty(), "a junction exists")
-        // The trunk A–B is planned first; C's spur joins it and does not run alongside it.
-        helper.assertTrue(plan.routes[0].from == towns[0] && plan.routes[0].to == towns[1], "the longest pair is the trunk")
-        helper.assertTrue(plan.junctions.size <= 2, "no ring of junctions (${plan.junctions.size})")
-        helper.assertTrue(plan.junctions.all { it.joinedRoute == plan.routes[0].id }, "every junction is on the trunk: " + plan.junctions.joinToString { "${it.cell} ${it.joiningRoute}->${it.joinedRoute}" } + " routes " + plan.routes.joinToString { "${it.id}:${it.from.id}-${it.to.id}" })
+        val pairs = plan.routes.map { setOf(it.from.id, it.to.id) }.toSet()
+        helper.assertValueEqual(pairs, setOf(setOf("t0", "t2"), setOf("t1", "t2")), "the two short pairs are built")
+        // Without the rule every pair is built, and the long one rides the short ones.
+        val all = planner.planNetwork(g.flat(120, 60, 64), towns, io.github.veelume.postroad.roads.gen.PlannerCosts(detour = 0.0), neighbours = 2, maxLinkCells = 200.0)
+        helper.assertValueEqual(all.routes.size, 3, "every pair without the rule")
+        helper.assertTrue(all.routes.sumOf { it.cells.size } > all.routes.flatMap { it.cells }.toSet().size, "later routes ride earlier road cells")
         // Planning again with the result as existing roads adds nothing.
         val again = planner.planNetwork(grid, towns, neighbours = 2, maxLinkCells = 200.0, existing = plan.routes)
         helper.assertValueEqual(again.routes.size, 0, "no new routes on a second pass")
-        val trunk = plan.routes[0].cells.toSet()
-        var parallel = 0
-        var spurNew = 0
-        for (r in 1 until plan.routes.size) {
-            for (c in planner.newCells(plan, r)) {
-                spurNew++
-                if (c !in trunk && trunk.any { it.distanceTo(c) <= 2.0 }) parallel++
-            }
-        }
-        helper.assertTrue(spurNew > 0, "the spur has cells of its own")
-        helper.assertTrue(parallel * 5 < spurNew, "spur does not run parallel to the trunk ($parallel of $spurNew cells within 2 of it)")
         helper.succeed()
     }
 
@@ -838,6 +888,187 @@ class PostroadGameTests {
         io.github.veelume.postroad.roads.gen.RoadPieceLayer.lay(level, ps[0], styles.style(0, 0), styles, ground, inside, null, null, protect)
         helper.assertTrue(isSlab(blockAt(helper, 2, F + 1, 3)) && isSlab(blockAt(helper, 3, F + 1, 2)), "the slab step survives the flat piece's clearing")
         helper.assertTrue(blockAt(helper, 1, F, 1) != Blocks.STONE && blockAt(helper, 2, F, 2) != Blocks.STONE, "the flat piece's blocks are there")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun a_pair_the_roads_already_connect_is_found_through_the_town_between(helper: GameTestHelper) {
+        // A — M — B along x, M's two road ends 4 cells apart (its streets). A to B is 20 + 4 + 20 = 44 cells.
+        val planner = io.github.veelume.postroad.roads.gen.RoadPlanner
+        fun town(id: String, x: Int) = io.github.veelume.postroad.roads.gen.Town(id, io.github.veelume.postroad.roads.gen.Cell(x, 0))
+        fun line(x0: Int, x1: Int) = (x0..x1).map { io.github.veelume.postroad.roads.gen.Cell(it, 0) }
+        val a = town("a", 0); val m = town("m", 22); val b = town("b", 46)
+        val routes = listOf(
+            io.github.veelume.postroad.roads.gen.PlannedRoute("am", a, m, line(0, 20)),
+            io.github.veelume.postroad.roads.gen.PlannedRoute("mb", m, b, line(24, 44)),
+        )
+        val d = planner.networkDistance(routes, "a", "b", 100.0)
+        helper.assertValueEqual(d?.toInt(), 44, "A to B through M")
+        helper.assertTrue(planner.networkDistance(routes, "a", "b", 40.0) == null, "nothing within a tighter limit")
+        helper.assertTrue(planner.networkDistance(routes, "a", "x", 100.0) == null, "no way to a town no road reaches")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA_WIDE)
+    fun forks_a_few_blocks_apart_share_one_post_and_a_braid_gets_none(helper: GameTestHelper) {
+        val level = helper.level
+        val server = level.server
+        val dim = level.dimension().location()
+        val tag = java.util.UUID.randomUUID().toString().take(6)
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(server)
+        val network = Network.get(server)
+        val o = helper.absolutePos(BlockPos(0, F, 0))
+        fun p(x: Int, z: Int) = BlockPos(o.x + x, o.y + 1, o.z + z)
+        fun road(id: String, vararg pts: BlockPos) = io.github.veelume.postroad.roads.gen.PlannedRoad("test/$tag/$id", dim, "test/$tag/t$id", "test/$tag/u$id", pts.toList(), ByteArray(pts.size))
+            .also { r -> r.builtChunks.addAll(r.chunks()) }
+        val chunk = net.minecraft.world.level.ChunkPos.asLong(p(9, 9).x shr 4, p(9, 9).z shr 4)
+        val added = ArrayList<io.github.veelume.postroad.roads.gen.PlannedRoad>()
+        val junctions = ArrayList<io.github.veelume.postroad.roads.gen.PlannedJunction>()
+        fun add(vararg rs: io.github.veelume.postroad.roads.gen.PlannedRoad) = rs.forEach { r ->
+            added.add(r); storage.addRoad(r)
+            network.addPath(io.github.veelume.postroad.roads.RoadPath(r.id, dim, r.points.toMutableList(),
+                MutableList<io.github.veelume.postroad.roads.Tier?>(r.points.size) { io.github.veelume.postroad.roads.Tier.DIRT }, "test", 0L))
+        }
+        fun fork(at: BlockPos, a: io.github.veelume.postroad.roads.gen.PlannedRoad, b: io.github.veelume.postroad.roads.gen.PlannedRoad) =
+            io.github.veelume.postroad.roads.gen.PlannedJunction(dim, at, a.id, b.id, fork = true).also { junctions.add(it); storage.addJunction(it) }
+        fun posts() = network.nodes.values.filter { n -> n.kind == io.github.veelume.postroad.roads.RoadNode.KIND_SIGN && added.any { it.id == n.pathId } }
+        try {
+            // A braid: two roads west to east that split for one cell and meet again. Nothing branches.
+            val a = road("a", p(0, 9), p(3, 9), p(6, 9), p(9, 6), p(9, 3), p(9, 0))
+            val b = road("b", p(0, 9), p(3, 9), p(6, 9), p(9, 9), p(9, 6), p(9, 3), p(9, 0))
+            add(a, b)
+            val j1 = fork(p(6, 9), a, b); val j2 = fork(p(9, 6), a, b)
+            io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk)
+            helper.assertTrue(j1.signPlaced && j2.signPlaced, "both handled")
+            helper.assertTrue(posts().isEmpty(), "no post where roads only braid (${posts().map { it.pos }})")
+            // Three roads parting within a few blocks: one post, every direction on it.
+            val c = road("c", p(9, 9), p(12, 9), p(15, 9), p(18, 9))
+            val d = road("d", p(0, 9), p(3, 9), p(6, 9), p(6, 12), p(6, 15), p(6, 18))
+            add(c, d)
+            fork(p(9, 9), b, c); fork(p(6, 9), a, d)
+            io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk)
+            val columns = posts().map { it.pos.x to it.pos.z }.toSet()
+            helper.assertValueEqual(columns.size, 1, "one post for the cluster (${posts().map { it.pos }})")
+            helper.succeed()
+        } finally {
+            storage.junctions.removeAll(junctions)
+            added.forEach { storage.removeRoad(it.id); network.removePath(it.id) }
+            storage.setDirty()
+        }
+    }
+
+    @GameTest(template = ARENA_WIDE)
+    fun road_end_signpost_only_where_nothing_else_signs_the_way(helper: GameTestHelper) {
+        // The town's stop stands elsewhere. Two roads leave through one exit and fork right after it: the
+        // fork's sign covers them, so neither end gets a post. A lone road end does.
+        val level = helper.level
+        val server = level.server
+        val dim = level.dimension().location()
+        val tag = java.util.UUID.randomUUID().toString().take(6)
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(server)
+        val network = Network.get(server)
+        val o = helper.absolutePos(BlockPos(0, F, 0))
+        val box = net.minecraft.world.level.levelgen.structure.BoundingBox(o.x, o.y, o.z, o.x, o.y, o.z)
+        val town = io.github.veelume.postroad.roads.gen.PlannedTown("test/$tag/t", dim, Postroad.id("test"), BlockPos(o.x, o.y + 1, o.z + 9), box).also { it.stopDone = true }
+        val far = io.github.veelume.postroad.roads.gen.PlannedTown("test/$tag/f", dim, Postroad.id("test"), BlockPos(o.x + 400, o.y + 1, o.z), box.moved(400, 0, 0))
+        fun p(x: Int, z: Int) = BlockPos(o.x + x, o.y + 1, o.z + z)
+        val east = io.github.veelume.postroad.roads.gen.PlannedRoad("test/$tag/e", dim, town.id, far.id, listOf(p(1, 9), p(4, 9), p(7, 9), p(10, 9), p(13, 9), p(16, 9)), ByteArray(6))
+        val north = io.github.veelume.postroad.roads.gen.PlannedRoad("test/$tag/n", dim, town.id, far.id, listOf(p(1, 9), p(4, 9), p(4, 6), p(4, 3), p(4, 0), p(7, 0)), ByteArray(6))
+        val fork = io.github.veelume.postroad.roads.gen.PlannedJunction(dim, p(4, 9), east.id, north.id, fork = true).also { it.signPlaced = true }
+        val nodesBefore = network.nodes.keys.toSet()
+        for (r in listOf(east, north)) network.addPath(io.github.veelume.postroad.roads.RoadPath(r.id, dim, r.points.toMutableList(),
+            MutableList<io.github.veelume.postroad.roads.Tier?>(r.points.size) { io.github.veelume.postroad.roads.Tier.DIRT }, "test", 0L))
+        storage.addTown(town); storage.addTown(far); storage.addRoad(east); storage.addRoad(north); storage.addJunction(fork)
+        try {
+            val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
+            val chunk = net.minecraft.world.level.ChunkPos.asLong(p(1, 9).x shr 4, p(1, 9).z shr 4)
+            io.github.veelume.postroad.roads.gen.PitStops.build(level, storage, chunk, styles, emptyList())
+            helper.assertTrue(east.endsDone and io.github.veelume.postroad.roads.gen.PlannedRoad.END_FROM != 0 && north.endsDone and io.github.veelume.postroad.roads.gen.PlannedRoad.END_FROM != 0, "both town ends handled")
+            helper.assertTrue(network.nodes.keys.none { it !in nodesBefore && it.contains("sign/") && network.nodes[it]?.pathId in setOf(east.id, north.id) }, "no signpost beside a fork")
+            // Without the fork, one road end gets its post.
+            storage.junctions.remove(fork)
+            storage.removeRoad(north.id)
+            east.endsDone = 0
+            io.github.veelume.postroad.roads.gen.PitStops.build(level, storage, chunk, styles, emptyList())
+            helper.assertTrue(network.nodes.values.any { it.pathId == east.id && it.kind == io.github.veelume.postroad.roads.RoadNode.KIND_SIGN }, "a lone road end gets a signpost")
+            val endPost = east.endPosts[io.github.veelume.postroad.roads.gen.PlannedRoad.END_FROM] ?: return helper.fail("the end post is recorded")
+            // A later road forks off there: its junction sign replaces the end post.
+            storage.addRoad(north)
+            storage.junctions.add(fork.also { it.signPlaced = false })
+            east.builtChunks.addAll(east.chunks()); north.builtChunks.addAll(north.chunks())
+            io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, net.minecraft.world.level.ChunkPos.asLong(fork.pos.x shr 4, fork.pos.z shr 4))
+            helper.assertTrue(east.endPosts.isEmpty(), "the end post is no longer recorded")
+            helper.assertTrue(network.nodes.values.none { it.pos == endPost }, "its node is gone")
+            helper.assertTrue(level.getBlockState(endPost).isAir, "its sign is gone")
+            helper.assertTrue(network.nodes.values.any { it.kind == io.github.veelume.postroad.roads.RoadNode.KIND_SIGN && (it.pathId == east.id || it.pathId == north.id) }, "the junction has its sign")
+            helper.succeed()
+        } finally {
+            storage.junctions.remove(fork)
+            storage.removeRoad(east.id); storage.removeRoad(north.id)
+            storage.towns.remove(town.id); storage.towns.remove(far.id)
+            network.removePath(east.id); network.removePath(north.id)
+            storage.setDirty()
+        }
+    }
+
+    @GameTest(template = ARENA_WIDE)
+    fun pit_stop_stands_beside_the_road_end_and_its_depot_belongs_to_the_town(helper: GameTestHelper) {
+        // A town at the arena's west edge, a final road leaving it eastward along z = 9. The stop goes
+        // beside the road's first points, clear of the road, facing it; its depot binds to the town.
+        val level = helper.level
+        val server = level.server
+        val dim = level.dimension().location()
+        val tag = java.util.UUID.randomUUID().toString().take(6)
+        val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(server)
+        val o = helper.absolutePos(BlockPos(0, F, 0))
+        val townBox = net.minecraft.world.level.levelgen.structure.BoundingBox(o.x, o.y, o.z + 5, o.x + 1, o.y + 4, o.z + 13)
+        val town = io.github.veelume.postroad.roads.gen.PlannedTown("test/$tag/stop", dim, Postroad.id("test"), BlockPos(o.x, o.y + 1, o.z + 9), townBox, listOf(townBox))
+        val other = io.github.veelume.postroad.roads.gen.PlannedTown("test/$tag/far", dim, Postroad.id("test"), BlockPos(o.x + 400, o.y + 1, o.z + 9), townBox.moved(400, 0, 0))
+        // Plan points are the first air above the road block.
+        val points = (2..17 step 3).map { BlockPos(o.x + it, o.y + 1, o.z + 9) }
+        val road = io.github.veelume.postroad.roads.gen.PlannedRoad("test/$tag/road", dim, town.id, other.id, points, ByteArray(points.size))
+        storage.addTown(town); storage.addTown(other); storage.addRoad(road)
+        try {
+            val chunk = net.minecraft.world.level.ChunkPos.asLong(points[0].x shr 4, points[0].z shr 4)
+            val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
+            io.github.veelume.postroad.roads.gen.PitStops.build(level, storage, chunk, styles, town.footprint)
+            val stop = town.stop ?: return helper.fail("no pit stop was built")
+            helper.assertTrue(town.stopDone, "the town's stop is done")
+            helper.assertTrue(road.endsDone and io.github.veelume.postroad.roads.gen.PlannedRoad.END_FROM != 0, "the road's town end is handled")
+            helper.assertTrue(stop.minZ() > o.z + 9 + 2 || stop.maxZ() < o.z + 9 - 2, "the stop keeps off the road ($stop)")
+            helper.assertTrue(stop.minX() > townBox.maxX(), "the stop stands outside the village pieces")
+            helper.assertValueEqual(stop.minY(), o.y, "the floor is on the ground")
+            var depot: BlockPos? = null
+            for (p in BlockPos.betweenClosed(stop.minX(), stop.minY(), stop.minZ(), stop.maxX(), stop.maxY(), stop.maxZ())) {
+                if (level.getBlockState(p).block == io.github.veelume.postroad.registry.PostroadBlocks.DEPOT.get()) depot = p.immutable()
+            }
+            val at = depot ?: return helper.fail("the stop has no depot")
+            helper.assertValueEqual(Network.get(server).placeOfDepot(level.dimension(), at)?.id, town.id, "the depot belongs to the town")
+            // The depot faces the road.
+            val facing = level.getBlockState(at).getValue(net.minecraft.world.level.block.HorizontalDirectionalBlock.FACING)
+            helper.assertValueEqual(facing, if (stop.minZ() > o.z + 9) net.minecraft.core.Direction.NORTH else net.minecraft.core.Direction.SOUTH, "depot facing")
+            helper.succeed()
+        } finally {
+            storage.removeRoad(road.id)
+            storage.towns.remove(town.id); storage.towns.remove(other.id)
+            storage.setDirty()
+        }
+    }
+
+    @GameTest(template = ARENA)
+    fun ground_is_the_grass_block_not_the_dirt_under_it(helper: GameTestHelper) {
+        // "grass" is a clearable keyword; it must not make grass_block (or snow_block) litter, or roads and
+        // signposts land one block into the ground.
+        val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
+        helper.assertFalse(styles.isClearable(Blocks.GRASS_BLOCK.defaultBlockState()), "grass_block is ground")
+        helper.assertFalse(styles.isClearable(Blocks.SNOW_BLOCK.defaultBlockState()), "snow_block is ground")
+        helper.assertTrue(styles.isClearable(Blocks.SHORT_GRASS.defaultBlockState()), "short grass is litter")
+        helper.setBlock(BlockPos(2, F, 2), Blocks.DIRT)
+        helper.setBlock(BlockPos(2, F + 1, 2), Blocks.GRASS_BLOCK)
+        helper.setBlock(BlockPos(2, F + 2, 2), Blocks.SHORT_GRASS)
+        val abs = helper.absolutePos(BlockPos(2, F + 1, 2))
+        val y = io.github.veelume.postroad.roads.gen.RoadBuilder.groundY(helper.level, abs.x, abs.z, abs.y, styles)
+        helper.assertValueEqual(y, abs.y, "ground height")
         helper.succeed()
     }
 
@@ -1572,5 +1803,6 @@ class PostroadGameTests {
 
     companion object {
         private const val ARENA = "arena"
+        private const val ARENA_WIDE = "arena_wide"
     }
 }

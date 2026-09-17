@@ -163,8 +163,9 @@ limit is the one this increment ships with.
 ## Config (`postroad-common.toml`)
 
 - `freshLoot.settleDays` (default 3)
-- `courierPost.targetPools` (list of pool ids)
-- `courierPost.weight` (default 6)
+- `courierPost.targetPools` (list of pool ids) and `courierPost.poolPattern` (regex; default: every
+  mod's `village/<style>/house(s)` pool)
+- `courierPost.share` (default 10: the post's weight as a percent of each pool's total)
 - `ledger.maxEntries` (default 500)
 
 ## Test plan

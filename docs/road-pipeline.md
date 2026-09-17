@@ -84,8 +84,14 @@ are dropped *before* it starts, never during).
    marked BLOCKED on both grids; the bounds of both grids are the pass centre
    ± (`radius` + `maxLink`).
 3. **Pairs.** Each town in reach gets its `neighbours` (3) nearest towns
-   within `maxLink` (900); pairs are planned longest first, so trunks exist
-   before spurs. Pairs already planned or already dropped are skipped.
+   within `maxLink` (900); pairs are planned shortest first. Pairs already
+   planned or already dropped are skipped, and so is a pair the roads so far
+   already connect within `detour` (1.4, `planner.json`) times its straight
+   distance, counting a hop through another town's streets
+   (`RoadPlanner.networkDistance`; the factor is `detour` in `planner.json`,
+   as is `corridorHalf`). Until 2026-09-17 pairs went longest first
+   so trunks existed before spurs; with every pair built that gave four
+   villages six roads and a loop.
 4. **Endpoints.** A town's endpoint is its street cell that faces the other
    town (`exitToward`). If that cell is blocked or outside the corridor, the
    resolver walks toward the other town up to 160 blocks
@@ -109,13 +115,29 @@ are dropped *before* it starts, never during).
    heights, cells of an existing road at 0.15× (reuse). Budget 600 000
    expansions. An endpoint that turns out to be an island (the search dies
    within 64 cells) is resolved again past it, up to 4 tries.
+   **A road end is at the village or nowhere** (2026-09-16): a street exit
+   whose cell is shut moves at most `EXIT_RING` (3) cells to open ground; a
+   town without street data leaves its box on the side facing the neighbour
+   but no further than its `reach` (half the box plus the margin). Before,
+   a shut exit walked up to 160 blocks toward the neighbour, through the
+   village and out the far side, and 22 of 130 road ends on the 2026-09-13
+   world stood 100–260 blocks from their village, some as 8-point fragments
+   once the road they had ridden was replaced. A pair none of whose exits
+   resolves is dropped as unreachable, which is what puts it on the retry
+   paths below.
 8. **Water check.** A route with more than 6 consecutive water cells (18
    blocks) is dropped as "water".
 9. **Snapping.** Where the route leaves an existing road and rejoins it within
    16 cells, the excursion is replaced by that road's own cells, provided the
    result still passes the step classes on today's terrain.
 10. **Junctions.** Where the route's own cells first touch another road's
-    cells (and where they leave them) a junction is recorded.
+    cells (and where they leave them) a junction is recorded. It is a **fork**
+    only when three or more arms leave that cell — the road's own neighbours
+    in its sequence plus the route's cells the road does not own. A route
+    that picks a road up at the road's end and rides it on, or leaves it
+    where it stops, is a continuation: the travel graph gets its link, the
+    builder puts up no signpost (2026-09-16; before that every merge got a
+    sign, and the spawn village had two "To …" posts where nothing branched).
 11. **Back to blocks.** Each cell becomes `BlockPos(centre x, height, centre
     z)`; cells shared with a non-provisional road take that road's stored
     height. The result is checked segment by segment against the catalog; a
@@ -400,8 +422,24 @@ pipeline needed:
 - **Dropped pairs judged on estimated terrain are provisional** (like
   provisional roads): a water drop keeps the route it found, an unreachable
   pair the coarse corridor it searched; that is pre-generated and the pair
-  planned again, up to `MAX_REPLANS` tries, persisted. Eight pairs of the
+  planned again, up to `MAX_DROP_TRIES` tries, persisted. Eight pairs of the
   cached world had been lost this way; the river road among them is back.
+  Once those tries are spent the pair keeps its `Estimated` mark and any
+  later pass plans it once more when the line between its towns has no
+  estimated cell left — ground players generate by going there — up to
+  `MAX_DROP_TRIES_KNOWN` in all (2026-09-16: a pair dropped three times
+  near spawn traced to a 43-cell route as soon as the ground was real).
+  A pair that gets its road loses its dropped entry; details used to
+  outlive the drop and the status line counted them.
+- **Known terrain honours `#postroad:passable`** (2026-09-16). `KnownTerrain`
+  marks the columns under real structure pieces impassable so a road does
+  not run through a dungeon; it skipped villages but not the passable tag,
+  so a BWG plateau's pieces made a whole village a wall (every exit shut,
+  the pair "unreachable" on real ground after a fine first pass on the
+  estimate) and an arch blocked a river mouth. The planner's obstacle
+  pass already skipped the tag; the column marks now do too. Cached
+  tiles (`<world>/postroad/known3`, `known12`) of a world planned before
+  this carry the wrong walls and must go.
 - **One pass at a time, requests built when the pass starts.** Retries and
   replans queue passes back to back; a request built at scheduling time saw
   a stale storage, planned the same pair again and, once applied, requested

@@ -45,7 +45,10 @@ object PostroadConfig {
 
     private val SETTLE_DAYS: ModConfigSpec.IntValue
     private val LEDGER_MAX_ENTRIES: ModConfigSpec.IntValue
-    private val COURIER_POST_WEIGHT: ModConfigSpec.IntValue
+    private const val DEFAULT_POOL_PATTERN = "^[a-z0-9_.-]+:village/(?!.*(wandering_trader|lighthouse))[a-z0-9_/]+/houses?$"
+
+    private val COURIER_POST_SHARE: ModConfigSpec.IntValue
+    private val POOL_PATTERN: ModConfigSpec.ConfigValue<String>
     private val VALUABLES_BASE_DAYS: ModConfigSpec.IntValue
     private val VALUABLES_BLOCKS_PER_DAY: ModConfigSpec.IntValue
     private val INSTANT_DISTANCE: ModConfigSpec.IntValue
@@ -75,6 +78,13 @@ object PostroadConfig {
     private val BUILD_MILLIS_PER_TICK: ModConfigSpec.IntValue
     private val BUILD_LAMP_INTERVAL: ModConfigSpec.IntValue
     private val BUILD_WIDTH: ModConfigSpec.IntValue
+    private val BUILD_PIT_STOPS: ModConfigSpec.BooleanValue
+    private val BUILD_SWEEP_SECONDS: ModConfigSpec.IntValue
+    private val BUILD_JUNCTION_MERGE: ModConfigSpec.IntValue
+    private val BUILD_END_SIGN_CLEAR: ModConfigSpec.IntValue
+    private val PLAN_CORRIDOR_CHUNKS: ModConfigSpec.IntValue
+    private val PLAN_PREGEN_SORT_SECONDS: ModConfigSpec.IntValue
+    private val PLAN_MAX_REPLANS: ModConfigSpec.IntValue
     private val CHART_MARK_SHARE: ModConfigSpec.IntValue
 
     val SPEC: ModConfigSpec
@@ -93,13 +103,16 @@ object PostroadConfig {
         BUILDER.pop()
 
         BUILDER.push("courierPost")
-        COURIER_POST_WEIGHT = BUILDER
-            .comment("Jigsaw weight of the courier post inside each target house pool. Extra posts in a town demote themselves to barrels, so this only tunes how likely a town is to get one at all.")
-            .defineInRange("weight", 4, 0, 1000)
+        COURIER_POST_SHARE = BUILDER
+            .comment("The courier post's jigsaw weight in each target house pool, in percent of the pool's total weight (at least 1). Village mods weigh their pools very differently, so a fixed weight is near-certain in one and invisible in another. Extra posts in a town demote themselves to barrels, so this only tunes how likely a town is to get one at all. 0 (the default) leaves the depot to the pit stop at the town's road end (build.pitStops).")
+            .defineInRange("share", 0, 0, 1000)
         @Suppress("UNCHECKED_CAST")
         TARGET_POOLS = BUILDER
-            .comment("Template pools that receive the courier post as an extra house. Missing pools are skipped.")
+            .comment("Template pools that receive the courier post as an extra house, on top of those matching poolPattern. Missing pools are skipped.")
             .defineListAllowEmpty("targetPools", DEFAULT_TARGET_POOLS) { it is String } as ModConfigSpec.ConfigValue<List<out String>>
+        POOL_PATTERN = BUILDER
+            .comment("Regex over template pool ids: every matching pool receives the courier post. Empty matches none. The default takes any mod's village house pools (vanilla, Towns and Towers, BWG, CTOV) but not trader camps or lighthouse annexes.")
+            .define("poolPattern", DEFAULT_POOL_PATTERN)
         BUILDER.pop()
 
         BUILDER.push("mail")
@@ -144,6 +157,15 @@ object PostroadConfig {
         PLAN_NEIGHBOURS = BUILDER.comment("Each village is linked to this many nearest villages.").defineInRange("neighbours", 3, 1, 8)
         PLAN_REPASS_DISTANCE = BUILDER.comment("A player who moved this many blocks since their last pass triggers a new one.").defineInRange("repassDistance", 256, 16, 10000)
         PLAN_STRUCTURE_MARGIN = BUILDER.comment("Blocks of clearance kept around a predicted village's bounding box.").defineInRange("structureMargin", 8, 0, 64)
+        PLAN_CORRIDOR_CHUNKS = BUILDER
+            .comment("Chunks either side of a provisional road that are generated before it is planned again (3: a 7-chunk-wide corridor). The corridor must be wide enough to hold the difference between the estimated line and the real one, or the replan finds no route and the pair is dropped. Lower is much cheaper: the cost per road is roughly proportional to the width.")
+            .defineInRange("corridorChunks", 3, 1, 8)
+        PLAN_PREGEN_SORT_SECONDS = BUILDER
+            .comment("How often the pre-generation queue is re-sorted so the corridor nearest a player comes first. 0 keeps the order the passes queued them in.")
+            .defineInRange("pregenSortSeconds", 1, 0, 60)
+        PLAN_MAX_REPLANS = BUILDER
+            .comment("How often a provisional road may have its corridor generated and be planned again before it is given up on.")
+            .defineInRange("maxReplans", 2, 0, 10)
         PLAN_PREGEN_IN_FLIGHT = BUILDER.comment("How many chunks the planner may have generating at once (to the carvers step, on the worldgen workers) to see a corridor's real terrain before routing it. 0 turns pre-generation off.").defineInRange("pregenInFlight", 16, 0, 256)
         BUILDER.pop()
 
@@ -152,6 +174,10 @@ object PostroadConfig {
         BUILD_MILLIS_PER_TICK = BUILDER.comment("Milliseconds of a tick the builder may use at most; it stops early when either budget is spent.").defineInRange("millisPerTick", 3, 1, 50)
         BUILD_LAMP_INTERVAL = BUILDER.comment("Blocks of road between lampposts; 0 disables them.").defineInRange("lampInterval", 24, 0, 1000)
         BUILD_WIDTH = BUILDER.comment("Width of a generated road in blocks (odd).").defineInRange("width", 3, 1, 9)
+        BUILD_SWEEP_SECONDS = BUILDER.comment("How often the builder offers the loaded chunks that still owe a road, a junction sign or a pit stop (work that fell due while its chunk was already loaded).").defineInRange("sweepSeconds", 10, 1, 600)
+        BUILD_JUNCTION_MERGE = BUILDER.comment("Fork junctions within this many blocks of each other share one signpost.").defineInRange("junctionMerge", 9, 0, 64)
+        BUILD_END_SIGN_CLEAR = BUILDER.comment("No signpost at a road's town end when a fork or another signpost stands within this many blocks of it; a junction sign that goes up later within it takes such a post down again.").defineInRange("endSignClear", 24, 0, 128)
+        BUILD_PIT_STOPS = BUILDER.comment("Build every village's depot as a pit stop beside the end of its first road (at a street exit when it has none), and a signpost at its other road ends.").define("pitStops", true)
         CHART_MARK_SHARE = BUILDER.comment("Percent of a charting walk's samples that must lie along one generated road for the walk to chart that road instead of recording a new path.").defineInRange("markShare", 60, 1, 100)
         BUILDER.pop()
 
@@ -165,7 +191,8 @@ object PostroadConfig {
 
     val settleDays: Int get() = SETTLE_DAYS.get()
     val ledgerMaxEntries: Int get() = LEDGER_MAX_ENTRIES.get()
-    val courierPostWeight: Int get() = COURIER_POST_WEIGHT.get()
+    val courierPostShare: Int get() = COURIER_POST_SHARE.get()
+    val poolPattern: String get() = POOL_PATTERN.get()
     val targetPools: List<String> get() = TARGET_POOLS.get().toList()
     val valuablesBaseDays: Long get() = VALUABLES_BASE_DAYS.get().toLong()
     val valuablesBlocksPerDay: Double get() = VALUABLES_BLOCKS_PER_DAY.get().toDouble()
@@ -193,6 +220,13 @@ object PostroadConfig {
     val buildMillisPerTick: Int get() = BUILD_MILLIS_PER_TICK.get()
     val buildLampInterval: Int get() = BUILD_LAMP_INTERVAL.get()
     val buildWidth: Int get() = BUILD_WIDTH.get()
+    val buildPitStops: Boolean get() = BUILD_PIT_STOPS.get()
+    val buildSweepTicks: Int get() = BUILD_SWEEP_SECONDS.get() * 20
+    val buildJunctionMerge: Int get() = BUILD_JUNCTION_MERGE.get()
+    val buildEndSignClear: Int get() = BUILD_END_SIGN_CLEAR.get()
+    val planCorridorChunks: Int get() = PLAN_CORRIDOR_CHUNKS.get()
+    val planPregenSortTicks: Int get() = PLAN_PREGEN_SORT_SECONDS.get() * 20
+    val planMaxReplans: Int get() = PLAN_MAX_REPLANS.get()
     val chartMarkShare: Double get() = CHART_MARK_SHARE.get() / 100.0
     val autoNameSigns: Boolean get() = AUTO_NAME_SIGNS.get()
     val flipSignFaces: Boolean get() = FLIP_SIGN_FACES.get()

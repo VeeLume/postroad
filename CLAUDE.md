@@ -10,7 +10,8 @@ live in `docs/` (one per increment). This file is about the code.
 - `./gradlew runGameTestServer` runs the game tests under `gametest/` headlessly.
 - `./gradlew runServer` / `runClient` start dev instances in `run/`.
 - `tools/*.py` are `uv run` scripts (inline dependencies) that generate checked-in assets:
-  `gen_courier_post.py` → the courier-post structure NBT, `gen_textures.py` → placeholder textures.
+  `gen_courier_post.py` → the courier-post structure NBT, `gen_pit_stop.py` → the pit-stop NBT (same
+  palettes), `gen_test_arena.py` → the game-test arenas, `gen_textures.py` → placeholder textures.
   Regenerate rather than hand-edit.
 
 ## Layout (`io.github.veelume.postroad`)
@@ -38,7 +39,9 @@ live in `docs/` (one per increment). This file is about the code.
   cell so it is block-precise (a whole-cell estimate moves in 4-block steps, which a rise limit of 3 cannot climb).
   `/postroad roads trace <pair>` re-plans one dropped pair and draws what the fine search saw.
   `RoadPlanner` (A* with slope/water costs and a reuse discount; `planNetwork` → new routes + junctions, given
-  existing ones). `WorldTerrainSampler` (noise router's preliminary surface + biome source, no chunks; tiles cached
+  existing ones; a junction is a `fork` only where three arms part, and only forks get a signpost; a road end
+  is a street exit or open ground within `EXIT_RING` cells of one, never a walk toward the neighbour).
+  `WorldTerrainSampler` (noise router's preliminary surface + biome source, no chunks; tiles cached
   under `<world>/postroad/terrain/`), `Families` (biome-id keywords → palette family, mirrors the pack's
   `gen_road_styles.py`), `TownFinder` (replays structure-set placement + `Structure.generate` to predict villages;
   ids match `PlaceResolver`'s `<dim>/<chunkX>/<chunkZ>`), `RoadPlanStorage` (SavedData `postroad_roadplan`: predicted
@@ -88,11 +91,18 @@ live in `docs/` (one per increment). This file is about the code.
   without DH data fall back to the density estimate and carry `Terrain.ESTIMATED`; such tiles are `provisional`
   (memory only, re-sampled after a minute) and never reach the `known`/`known16` disk caches.
   `/postroad roads debug terrain` draws the planner's cells (step class colours, flags, estimate-vs-real ticks,
-  estimates faint). `TownFinder` replays every structure set: villages become towns, other surface structures
+  estimates faint). `TownFinder` replays every structure set: structures tagged `#postroad:towns`
+  (`#minecraft:village` plus villages mods leave out of it) become towns, other surface structures
   obstacles (`PlannedObstacle`, blocked with `plan.structureMargin`); structures that come out buried a few times
   in a row are skipped for good. Structures tagged `#postroad:passable` (landscape structures such as BWG's
   plateaus and arches, underground ones whose box reaches the surface such as mineshafts) are neither town nor
   obstacle — the tag file is `data/postroad/tags/worldgen/structure/passable.json`, a pack extends it.
+  **Pit stops** (`docs/increment-8.md`): `PitStops` runs in the chunk-load builder's tick like the junction signs.
+  Each town's depot is a schematic (`structure/pit_stop_<style>.nbt`) beside the end of its first road the builder
+  reaches (or a street exit when no road will come), bound to the predicted place in `Network` before the depot
+  ticks, because it stands outside the village pieces `PlaceResolver` looks in. Other road ends of the town get a
+  signpost (`RoadBuilder.erectSignpost`, shared with the junction signs). State: `PlannedTown.stop`/`stopDone`,
+  `PlannedRoad.endsDone`; a standing stop blocks its inner cells for later passes (`PassRequest.stops`).
 - `roads/Routing` — Dijkstra over anchors (nodes + link ends) on the path polylines.
 - `travel/` — `Fares`, `TravelService` (open list, depart: fare, fresh-loot mailing, teleport), `SignNodes`
   (map-on-sign links/unlinks, left-click opens travel; block tag `#postroad:sign_nodes`), payloads + `TravelClient`.

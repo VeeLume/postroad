@@ -46,13 +46,12 @@ object SignWriter {
      * next node in the +index direction, the second toward the −index direction, each labelled
      * "To: <name>". Arms with nothing to point at are left as they were. Returns how many arms were set.
      */
-    fun pointWaySign(level: ServerLevel, entity: BlockEntity, network: Network, node: RoadNode, viewer: BlockPos?, explicit: List<RoadNode>? = null): Int {
+    fun pointWaySign(level: ServerLevel, entity: BlockEntity, network: Network, node: RoadNode, viewer: BlockPos?): Int {
         val path = network.paths[node.pathId] ?: return 0
         val onPath = network.nodes.values.filter { it.pathId == node.pathId && it.id != node.id }
         val forward = onPath.filter { it.pointIndex > node.pointIndex }.minByOrNull { it.pointIndex }
         val backward = onPath.filter { it.pointIndex < node.pointIndex }.maxByOrNull { it.pointIndex }
-        // Explicit targets (generated junction signs): the road's ends, whether or not they are nodes yet.
-        val targets = explicit?.filter { it.pointIndex != node.pointIndex } ?: listOfNotNull(forward, backward)
+        val targets = listOfNotNull(forward, backward)
         if (targets.isEmpty()) return 0
         // Aim along the road, not at the far node: the path point a few samples out in that direction.
         fun aimPoint(target: RoadNode): BlockPos {
@@ -62,6 +61,17 @@ object SignWriter {
             return path.points[bounded]
         }
 
+        return setArms(level, entity, node.pos, targets.map { Arm(it.name, aimPoint(it)) }, viewer)
+    }
+
+    /** One way-sign arm: the place it names and a block along the road it points at. */
+    class Arm(val name: String, val aim: BlockPos)
+
+    /**
+     * Sets a way sign at [origin] to [targets], in arm order (up, down); arms past the list are left as they
+     * were. The readable face turns toward [viewer] when given. Returns how many arms were set.
+     */
+    fun setArms(level: ServerLevel, entity: BlockEntity, origin: BlockPos, targets: List<Arm>, viewer: BlockPos?): Int {
         val arms = arms(entity) ?: return 0
         var set = 0
         val labels = ArrayList<String?>()
@@ -75,16 +85,16 @@ object SignWriter {
                 val pointToward = arm.javaClass.getMethod("pointToward", BlockPos::class.java, BlockPos::class.java)
                 val setActive = arm.javaClass.getMethod("setActive", java.lang.Boolean.TYPE)
                 val setLeft = arm.javaClass.getMethod("setLeft", java.lang.Boolean.TYPE)
-                val aim = aimPoint(target)
+                val aim = target.aim
                 setActive.invoke(arm, true)
-                // Readable face toward whoever linked it: which side of the arm's direction they stand on.
+                // Readable face toward the viewer: which side of the arm's direction they stand on.
                 if (viewer != null) {
-                    val dirX = (aim.x - node.pos.x).toDouble(); val dirZ = (aim.z - node.pos.z).toDouble()
-                    val toViewerX = (viewer.x - node.pos.x).toDouble(); val toViewerZ = (viewer.z - node.pos.z).toDouble()
+                    val dirX = (aim.x - origin.x).toDouble(); val dirZ = (aim.z - origin.z).toDouble()
+                    val toViewerX = (viewer.x - origin.x).toDouble(); val toViewerZ = (viewer.z - origin.z).toDouble()
                     val cross = dirX * toViewerZ - dirZ * toViewerX
                     setLeft.invoke(arm, (cross > 0) == io.github.veelume.postroad.PostroadConfig.flipSignFaces)
                 }
-                pointToward.invoke(arm, node.pos, aim)
+                pointToward.invoke(arm, origin, aim)
                 labels.add(Component.translatable("sign.postroad.to", target.name).string)
                 set++
             } catch (e: Exception) {

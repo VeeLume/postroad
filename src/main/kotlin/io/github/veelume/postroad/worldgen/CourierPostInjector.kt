@@ -26,8 +26,8 @@ object CourierPostInjector {
         ResourceKey.create(Registries.PROCESSOR_LIST, ResourceLocation.withDefaultNamespace("empty"))
 
     fun onServerAboutToStart(event: ServerAboutToStartEvent) {
-        val weight = PostroadConfig.courierPostWeight
-        if (weight <= 0) return
+        val share = PostroadConfig.courierPostShare
+        if (share <= 0) return
 
         val access = event.server.registryAccess()
         val pools = access.registryOrThrow(Registries.TEMPLATE_POOL)
@@ -35,30 +35,40 @@ object CourierPostInjector {
         val emptyProcessors = processors.getHolderOrThrow(EMPTY_PROCESSORS)
         val elements = HashMap<String, StructurePoolElement>()
 
-        var injected = 0
-        val styles = HashMap<String, Int>()
+        val targets = LinkedHashSet<ResourceLocation>()
         for (poolId in PostroadConfig.targetPools) {
             val id = ResourceLocation.tryParse(poolId)
-            if (id == null) {
-                Postroad.LOGGER.warn("Invalid template pool id in config: {}", poolId)
-                continue
-            }
-            val pool = pools.get(id)
-            if (pool == null) {
-                Postroad.LOGGER.debug("Template pool {} not present, skipping courier post", id)
-                continue
-            }
+            if (id == null) Postroad.LOGGER.warn("Invalid template pool id in config: {}", poolId)
+            else if (!pools.containsKey(id)) Postroad.LOGGER.debug("Template pool {} not present, skipping courier post", id)
+            else targets.add(id)
+        }
+        val pattern = try {
+            PostroadConfig.poolPattern.takeIf { it.isNotBlank() }?.toRegex()
+        } catch (e: IllegalArgumentException) {
+            Postroad.LOGGER.warn("Invalid courier post pool pattern '{}': {}", PostroadConfig.poolPattern, e.message)
+            null
+        }
+        if (pattern != null) pools.keySet().filter { pattern.containsMatchIn(it.toString()) }.sortedBy { it.toString() }.forEach { targets.add(it) }
+
+        val styles = HashMap<String, Int>()
+        val weights = ArrayList<Int>()
+        for (id in targets) {
+            val pool = pools.get(id) ?: continue
             val style = CultureRegistry.get(CultureRegistry.resolve(id)).post
             val element = elements.getOrPut(style) { element(style, emptyProcessors) }
 
+            val total = pool.rawTemplates.sumOf { it.second }
+            val weight = maxOf(1, Math.round(total * share / 100.0).toInt())
             val raw = ArrayList(pool.rawTemplates)
             raw.add(Pair.of(element, weight))
             pool.rawTemplates = raw
             repeat(weight) { pool.templates.add(element) }
-            injected++
+            weights.add(weight)
             styles.merge(style, 1, Int::plus)
+            Postroad.LOGGER.debug("Courier post in {}: weight {} of {} ({})", id, weight, total, style)
         }
-        Postroad.LOGGER.info("Courier post injected into {} template pools (weight {}, styles {})", injected, weight, styles)
+        Postroad.LOGGER.info("Courier post injected into {} template pools ({}% share, weights {}..{}, styles {})",
+            weights.size, share, weights.minOrNull() ?: 0, weights.maxOrNull() ?: 0, styles)
     }
 
     private fun element(style: String, processors: Holder<StructureProcessorList>): StructurePoolElement =

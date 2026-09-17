@@ -196,9 +196,10 @@ def build(style: str, p: dict[str, str | None]) -> Path:
     return out
 
 
-OUT_DIR.mkdir(parents=True, exist_ok=True)
-stale = OUT_DIR / "courier_post.nbt"
-if stale.exists():
-    stale.unlink()
-for style_name, palette_def in STYLES.items():
-    print("wrote", build(style_name, palette_def).name)
+if __name__ == "__main__":
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    stale = OUT_DIR / "courier_post.nbt"
+    if stale.exists():
+        stale.unlink()
+    for style_name, palette_def in STYLES.items():
+        print("wrote", build(style_name, palette_def).name)

@@ -68,11 +68,15 @@ class RoadStyleSet(
         return replaceableKeywords.any { path.contains(it) }
     }
 
-    /** Plants and litter the road may remove from above its surface. */
+    /**
+     * Plants and litter the road may remove from above its surface. Ground is never litter: the keywords
+     * are substrings, and "grass" or "snow" would otherwise take grass_block and snow_block with them.
+     */
     fun isClearable(state: BlockState): Boolean {
         if (state.isAir) return true
         val block = state.block
         if (block in clearable) return true
+        if (isReplaceable(state)) return false
         val path = BuiltInRegistries.BLOCK.getKey(block).path
         return clearableKeywords.any { path.contains(it) }
     }
