@@ -136,6 +136,14 @@
     {
       "id": "terralith:underground_cabin",
       "required": false
+    },
+    {
+      "id": "mowziesmobs:wrought_chamber",
+      "required": false
+    },
+    {
+      "id": "nova_structures:conduit_ruin",
+      "required": false
     }
   ]
 }

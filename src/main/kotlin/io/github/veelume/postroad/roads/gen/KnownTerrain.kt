@@ -82,9 +82,14 @@ object KnownTerrain {
 
     /**
      * Columns under the pieces of real structures (not villages — those are endpoints with their own
-     * footprints): the chunk's own starts plus the starts it references, whose pieces reach into it.
-     * Structure blocks are only placed at the features step, so the pre-generated ground does not show
-     * them; their piece boxes do. Buried pieces (top well under the ground) do not count.
+     * footprints, and not `#postroad:passable` ones — landscape a road may cross): the chunk's own starts
+     * plus the starts it references, whose pieces reach into it. Structure blocks are only placed at the
+     * features step, so the pre-generated ground does not show them; their piece boxes do. Buried pieces
+     * (top well under the ground) do not count.
+     *
+     * The tag mattered more than it looked: a BWG plateau's pieces cover whole villages, and an arch's
+     * span a river mouth; without the check every column under them was a wall, so a village on a
+     * plateau had no exit a road could start from and was dropped as unreachable on real ground.
      */
     private fun markStructures(level: net.minecraft.server.level.ServerLevel, chunk: ChunkAccess, tops: ChunkTops) {
         val registry = level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.STRUCTURE)
@@ -102,7 +107,7 @@ object KnownTerrain {
         for (start in starts) {
             if (!start.isValid) continue
             val holder = registry.wrapAsHolder(start.structure)
-            if (holder.`is`(net.minecraft.tags.StructureTags.VILLAGE)) continue
+            if (holder.`is`(TownFinder.TOWNS) || holder.`is`(TownFinder.PASSABLE)) continue
             for (piece in start.pieces) {
                 val b = piece.boundingBox
                 val minX = maxOf(b.minX(), pos.minBlockX); val maxX = minOf(b.maxX(), pos.maxBlockX)

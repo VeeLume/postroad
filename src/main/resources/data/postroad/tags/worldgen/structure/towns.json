@@ -1,0 +1,18 @@
+{
+  "replace": false,
+  "values": [
+    "#minecraft:village",
+    {
+      "id": "nova_structures:village_birch",
+      "required": false
+    },
+    {
+      "id": "nova_structures:village_jungle",
+      "required": false
+    },
+    {
+      "id": "nova_structures:village_swamp",
+      "required": false
+    }
+  ]
+}

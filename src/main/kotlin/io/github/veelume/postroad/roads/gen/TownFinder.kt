@@ -6,7 +6,6 @@ import net.minecraft.core.RegistryAccess
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.core.registries.Registries
-import net.minecraft.tags.StructureTags
 import net.minecraft.tags.TagKey
 import net.minecraft.world.level.levelgen.structure.Structure
 import net.minecraft.world.level.ChunkPos
@@ -29,7 +28,7 @@ import java.util.function.Predicate
  * in a chunk, and the structure's own generation (biome check, layout) says whether it does.
  * Everything here is a pure function of the seed, so it runs on the planner thread.
  *
- * A structure tagged `#minecraft:village` is a **town** (a road endpoint, with its pieces and
+ * A structure tagged `#postroad:towns` (all of `#minecraft:village` and more) is a **town** (a road endpoint, with its pieces and
  * street exits). Any other structure that stands on the surface — towers, temples, mansions —
  * is an **obstacle**: its start box is kept so the planner routes around it. Structures tagged
  * `#postroad:passable` are neither: landscape structures (a plateau or arch whose box spans
@@ -86,7 +85,7 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
 
     /** Structure sets that can produce a village. */
     val villageSets: List<Holder<StructureSet>> = sets.filter { set ->
-        set.value().structures().any { it.structure().`is`(StructureTags.VILLAGE) }
+        set.value().structures().any { it.structure().`is`(TOWNS) }
     }
 
     /** Everything that starts in this chunk. */
@@ -151,6 +150,9 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
             if (!placement.isStructureChunk(state, chunkX, chunkZ)) continue
             val list = set.value().structures()
             if (list.size == 1) {
+                // Alone in its set, a passable structure's layout decides nothing: skip building it. (In a
+                // shared set it still has to be built — whether it generates decides the draw.)
+                if (list[0].structure().`is`(PASSABLE)) { passableFound++; continue }
                 take(tryOne(list[0], chunkPos))
                 continue
             }
@@ -224,7 +226,7 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
         val sid = structureId.toString()
         val box = start.boundingBox
         if (holder.`is`(PASSABLE)) { passableFound++; return Outcome(true) }
-        if (!holder.`is`(StructureTags.VILLAGE)) {
+        if (!holder.`is`(TOWNS)) {
             // On the surface, or buried? The box's mid-height against the estimated surface at its centre.
             val centre = box.center
             val ground = surface(centre.x, centre.z)
@@ -288,6 +290,11 @@ class TownFinder(level: ServerLevel, private val surface: (Int, Int) -> Int) {
     }
 
     companion object {
+        /**
+         * Structures that are towns: `#minecraft:village` plus the villages mods leave out of it
+         * (`data/postroad/tags/worldgen/structure/towns.json`; a pack extends it).
+         */
+        val TOWNS: TagKey<Structure> = TagKey.create(Registries.STRUCTURE, ResourceLocation.fromNamespaceAndPath(Postroad.MOD_ID, "towns"))
         /** Structures a road may cross: landscape features and underground structures. Neither town nor obstacle. */
         val PASSABLE: TagKey<Structure> = TagKey.create(Registries.STRUCTURE, ResourceLocation.fromNamespaceAndPath(Postroad.MOD_ID, "passable"))
         /** A street stub whose ground varies by more than this between the street's end and the stub is not offered as a road end. */
