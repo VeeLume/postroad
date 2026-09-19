@@ -26,9 +26,10 @@ Kotlin until play shows it is needed.
 
 ## Status
 
-**v0.1.0**: increments 1–8 (`docs/`). Everything above works; every road is
-still the dirt tier. Road tiers and the road-works quest that upgrades a route
-are 0.2.0. See `CHANGELOG.md`.
+**v0.2.0**: increments 1–8 (`docs/`), and pre-generation that leaves the server
+thread alone. Everything above works; every road is still the dirt tier. Road
+tiers and the road-works quest that upgrades a route are the next release. See
+`CHANGELOG.md`.
 
 ## Building
 

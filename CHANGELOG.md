@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+A performance release for the dedicated server.
+
+- Pre-generation no longer hogs the server thread. A finished corridor chunk keeps
+  its ticket until nothing queued needs its neighbourhood, requests are queued in
+  spatial order, and tickets are released a few per tick. Before, every chunk's
+  neighbours were written out and read back on the server thread as its ticket
+  dropped, and a corridor's end dropped thousands at once (a 5–7 s stall).
+  `/postroad roads measure` now reports the tail after a run on its own line.
+
 ## 0.1.0
 
 The first release: the civilization layer as increments 1–8 built it.
@@ -48,7 +59,7 @@ The first release: the civilization layer as increments 1–8 built it.
 ### Known limits
 
 - Every road is the dirt tier. Road tiers and the road-works quest that pays to
-  upgrade a route are 0.2.0.
+  upgrade a route are a later release.
 - Trees can grow on a laid road: features that run after `surface_structures`
   see the road as ground.
 - Village pairs separated by water or by ground too steep for the piece catalog

@@ -47,6 +47,7 @@ object PregenMeasure {
         startedAt = System.nanoTime()
         lastTickAt = 0L
         ticks = 0; slowTicks = 0; maxPeriodMs = 0.0; totalPeriodMs = 0.0
+        tailing = false
         running = true
         runs++
         ChunkPregen.request(dimension, chunks, status) { ok, failed -> report(ok, failed) }
@@ -54,9 +55,9 @@ object PregenMeasure {
             "cap ${PostroadConfig.planPregenInFlight} in flight. The result goes to the log and to `/postroad roads measure`."
     }
 
-    /** Sampled once per server tick while a run is going. */
+    /** Sampled once per server tick while a run is going, and through its tail. */
     fun tick() {
-        if (!running) return
+        if (!running && !tailing) return
         val now = System.nanoTime()
         if (lastTickAt != 0L) {
             val periodMs = (now - lastTickAt) / 1_000_000.0
@@ -67,7 +68,23 @@ object PregenMeasure {
             if (periodMs > 55.0) slowTicks++
         }
         lastTickAt = now
+        if (tailing) {
+            if (ChunkPregen.heldCount == 0) drained++
+            if (drained >= TAIL_GRACE_TICKS) reportTail()
+        }
     }
+
+    /**
+     * The tail: the run's chunks are done, but their tickets are still held and go a few per tick, and
+     * the chunk map unloads what they held on the ticks after that. This is where a run used to stall
+     * for seconds when every ticket dropped at once; it is measured on its own so that shows.
+     */
+    @Volatile
+    private var tailing = false
+    private var tailStartedAt = 0L
+    private var drained = 0
+    /** Ticks sampled after the last ticket went, for the unloads it caused. */
+    private const val TAIL_GRACE_TICKS = 100
 
     private var last: String = "no measurement has been run yet"
 
@@ -80,7 +97,26 @@ object PregenMeasure {
         last = "%s: %d chunk(s) in %.1f s = %.1f chunk(s)/s (%d failed); tick period mean %.1f ms, max %.0f ms, %.0f%% of %d tick(s) over 55 ms"
             .format(label, ok, seconds, perSecond, failed, meanPeriod, maxPeriodMs, slowShare, ticks)
         Postroad.LOGGER.info(last)
+        tailStartedAt = System.nanoTime()
+        ticks = 0; slowTicks = 0; maxPeriodMs = 0.0; totalPeriodMs = 0.0
+        drained = 0
+        tailing = true
     }
 
-    fun status(): String = if (running) "$label: running, ${ChunkPregen.queueSize} queued, ${ChunkPregen.inFlightCount} in flight of $asked asked" else last
+    private fun reportTail() {
+        tailing = false
+        val seconds = (System.nanoTime() - tailStartedAt) / 1_000_000_000.0 - TAIL_GRACE_TICKS * 0.05
+        val meanPeriod = if (ticks > 0) totalPeriodMs / ticks else 0.0
+        val slowShare = if (ticks > 0) 100.0 * slowTicks / ticks else 0.0
+        val tail = "%s, tail: tickets released over %.1f s; tick period mean %.1f ms, max %.0f ms, %.0f%% of %d tick(s) over 55 ms (the last %d ticks are the grace for unloads)"
+            .format(label, maxOf(0.0, seconds), meanPeriod, maxPeriodMs, slowShare, ticks, TAIL_GRACE_TICKS)
+        Postroad.LOGGER.info(tail)
+        last = "$last\n$tail"
+    }
+
+    fun status(): String = when {
+        running -> "$label: running, ${ChunkPregen.queueSize} queued, ${ChunkPregen.inFlightCount} in flight of $asked asked, ${ChunkPregen.heldCount} held"
+        tailing -> "$label: done, releasing ${ChunkPregen.heldCount} held ticket(s)"
+        else -> last
+    }
 }

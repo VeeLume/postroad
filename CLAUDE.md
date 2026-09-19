@@ -83,8 +83,11 @@ live in `docs/` (one per increment). This file is about the code.
   is the fallback for chunks finished before the plan covered them; junction signs stay with it.
   **Pre-generation:** `ChunkPregen` requests corridor chunks at `CARVERS` through the chunk system — from its own
   thread, because `getChunkFuture` joins when called on the server thread — holding each with its own ticket type
-  (the chunk source's one-tick ticket cancels an off-thread request); `KnownTerrain` copies heightmaps on the
-  server thread when a chunk is ready. A road planned over any `ESTIMATED` cell is provisional: its corridor is
+  (the chunk source's one-tick ticket cancels an off-thread request). A batch is queued row by row across its short
+  side, and a finished chunk keeps its ticket until nothing queued lies within the generation radius (8) of it,
+  released a few per tick: in 1.21.1 chunk NBT is encoded (unload) and decoded (load) on the server thread, and a
+  ticket dropped on completion unloaded a 17×17 halo the next request read straight back — that, not generation,
+  pinned the server thread on the VPS. `KnownTerrain` copies heightmaps on the server thread when a chunk is ready. A road planned over any `ESTIMATED` cell is provisional: its corridor is
   generated, then the pair is planned again with the old road excluded (`PassRequest.replace`) and swapped on apply.
   **Terrain sources:** own pre-generated chunks first (`KnownTerrain`), then `DhTerrain`, which reads Distant Horizons' generated terrain through its API when the mod is
   present (optional compile dep `distanthorizonsapi`; DH classes only referenced inside `DhTerrainAccess`); cells
