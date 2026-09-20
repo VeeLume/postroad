@@ -921,7 +921,10 @@ class PostroadGameTests {
         fun p(x: Int, z: Int) = BlockPos(o.x + x, o.y + 1, o.z + z)
         fun road(id: String, vararg pts: BlockPos) = io.github.veelume.postroad.roads.gen.PlannedRoad("test/$tag/$id", dim, "test/$tag/t$id", "test/$tag/u$id", pts.toList(), ByteArray(pts.size))
             .also { r -> r.builtChunks.addAll(r.chunks()) }
-        val chunk = net.minecraft.world.level.ChunkPos.asLong(p(9, 9).x shr 4, p(9, 9).z shr 4)
+        // The builder only handles junctions in the chunk it is given, and where the arena lands decides
+        // which chunk each of these forks falls in — so build every chunk they sit in, not p(9, 9)'s.
+        fun build(vararg at: BlockPos) = at.map { net.minecraft.world.level.ChunkPos.asLong(it.x shr 4, it.z shr 4) }.distinct()
+            .forEach { io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, it) }
         val added = ArrayList<io.github.veelume.postroad.roads.gen.PlannedRoad>()
         val junctions = ArrayList<io.github.veelume.postroad.roads.gen.PlannedJunction>()
         fun add(vararg rs: io.github.veelume.postroad.roads.gen.PlannedRoad) = rs.forEach { r ->
@@ -938,7 +941,7 @@ class PostroadGameTests {
             val b = road("b", p(0, 9), p(3, 9), p(6, 9), p(9, 9), p(9, 6), p(9, 3), p(9, 0))
             add(a, b)
             val j1 = fork(p(6, 9), a, b); val j2 = fork(p(9, 6), a, b)
-            io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk)
+            build(p(6, 9), p(9, 6))
             helper.assertTrue(j1.signPlaced && j2.signPlaced, "both handled")
             helper.assertTrue(posts().isEmpty(), "no post where roads only braid (${posts().map { it.pos }})")
             // Three roads parting within a few blocks: one post, every direction on it.
@@ -946,7 +949,7 @@ class PostroadGameTests {
             val d = road("d", p(0, 9), p(3, 9), p(6, 9), p(6, 12), p(6, 15), p(6, 18))
             add(c, d)
             fork(p(9, 9), b, c); fork(p(6, 9), a, d)
-            io.github.veelume.postroad.roads.gen.RoadBuilder.buildChunk(level, storage, chunk)
+            build(p(9, 9), p(6, 9))
             val columns = posts().map { it.pos.x to it.pos.z }.toSet()
             helper.assertValueEqual(columns.size, 1, "one post for the cluster (${posts().map { it.pos }})")
             helper.succeed()
