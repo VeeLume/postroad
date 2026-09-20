@@ -114,10 +114,18 @@ live in `docs/` (one per increment). This file is about the code.
 - `menu/` — `DepotMenu` (one 54-slot grid, backing container swapped per tab; ints via data
   slots, names via `DepotStatePayload`), `DepotState` + the two payloads, `PostroadNetworking`.
 - `client/` — `DepotScreen`, `ClientSetup`. Only referenced from the `Dist.CLIENT` branch in `Postroad`.
+  `DepotScreen`'s body is the vanilla 6-row chest to the pixel (176×222, so it fits at every GUI
+  scale); the depot's controls sit in a panel attached to its right, outside the rectangle a recipe
+  viewer can see — hence `columnArea()`, the `hasClickedOutside` override (a click on the column
+  must not throw the carried stack) and `compat/PostroadEmiPlugin`.
 - `advancement/PostroadAdvancements` — mod-granted milestones (impossible trigger) for FTB Quests.
 - `command/PostroadCommands` — `/postroad …`.
 - `compat/PostroadJadePlugin` — Jade block tooltip for the mailbox. `compileOnly` on Jade's Modrinth
   maven artifact; the class is only ever loaded by Jade, so keep every Jade import inside `compat/`.
+- `compat/PostroadEmiPlugin` — hands EMI the depot screen's control column as an exclusion area.
+  Same rules as the Jade plugin: `compileOnly` on EMI's Modrinth artifact, loaded only by EMI
+  (`@EmiEntrypoint`, found by NeoForge's annotation scan), every EMI import inside `compat/`.
+  NeoForge 21.1 has no `getGuiExtraAreas`, so a recipe viewer has to be told through its own API.
 
 ## Conventions
 

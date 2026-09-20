@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1
+
+- The depot screen is a normal chest again. It was 176×285 — taller than the window at
+  Minecraft's own auto GUI scale on a 1080p display, which left its lower half fighting
+  EMI's panels. The body is now the vanilla six-row chest to the pixel (176×222) and the
+  depot's controls moved into a panel attached to its right, which EMI is told to keep
+  clear of.
+
 ## 0.2.0
 
 A performance release for the dedicated server.

@@ -350,8 +350,8 @@ class DepotMenu private constructor(
         const val GRID = 54
         const val INVENTORY_START = GRID
         const val INVENTORY_END = GRID + 27
-        const val INVENTORY_Y = 202
-        const val HOTBAR_Y = 260
+        const val INVENTORY_Y = 140
+        const val HOTBAR_Y = 198
 
         const val ACTION_PAGE = 1
         const val ACTION_DESTINATION = 3
