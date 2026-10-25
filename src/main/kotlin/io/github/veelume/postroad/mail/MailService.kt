@@ -3,6 +3,7 @@ package io.github.veelume.postroad.mail
 import io.github.veelume.postroad.Postroad
 import io.github.veelume.postroad.PostroadConfig
 import io.github.veelume.postroad.loot.FreshLoot
+import io.github.veelume.postroad.loot.FreshLootSettling
 import io.github.veelume.postroad.network.LedgerEntry
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.network.Parcel
@@ -19,7 +20,8 @@ import kotlin.math.ceil
 /**
  * Parcels: splitting an outbox into lanes, computing arrival days, and delivering what is due
  * into the destination town's storage. Delivery runs when the in-game day changes and once at
- * server start; bulk parcels are delivered immediately on send.
+ * server start, right after settled loot stamps come off everything the network holds (so it
+ * stacks on arrival); bulk parcels are delivered immediately on send.
  */
 object MailService {
 
@@ -124,6 +126,7 @@ object MailService {
     fun onServerStarted(event: ServerStartedEvent) {
         val server = event.server
         val today = FreshLoot.dayOf(server.overworld())
+        FreshLootSettling.settleNetwork(server, today)
         deliverDue(server, today)
         Network.get(server).lastDeliveryDay = today
     }
@@ -134,6 +137,7 @@ object MailService {
         val today = FreshLoot.dayOf(server.overworld())
         val network = Network.get(server)
         if (network.lastDeliveryDay == today) return
+        FreshLootSettling.settleNetwork(server, today)
         deliverDue(server, today)
         network.lastDeliveryDay = today
     }

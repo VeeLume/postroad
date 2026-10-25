@@ -25,7 +25,8 @@ live in `docs/` (one per increment). This file is about the code.
 - `names/` — culture data (`data/postroad/cultures/*.json`) and the deterministic name generator.
 - `depot/` — depot block, block entity (holds only its place id), and `DepotInteraction`
   (all click behaviour, server side).
-- `loot/` — fresh-loot data component, the global loot modifier that stamps it, client tooltip.
+- `loot/` — fresh-loot data component, the global loot modifier that stamps it (unstackables and
+  buyback stackables only), `FreshLootSettling` (takes settled/unwanted stamps off), client tooltip.
 - `worldgen/CourierPostInjector` — appends the courier post to village house pools at server start.
 - `roads/` — `Tier`, `RoadRules` (data file `data/postroad/roads/rules.json`, reload listener), `RoadClassifier`
   (ground sampling + walk verdict), `RoadBuff` (movement-speed modifier every 10 ticks, player and mount).

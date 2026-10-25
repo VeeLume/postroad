@@ -198,6 +198,11 @@ class Network : SavedData() {
      */
     fun mayMoveRemotely(stack: ItemStack): Boolean = stack.isEmpty || stack.isStackable
 
+    /** Every stack the network holds: town storage, mailboxes, parcels on the way. Mutate in place, then [setDirty]. */
+    fun storedStacks(): Sequence<ItemStack> =
+        (storage.values.asSequence() + mailboxes.values.asSequence()).flatMap { it.items.asSequence() } +
+            parcels.asSequence().flatMap { it.items.asSequence() }
+
     fun mayAccessPage(currentPlaceId: String, pageId: String): Boolean =
         currentPlaceId == pageId || postalUnlocked
 

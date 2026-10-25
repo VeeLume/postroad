@@ -87,11 +87,20 @@ world are resolved by appending a distinguishing suffix from the culture's
   re-label table families by path prefix. Lootr generates per-player loot
   through the ordinary loot-table path, so instancing needs no special
   handling.
+- Only what the stamp is for gets one: unstackables, and stackables with a
+  buyback rate. A stamp splits stacks, so rotten flesh, string or arrows stay
+  unstamped and keep stacking with their mined and farmed kin.
 - `day` is the in-game day index (`gameTime / 24000`), not the tick, so loot
   taken on the same day stacks.
 - An item is fresh while `currentDay - day < settleDays` (config, default 3).
-  Nothing removes the component; it simply stops counting. Increment 2 reads
-  the same predicate for the valuables lane.
+  Increment 2 reads the same predicate for the valuables lane. Once settled
+  the component is removed, so the item stacks with unlooted ones again: from
+  the player's inventory every two seconds, from a container's slots when a
+  player opens it, from item entities as they enter a level, and from
+  everything the network holds when the day changes. The same pass removes
+  stamps on stackables without a buyback rate, which heals worlds stamped
+  before that rule; storage nobody opens keeps its stamps until the items
+  come out.
 - Tooltip line while fresh: "Fresh loot · settles in N days". Items the depot
   buys also show the rate ("Depot pays N coins each"), gold while fresh, grey
   otherwise — the buyback data map is synced to clients for this, so nobody

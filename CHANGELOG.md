@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.2
+
+- Fresh loot stacks again. Only unstackables and items the depot buys get the stamp, so
+  rotten flesh, string and the like from chests and mobs stack with everything else, and a
+  stamp is removed once it has settled, so a looted diamond joins mined ones after three
+  days. Existing worlds heal as they are played: stamps on items that should not carry one
+  come off in player inventories, in any container a player opens, on dropped items, and in
+  depot storage, mailboxes and parcels.
+
 ## 0.2.1
 
 - The depot screen is a normal chest again. It was 176×285 — taller than the window at

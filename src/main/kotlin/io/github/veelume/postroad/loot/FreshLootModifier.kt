@@ -13,7 +13,8 @@ import net.neoforged.neoforge.common.loot.IGlobalLootModifier
 import net.neoforged.neoforge.common.loot.LootModifier
 
 /**
- * Global loot modifier that stamps [FreshLoot] on everything a loot table produces.
+ * Global loot modifier that stamps [FreshLoot] on what a loot table produces, as far as
+ * [FreshLoot.wanted] — junk such as rotten flesh or string stays unstamped and keeps stacking.
  *
  * Classification comes from the loot context, not the table id, so modded structure tables
  * with arbitrary paths (`kaisyn:village/…`, `betterdungeons:zombie_dungeon/…`) count too:
@@ -42,7 +43,7 @@ class FreshLootModifier(conditions: Array<LootItemCondition>, val rules: List<Or
         val day = FreshLoot.dayOf(context.level)
         var stamped = 0
         for (stack in generatedLoot) {
-            if (!stack.isEmpty && FreshLoot.of(stack) == null) {
+            if (!stack.isEmpty && FreshLoot.of(stack) == null && FreshLoot.wanted(stack)) {
                 FreshLoot.stamp(stack, origin, day)
                 stamped++
             }

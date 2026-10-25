@@ -3,6 +3,7 @@ package io.github.veelume.postroad.gametest
 import io.github.veelume.postroad.Postroad
 import io.github.veelume.postroad.depot.DepotBlockEntity
 import io.github.veelume.postroad.loot.FreshLoot
+import io.github.veelume.postroad.loot.FreshLootSettling
 import io.github.veelume.postroad.mail.MailService
 import io.github.veelume.postroad.network.Parcel
 import io.github.veelume.postroad.names.Culture
@@ -20,6 +21,7 @@ import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 import net.minecraft.world.level.GameType
+import net.minecraft.world.level.ItemLike
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.entity.ChestBlockEntity
 import net.minecraft.world.level.storage.loot.BuiltInLootTables
@@ -114,16 +116,44 @@ class PostroadGameTests {
         chest.setLootTable(BuiltInLootTables.SIMPLE_DUNGEON, 42L)
         chest.unpackLootTable(null)
 
-        var total = 0
-        var stamped = 0
+        var wanted = 0
         for (slot in 0 until chest.containerSize) {
             val stack = chest.getItem(slot)
             if (stack.isEmpty) continue
-            total++
-            if (FreshLoot.isFresh(stack, FreshLoot.dayOf(helper.level))) stamped++
+            if (FreshLoot.wanted(stack)) wanted++
+            val fresh = FreshLoot.isFresh(stack, FreshLoot.dayOf(helper.level))
+            helper.assertValueEqual(fresh, FreshLoot.wanted(stack), "stamp on ${stack.itemHolder.registeredName}")
         }
-        helper.assertTrue(total > 0, "loot table produced nothing")
-        helper.assertValueEqual(stamped, total, "stacks carrying a fresh-loot stamp")
+        helper.assertTrue(wanted > 0, "loot table produced nothing the stamp is for")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun settling_removes_settled_and_unwanted_stamps(helper: GameTestHelper) {
+        val today = FreshLoot.dayOf(helper.level)
+        fun stamped(item: ItemLike, day: Long) =
+            ItemStack(item, 1).also { FreshLoot.stamp(it, FreshLoot.ORIGIN_CONTAINER, day) }
+
+        val fresh = stamped(Items.EMERALD, today)
+        helper.assertTrue(!FreshLoot.settle(fresh, today) && FreshLoot.of(fresh) != null, "fresh buyback loot lost its stamp")
+        val unstackable = stamped(Items.WOODEN_SWORD, today)
+        helper.assertTrue(!FreshLoot.settle(unstackable, today) && FreshLoot.of(unstackable) != null, "fresh unstackable lost its stamp")
+        val settled = stamped(Items.EMERALD, today - 100)
+        helper.assertTrue(FreshLoot.settle(settled, today) && FreshLoot.of(settled) == null, "settled stamp stayed")
+        helper.assertTrue(ItemStack.isSameItemSameComponents(settled, ItemStack(Items.EMERALD)), "settled emerald does not stack with a mined one")
+        val junk = stamped(Items.ROTTEN_FLESH, today)
+        helper.assertTrue(FreshLoot.settle(junk, today) && FreshLoot.of(junk) == null, "stamp on unbought stackable stayed")
+
+        // Network storage is settled in place by the day-change pass.
+        val network = Network.get(helper.level.server)
+        val placeId = "test/settle"
+        val storage = network.storageFor(placeId)
+        storage.setItem(0, stamped(Items.ROTTEN_FLESH, today))
+        storage.setItem(1, stamped(Items.EMERALD, today))
+        FreshLootSettling.settleNetwork(helper.level.server, today)
+        helper.assertTrue(FreshLoot.of(storage.getItem(0)) == null, "stored junk kept its stamp")
+        helper.assertTrue(FreshLoot.of(storage.getItem(1)) != null, "stored fresh loot lost its stamp")
+        storage.clearContent()
         helper.succeed()
     }
 
@@ -133,8 +163,9 @@ class PostroadGameTests {
         val origin = Vec3.atCenterOf(helper.absolutePos(BlockPos(3, 1, 3)))
         val registries = level.server.reloadableRegistries()
 
-        // A table whose path is not under chests/ (modded structures look like this).
-        val gift = registries.getLootTable(BuiltInLootTables.CAT_MORNING_GIFT)
+        // A table whose path is not under chests/ (modded structures look like this). The
+        // armorer's gift is all unstackable, so every item of it is stamped.
+        val gift = registries.getLootTable(BuiltInLootTables.ARMORER_GIFT)
         val giftParams = LootParams.Builder(level).withParameter(LootContextParams.ORIGIN, origin).create(LootContextParamSets.CHEST)
         val giftLoot = gift.getRandomItems(giftParams).filter { !it.isEmpty }
         helper.assertTrue(giftLoot.isNotEmpty(), "gift table produced nothing")
