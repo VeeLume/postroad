@@ -109,9 +109,12 @@ live in `docs/` (one per increment). This file is about the code.
   ticks, because it stands outside the village pieces `PlaceResolver` looks in. Other road ends of the town get a
   signpost (`RoadBuilder.erectSignpost`, shared with the junction signs). State: `PlannedTown.stop`/`stopDone`,
   `PlannedRoad.endsDone`; a standing stop blocks its inner cells for later passes (`PassRequest.stops`).
-- `roads/Routing` — Dijkstra over anchors (nodes + link ends) on the path polylines.
+- `roads/Routing` — Dijkstra over anchors (nodes + link ends) on the charted path polylines. Links join
+  even on uncharted roads (no travel along them); a town node is a hub to every charted road end into its
+  town (`TravelService.townEnds`, from `RoadPlanStorage` from/to — roads end at street exits, not the depot).
 - `travel/` — `Fares`, `TravelService` (open list, depart: fare, fresh-loot mailing, teleport), `SignNodes`
-  (map-on-sign links/unlinks, left-click opens travel; block tag `#postroad:sign_nodes`), payloads + `TravelClient`.
+  (map-on-sign links/unlinks, right-click on a linked sign opens travel, sneak + right-click reaches the editor,
+  dye/ink/wax still apply, breaking drops the node; block tag `#postroad:sign_nodes`), payloads + `TravelClient`.
 - `mailbox/` — the player's mailbox block; contents are in `Network`, the block entity only holds its place id.
 - `mail/MailService` — parcels: lane split, arrival days, delivery on day change; `network/Parcel`.
 - `menu/` — `DepotMenu` (one 54-slot grid, backing container swapped per tab; ints via data

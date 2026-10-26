@@ -44,6 +44,8 @@ building. Out (increment 5): cargo box, road works.
   whole group; the ledger names them. Nothing requires a second player.
 - **Generated roads need charting too.** Increment 4's roads arrive
   unrecorded; the map is how the world opens up.
+- *Superseded in 0.2.4: right-click a linked sign travels, sneak + right-click edits, left-click
+  breaks it as usual (left-click travel lost to the natural instinct in play).*
 - **Respect the sign's own click.** Right-clicking a sign post opens
   Supplementaries' text editor (vanilla signs: their editor); every Postroad
   action on a sign goes through the map item in hand, or the left-click for

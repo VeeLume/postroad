@@ -4,7 +4,6 @@ import io.github.veelume.postroad.Postroad
 import io.github.veelume.postroad.PostroadConfig
 import io.github.veelume.postroad.advancement.PostroadAdvancements
 import io.github.veelume.postroad.network.Network
-import io.github.veelume.postroad.registry.PostroadBlocks
 import io.github.veelume.postroad.registry.PostroadItems
 import io.github.veelume.postroad.roads.RoadNode
 import net.minecraft.ChatFormatting
@@ -18,55 +17,59 @@ import net.minecraft.server.level.ServerPlayer
 import net.minecraft.tags.TagKey
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
+import net.minecraft.world.item.Items
+import net.minecraft.world.item.SignApplicator
 import net.minecraft.world.level.block.entity.SignBlockEntity
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent
+import net.neoforged.neoforge.event.level.BlockEvent
 import thedarkcolour.kotlinforforge.neoforge.forge.FORGE_BUS
 import java.util.function.Consumer
 
 /**
  * Signs as nodes. Using the Charting Map on a sign links it to the nearest path (or unlinks
- * it); left-clicking a linked sign opens the travel list. Which blocks count as signs is the
- * block tag `#postroad:sign_nodes`; the plain right-click stays the sign's own editor.
+ * it); right-clicking a linked sign opens the travel list, sneak + right-click (empty hand)
+ * reaches the sign's own editor. Dye, ink and honeycomb still go to the sign. Which blocks
+ * count as signs is the block tag `#postroad:sign_nodes`; breaking one drops its node.
  */
 object SignNodes {
     val SIGN_NODES: TagKey<net.minecraft.world.level.block.Block> = TagKey.create(Registries.BLOCK, Postroad.id("sign_nodes"))
 
     fun register() {
         FORGE_BUS.addListener(PlayerInteractEvent.RightClickBlock::class.java, Consumer(::onRightClick))
-        FORGE_BUS.addListener(PlayerInteractEvent.LeftClickBlock::class.java, Consumer(::onLeftClick))
+        FORGE_BUS.addListener(BlockEvent.BreakEvent::class.java, Consumer(::onBreak))
     }
 
     fun nodeIdAt(dimension: ResourceLocation, pos: BlockPos): String = "sign/$dimension/${pos.x}/${pos.y}/${pos.z}"
 
     private fun onRightClick(event: PlayerInteractEvent.RightClickBlock) {
-        if (event.hand != InteractionHand.MAIN_HAND || !event.itemStack.`is`(PostroadItems.CHARTING_MAP.get())) return
+        if (event.hand != InteractionHand.MAIN_HAND) return
         val level = event.level
         if (!level.getBlockState(event.pos).`is`(SIGN_NODES)) return
-        event.isCanceled = true
-        event.cancellationResult = InteractionResult.sidedSuccess(level.isClientSide)
+        val stack = event.itemStack
+        if (stack.`is`(PostroadItems.CHARTING_MAP.get())) {
+            event.isCanceled = true
+            event.cancellationResult = InteractionResult.sidedSuccess(level.isClientSide)
+            if (level !is ServerLevel) return
+            val player = event.entity as? ServerPlayer ?: return
+            toggleLink(level, player, event.pos)
+            return
+        }
+        // Sneaking is the way to the editor; what decorates a sign still decorates it.
+        if (event.entity.isSecondaryUseActive || stack.item is SignApplicator || stack.`is`(Items.HONEYCOMB)) return
+        // Only the server knows the nodes; the client leaves the click to it (the editor opens by packet).
         if (level !is ServerLevel) return
-        val player = event.entity as? ServerPlayer ?: return
-        toggleLink(level, player, event.pos)
+        val nodeId = nodeIdAt(level.dimension().location(), event.pos)
+        if (Network.get(level.server).nodes[nodeId] == null) return
+        event.isCanceled = true
+        event.cancellationResult = InteractionResult.SUCCESS
+        (event.entity as? ServerPlayer)?.let { TravelService.open(it, nodeId) }
     }
 
-    private fun onLeftClick(event: PlayerInteractEvent.LeftClickBlock) {
-        val level = event.level
-        val dimension = level.dimension().location()
-        val state = level.getBlockState(event.pos)
-        val nodeId = when {
-            state.`is`(SIGN_NODES) -> nodeIdAt(dimension, event.pos)
-            state.`is`(PostroadBlocks.DEPOT.get()) -> null // the depot has its own Travel button
-            else -> return
-        } ?: return
-        if (level is ServerLevel) {
-            val network = Network.get(level.server)
-            if (network.nodes[nodeId] == null) return
-            event.isCanceled = true
-            (event.entity as? ServerPlayer)?.let { TravelService.open(it, nodeId) }
-        } else {
-            // Client: cancel too so the sign is not attacked while the screen opens.
-            event.isCanceled = true
-        }
+    private fun onBreak(event: BlockEvent.BreakEvent) {
+        val level = event.level as? ServerLevel ?: return
+        if (!event.state.`is`(SIGN_NODES)) return
+        val network = Network.get(level.server)
+        if (network.nodes.remove(nodeIdAt(level.dimension().location(), event.pos)) != null) network.setDirty()
     }
 
     fun toggleLink(level: ServerLevel, player: ServerPlayer, pos: BlockPos) {

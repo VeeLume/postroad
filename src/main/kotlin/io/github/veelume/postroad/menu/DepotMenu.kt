@@ -205,7 +205,7 @@ class DepotMenu private constructor(
             }
             ACTION_SEND -> send(s, player)
             ACTION_TRAVEL -> {
-                val node = s.network.nodes["town/${s.placeId}"]
+                val node = io.github.veelume.postroad.travel.TravelService.townNode(s.level.server, s.placeId, pos)
                 if (node == null) player.displayClientMessage(Component.translatable("message.postroad.travel.no_node"), true)
                 else (player as? ServerPlayer)?.let { io.github.veelume.postroad.travel.TravelService.open(it, node.id) }
             }

@@ -7,6 +7,11 @@ import java.util.PriorityQueue
  * Shortest routes over the path graph. Vertices are *anchors*: a (path, point index) that
  * carries a node or a link end. Consecutive anchors on a path are joined by the polyline
  * between them; links join anchors on different paths at no cost.
+ *
+ * Only charted paths carry travel along them, but a link is a place, not a stretch: it joins its
+ * anchors even where one path is uncharted, so a node sitting where a charted path meets an
+ * uncharted road is still reached. A town node is a hub: it joins every charted road end that
+ * leads into its town ([townEnds], keyed by place id), at the walk from the depot to that end.
  */
 object Routing {
 
@@ -17,9 +22,9 @@ object Routing {
     private class Edge(val to: Anchor, val length: Double, val tier: Tier?)
 
     /** Routes from [fromNodeId] to every reachable node, keyed by node id. Unreachable nodes are absent. */
-    fun routes(network: Network, fromNodeId: String): Map<String, Route> {
+    fun routes(network: Network, fromNodeId: String, townEnds: Map<String, List<Anchor>> = emptyMap()): Map<String, Route> {
         val from = network.nodes[fromNodeId] ?: return emptyMap()
-        val graph = build(network)
+        val graph = build(network, townEnds)
         val start = Anchor(from.pathId, from.pointIndex)
         if (graph[start] == null) return emptyMap()
 
@@ -56,13 +61,14 @@ object Routing {
         return if (a.ordinal <= b.ordinal) a else b
     }
 
-    private fun build(network: Network): Map<Anchor, MutableList<Edge>> {
+    private fun build(network: Network, townEnds: Map<String, List<Anchor>>): Map<Anchor, MutableList<Edge>> {
         val anchorsByPath = HashMap<String, MutableSet<Int>>()
         for (node in network.nodes.values) anchorsByPath.getOrPut(node.pathId) { HashSet() }.add(node.pointIndex)
         for (link in network.links) {
             anchorsByPath.getOrPut(link.pathA) { HashSet() }.add(link.indexA)
             anchorsByPath.getOrPut(link.pathB) { HashSet() }.add(link.indexB)
         }
+        for (ends in townEnds.values) for (end in ends) anchorsByPath.getOrPut(end.pathId) { HashSet() }.add(end.index)
         val graph = HashMap<Anchor, MutableList<Edge>>()
         fun edges(a: Anchor) = graph.getOrPut(a) { ArrayList() }
         for ((pathId, indices) in anchorsByPath) {
@@ -80,13 +86,24 @@ object Routing {
             if (sorted.size == 1) edges(Anchor(pathId, sorted[0]))
         }
         for (link in network.links) {
-            val pa = network.paths[link.pathA]
-            val pb = network.paths[link.pathB]
-            if (pa == null || pb == null || !pa.charted || !pb.charted) continue
+            if (network.paths[link.pathA] == null || network.paths[link.pathB] == null) continue
             val a = Anchor(link.pathA, link.indexA)
             val b = Anchor(link.pathB, link.indexB)
             edges(a).add(Edge(b, 0.0, null))
             edges(b).add(Edge(a, 0.0, null))
+        }
+        for (node in network.nodes.values) {
+            if (node.kind != RoadNode.KIND_TOWN) continue
+            val ends = townEnds[node.placeId] ?: continue
+            val hub = Anchor(node.pathId, node.pointIndex)
+            for (end in ends) {
+                val path = network.paths[end.pathId] ?: continue
+                if (!path.charted || end == hub) continue
+                val point = path.points.getOrNull(end.index) ?: continue
+                val walk = RoadPath.distance(node.pos, point)
+                edges(hub).add(Edge(end, walk, null))
+                edges(end).add(Edge(hub, walk, null))
+            }
         }
         return graph
     }

@@ -518,6 +518,80 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun linked_sign_travels_on_right_click_and_edits_on_sneak(helper: GameTestHelper) {
+        val network = Network.get(helper.level.server)
+        val dim = helper.level.dimension().location()
+        val player = helper.makeMockServerPlayerInLevel()
+        val signPos = BlockPos(2, 1, 2)
+        helper.setBlock(signPos, Blocks.OAK_SIGN)
+        val abs = helper.absolutePos(signPos)
+        val path = io.github.veelume.postroad.roads.RoadPath("test-s-" + java.util.UUID.randomUUID().toString().take(6), dim,
+            mutableListOf(abs, abs.offset(10, 0, 0)), MutableList(2) { io.github.veelume.postroad.roads.Tier.PAVED }, "tester", 0)
+        network.addPath(path)
+        val nodeId = io.github.veelume.postroad.travel.SignNodes.nodeIdAt(dim, abs)
+        network.nodes[nodeId] = io.github.veelume.postroad.roads.RoadNode(nodeId, io.github.veelume.postroad.roads.RoadNode.KIND_SIGN, dim, abs, path.id, 0, "S", null)
+        fun click(sneak: Boolean, item: ItemStack = ItemStack.EMPTY): Boolean {
+            player.setItemInHand(InteractionHand.MAIN_HAND, item)
+            player.isShiftKeyDown = sneak
+            val hit = net.minecraft.world.phys.BlockHitResult(Vec3.atCenterOf(abs), net.minecraft.core.Direction.NORTH, abs, false)
+            return net.neoforged.neoforge.common.CommonHooks.onRightClickBlock(player, InteractionHand.MAIN_HAND, abs, hit).isCanceled
+        }
+        try {
+            helper.assertTrue(click(sneak = false), "a plain right-click on a linked sign is taken for travel")
+            helper.assertTrue(click(sneak = false, item = ItemStack(Items.BREAD)), "whatever is in hand")
+            helper.assertTrue(!click(sneak = true), "sneak + right-click reaches the sign's editor")
+            helper.assertTrue(!click(sneak = false, item = ItemStack(Items.GLOW_INK_SAC)), "ink still goes to the sign")
+            helper.assertTrue(!click(sneak = false, item = ItemStack(Items.HONEYCOMB)), "so does wax")
+            network.nodes.remove(nodeId)
+            helper.assertTrue(!click(sneak = false), "an unlinked sign keeps its plain editor")
+            network.nodes[nodeId] = network.nodes[nodeId] ?: io.github.veelume.postroad.roads.RoadNode(nodeId, io.github.veelume.postroad.roads.RoadNode.KIND_SIGN, dim, abs, path.id, 0, "S", null)
+            net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(net.neoforged.neoforge.event.level.BlockEvent.BreakEvent(helper.level, abs, helper.level.getBlockState(abs), player))
+            helper.assertTrue(network.nodes[nodeId] == null, "breaking the sign drops its node")
+            helper.succeed()
+        } finally {
+            network.nodes.remove(nodeId)
+            network.removePath(path.id)
+        }
+    }
+
+    @GameTest(template = ARENA)
+    fun routing_town_hub_joins_roads_into_the_town(helper: GameTestHelper) {
+        val network = Network.get(helper.level.server)
+        val dim = helper.level.dimension().location()
+        val tag = java.util.UUID.randomUUID().toString().take(6)
+        fun path(id: String, points: List<BlockPos>, charted: Boolean) = io.github.veelume.postroad.roads.RoadPath(id, dim,
+            points.map { helper.absolutePos(it) }.toMutableList(), MutableList(points.size) { io.github.veelume.postroad.roads.Tier.PAVED }, "tester", 0, charted = charted)
+        fun node(id: String, kind: String, p: io.github.veelume.postroad.roads.RoadPath, index: Int, place: String? = null) =
+            io.github.veelume.postroad.roads.RoadNode(id, kind, dim, p.points[index], p.id, index, id, place).also { network.nodes[id] = it }
+        // The layout the VPS showed: the town's node sits on an uncharted road (the pit stop's), a short
+        // charted walk links into it there, and the charted road to the neighbour ends at another street exit.
+        val place = "test/$tag/town"
+        val stopRoad = path("test-u-$tag", (0..5).map { BlockPos(0, 1, it * 10) }, charted = false)
+        val walk = path("test-w-$tag", (0..3).map { BlockPos(it * 10, 1, 50) }, charted = true)
+        val road = path("test-g-$tag", (0..10).map { BlockPos(60 + it * 100, 1, 50) }, charted = true)
+        listOf(stopRoad, walk, road).forEach(network::addPath)
+        network.addLink(io.github.veelume.postroad.roads.PathLink(walk.id, 0, stopRoad.id, 5))
+        val town = node("town/$place", io.github.veelume.postroad.roads.RoadNode.KIND_TOWN, stopRoad, 5, place)
+        val walkEnd = node("sign/test/$tag/walk", io.github.veelume.postroad.roads.RoadNode.KIND_SIGN, walk, 3)
+        val far = node("sign/test/$tag/far", io.github.veelume.postroad.roads.RoadNode.KIND_SIGN, road, 10)
+        val ends = mapOf(place to listOf(io.github.veelume.postroad.roads.Routing.Anchor(road.id, 0)))
+        try {
+            val plain = io.github.veelume.postroad.roads.Routing.routes(network, town.id)
+            helper.assertValueEqual(plain[walkEnd.id]?.length?.toInt(), 30, "a link into an uncharted road still joins at its point")
+            helper.assertTrue(plain[far.id] == null, "without the town's road ends the far road is cut off")
+            val routes = io.github.veelume.postroad.roads.Routing.routes(network, town.id, ends)
+            helper.assertValueEqual(routes[far.id]?.length?.toInt(), 1060, "the town hub walks 60 to the road end, then 1000 along it")
+            val back = io.github.veelume.postroad.roads.Routing.routes(network, far.id, ends)
+            helper.assertTrue(back[town.id] != null && back[walkEnd.id] != null, "and back through the town to the walk")
+            val stray = node("sign/test/$tag/stray", io.github.veelume.postroad.roads.RoadNode.KIND_SIGN, stopRoad, 0)
+            helper.assertTrue(routes[stray.id] == null, "travel never runs along the uncharted road")
+            helper.succeed()
+        } finally {
+            listOf(stopRoad, walk, road).forEach { network.removePath(it.id) }
+        }
+    }
+
+    @GameTest(template = ARENA)
     fun planner_detours_water_contours_hills_and_avoids_structures(helper: GameTestHelper) {
         val g = io.github.veelume.postroad.roads.gen.TerrainGrid
         val planner = io.github.veelume.postroad.roads.gen.RoadPlanner
