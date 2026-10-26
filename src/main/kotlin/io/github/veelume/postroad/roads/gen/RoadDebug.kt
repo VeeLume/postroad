@@ -183,7 +183,6 @@ object RoadDebug {
         val centre = player.blockPosition()
         val r2 = PIECE_RADIUS.toDouble() * PIECE_RADIUS
         fun near(p: BlockPos): Boolean { val dx = (p.x - centre.x).toDouble(); val dz = (p.z - centre.z).toDouble(); return dx * dx + dz * dz <= r2 }
-        val catalog = RoadPieces.current
         val out = ArrayList<DebugPiece>()
         fun add(p: PiecePlacement, roadId: String) {
             val anchor = p.anchor
@@ -196,7 +195,7 @@ object RoadDebug {
         }
         for (road in storage.roadsIn(dim)) {
             if (road.points.none(::near)) continue
-            val placements = catalog.assemble(road.points, road.id) ?: continue
+            val placements = RoadAssembly.of(road).placements ?: continue
             for (p in placements) add(p, road.id + (if (road.provisional) " (provisional)" else ""))
         }
         for ((d, p) in showcase) if (d == dim) add(p, "showcase")

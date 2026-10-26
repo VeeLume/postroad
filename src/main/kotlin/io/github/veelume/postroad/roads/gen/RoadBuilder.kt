@@ -147,6 +147,7 @@ object RoadBuilder {
     private fun sweep(server: MinecraftServer, storage: RoadPlanStorage) {
         if (--sweepIn > 0) return
         sweepIn = PostroadConfig.buildSweepTicks
+        RoadAssembly.retain(storage.roads.keys)
         val due = HashSet<Pair<ResourceLocation, Long>>()
         for (j in storage.junctions) if (j.fork && !j.signPlaced) due.add(j.dimension to ChunkPos.asLong(j.pos.x shr 4, j.pos.z shr 4))
         due.addAll(PitStops.dueChunks(storage))
@@ -344,27 +345,28 @@ object RoadBuilder {
      * Returns the next piece to resume at, or -1 when the road is done here.
      */
     private fun buildRoadInChunk(level: ServerLevel, road: PlannedRoad, chunk: Long, styles: RoadStyleSet, boxes: List<BoundingBox>, job: Job, deadline: Long): Int {
-        val catalog = RoadPieces.current
-        val placements = catalog.assemble(road.points, road.id) ?: run {
+        // Assembling a long road costs more than a tick's budget; once it is cached, resuming costs nothing.
+        if (!RoadAssembly.isCached(road) && System.nanoTime() > deadline) return job.pointIndex
+        val assembled = RoadAssembly.of(road)
+        val placements = assembled.placements ?: run {
             Postroad.LOGGER.warn("Road {} has a point no piece fits; not built", road.id)
             return -1
         }
-        val footprint = RoadPieceLayer.footprintOf(placements)
+        val catalog = assembled.catalog
+        val footprint = assembled.footprint
         val cx = ChunkPos.getX(chunk); val cz = ChunkPos.getZ(chunk)
-        fun touches(p: PiecePlacement): Boolean {
-            val r = RoadPieceLayer.reachOf(p)
-            return cx in (r[0] shr 4)..(r[3] shr 4) && cz in (r[2] shr 4)..(r[5] shr 4)
-        }
         // A shared anchor (a junction) belongs to the road with the smaller id; see RoadPlanSnapshot.anchorClaims.
         // The published map, not one worked out again here: computing it twice let a shared anchor
         // change hands between the snapshot and the build, and both roads laid a piece on it.
         val claims = RoadPlanSnapshot.claims
         var placed = 0
-        var i = job.pointIndex
-        while (i < placements.size) {
+        val here = assembled.inChunk(chunk)
+        for (k in 0 until here.size) {
+            val i = here.getInt(k)
+            if (i < job.pointIndex) continue
             if (i > job.pointIndex && System.nanoTime() > deadline) { job.blocks += placed; return i }
             val p = placements[i]
-            if (touches(p) && claims[RoadPieceLayer.key(p.x, p.z)] == road.id) {
+            if (claims[RoadPieceLayer.key(p.x, p.z)] == road.id) {
                 val style = styles.style(road.families.getOrElse(p.index) { 0 }.toInt(), road.tier)
                 val t0 = System.nanoTime()
                 placed += RoadPieceLayer.lay(level, p, style, styles,
@@ -372,7 +374,6 @@ object RoadBuilder {
                     { x, z -> (x shr 4) == cx && (z shr 4) == cz }, { x, z -> footprint.contains(RoadPieceLayer.key(x, z)) }, catalog, job.protect)
                 job.setBlockNanos += System.nanoTime() - t0
             }
-            i++
         }
         job.blocks += placed
         return -1
@@ -565,6 +566,7 @@ object RoadBuilder {
 
     fun reset() {
         candidates.clear(); queue.clear(); queued.clear()
+        RoadAssembly.clear()
     }
 
     val WAY_SIGN: ResourceLocation = ResourceLocation.fromNamespaceAndPath("supplementaries", "way_sign")

@@ -48,7 +48,6 @@ object RoadPlanSnapshot {
 
     /** Rebuilds the snapshot from the plan: every final road assembled, each placement in every chunk its blocks or decoration can reach. */
     fun publish(storage: RoadPlanStorage, dimension: ResourceLocation) {
-        val catalog = RoadPieces.current
         val map = HashMap<Long, MutableList<Placed>>()
         var roads = 0
         val finalRoads = storage.roadsIn(dimension).filter { !it.provisional }
@@ -59,7 +58,7 @@ object RoadPlanSnapshot {
         for (road in finalRoads) {
             // A provisional road's heights are estimates; laying it would fix the wrong road into the
             // world (and freeze it: a touched road is never replanned). It is laid once it is final.
-            val placements = catalog.assemble(road.points, road.id) ?: run { noPiece.incrementAndGet(); Postroad.LOGGER.warn("Road {} has a point no piece fits; not in the snapshot", road.id); null } ?: continue
+            val placements = RoadAssembly.of(road).placements ?: run { noPiece.incrementAndGet(); Postroad.LOGGER.warn("Road {} has a point no piece fits; not in the snapshot", road.id); null } ?: continue
             roads++
             for (p in placements) {
                 if (claims[RoadPieceLayer.key(p.x, p.z)] != road.id) continue

@@ -10,6 +10,8 @@ import net.minecraft.server.packs.resources.ResourceManager
 import net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener
 import net.minecraft.util.GsonHelper
 import net.minecraft.util.profiling.ProfilerFiller
+import java.util.Optional
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
 /** A unit direction on the grid: cardinal or diagonal. */
@@ -73,17 +75,23 @@ data class RoadPiece(
  * above: +x → +z) after an optional [mirror] of z.
  */
 data class Transform(val rotation: Int, val mirror: Boolean) {
-    fun apply(x: Int, z: Int): Pair<Int, Int> {
+    fun apply(x: Int, z: Int): Pair<Int, Int> = tx(x, z) to tz(x, z)
+
+    /** The transformed x of (x, z), without the pair: the layer and the assembler call these per block and per connector. */
+    fun tx(x: Int, z: Int): Int {
         val z0 = if (mirror) -z else z
-        return when (rotation and 3) {
-            0 -> x to z0
-            1 -> -z0 to x
-            2 -> -x to -z0
-            else -> z0 to -x
-        }
+        return when (rotation and 3) { 0 -> x; 1 -> -z0; 2 -> -x; else -> z0 }
     }
 
-    fun apply(f: Facing): Facing = apply(f.dx, f.dz).let { Facing(it.first, it.second) }
+    fun tz(x: Int, z: Int): Int {
+        val z0 = if (mirror) -z else z
+        return when (rotation and 3) { 0 -> z0; 1 -> x; 2 -> -z0; else -> -x }
+    }
+
+    fun apply(f: Facing): Facing = Facing(tx(f.dx, f.dz), tz(f.dx, f.dz))
+
+    /** True when [f] under this transform is [target]. */
+    fun maps(f: Facing, target: Facing): Boolean = tx(f.dx, f.dz) == target.dx && tz(f.dx, f.dz) == target.dz
 
     companion object {
         val ALL: List<Transform> = (0..3).flatMap { r -> listOf(Transform(r, false), Transform(r, true)) }
@@ -96,7 +104,7 @@ data class Transform(val rotation: Int, val mirror: Boolean) {
  * along the road. World position of a local block: `(x, base + ly, z) + transform(lx, lz)`.
  */
 class PiecePlacement(val piece: RoadPiece, val transform: Transform, val x: Int, val base: Int, val z: Int, val index: Int, val roadId: String = "") {
-    fun world(lx: Int, ly: Int, lz: Int): BlockPos { val (wx, wz) = transform.apply(lx, lz); return BlockPos(x + wx, base + ly, z + wz) }
+    fun world(lx: Int, ly: Int, lz: Int): BlockPos = BlockPos(x + transform.tx(lx, lz), base + ly, z + transform.tz(lx, lz))
     fun facing(f: Facing): Facing = transform.apply(f)
     /** The anchor's own road block. */
     val anchor: BlockPos get() = piece.blocks.firstOrNull { it.x == 0 && it.z == 0 && it.role in RoadPiece.ROAD_ROLES }?.let { BlockPos(x, base + it.y, z) } ?: BlockPos(x, base, z)
@@ -177,21 +185,36 @@ class PieceCatalog(val pieces: List<RoadPiece>) {
      * square) is the fallback. Among matches, the cheapest.
      */
     fun match(needs: List<Need>): Pair<RoadPiece, Transform>? {
+        if (needs.isEmpty()) return search(needs)
+        // Only the sides' facings and their levels relative to each other decide the match, and a road has
+        // few distinct ones: the same handful of shapes and rises repeats at every height along it.
+        val l0 = needs[0].level
+        val key = needs.map { Need(it.facing, it.level - l0) }
+        return matches.getOrPut(key) { Optional.ofNullable(search(key)) }.orElse(null)
+    }
+
+    /** [match] results per needs list with levels relative to the first side's. The catalog is immutable, so they never go stale. */
+    private val matches = ConcurrentHashMap<List<Need>, Optional<Pair<RoadPiece, Transform>>>()
+
+    private fun search(needs: List<Need>): Pair<RoadPiece, Transform>? {
         var best: Pair<RoadPiece, Transform>? = null
-        var bestKey = Triple(Int.MAX_VALUE, Double.MAX_VALUE, Int.MAX_VALUE)
+        var bestSpare = Int.MAX_VALUE; var bestCost = Double.MAX_VALUE; var bestOrder = Int.MAX_VALUE
         for (piece in pieces) {
             if (piece.terrain != null || piece.connectors.size < needs.size) continue
             for (t in Transform.ALL) {
-                var base: Int? = null
+                var base = 0
                 var ok = true
-                for (n in needs) {
-                    val c = piece.connectors.firstOrNull { t.apply(it.facing) == n.facing } ?: run { ok = false; null } ?: break
+                for ((k, n) in needs.withIndex()) {
+                    val c = piece.connectors.firstOrNull { t.maps(it.facing, n.facing) } ?: run { ok = false; null } ?: break
                     val b = n.level - c.level
-                    if (base == null) base = b else if (base != b) { ok = false; break }
+                    if (k == 0) base = b else if (base != b) { ok = false; break }
                 }
                 if (!ok) continue
-                val key = Triple(piece.connectors.size - needs.size, piece.cost, t.rotation * 2 + (if (t.mirror) 1 else 0))
-                if (key.first < bestKey.first || (key.first == bestKey.first && (key.second < bestKey.second || (key.second == bestKey.second && key.third < bestKey.third)))) { best = piece to t; bestKey = key }
+                val spare = piece.connectors.size - needs.size
+                val order = t.rotation * 2 + (if (t.mirror) 1 else 0)
+                if (spare < bestSpare || (spare == bestSpare && (piece.cost < bestCost || (piece.cost == bestCost && order < bestOrder)))) {
+                    best = piece to t; bestSpare = spare; bestCost = piece.cost; bestOrder = order
+                }
             }
         }
         return best
@@ -204,7 +227,7 @@ class PieceCatalog(val pieces: List<RoadPiece>) {
         for (i in points.indices) {
             val (piece, t) = match(needs[i]) ?: return null
             val n0 = needs[i].first()
-            val c0 = piece.connectors.first { t.apply(it.facing) == n0.facing }
+            val c0 = piece.connectors.first { t.maps(it.facing, n0.facing) }
             out.add(PiecePlacement(piece, t, points[i].x, n0.level - c0.level, points[i].z, i, roadId))
         }
         return out

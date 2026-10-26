@@ -73,7 +73,9 @@ live in `docs/` (one per increment). This file is about the code.
   bend (45°), each per rise, plus the flat `square` with a connector on every side as the fallback. The planner's
   move set and costs come from the catalog (`stepClasses` / `diagonalStepClasses`); a plan is checked against it
   before storage. `RoadPieceLayer.lay` writes a placement's blocks with the ground fitted per road-block column.
-  Same code for the road feature at generation time and the chunk-load builder. **Provisional roads** (planned
+  Same code for the road feature at generation time and the chunk-load builder. `RoadAssembly` caches each road's
+  placements, footprint and chunk index while its points list and the catalog are the same objects (both are
+  replaced, never mutated); `match` is memoized per catalog on the relative needs. **Provisional roads** (planned
   over estimates) are in no snapshot, skipped by the builder and lend no heights to other roads until replanned
   on real terrain; `RoadPlanSnapshot.laid` is per chunk *and road*. `/postroad roads debug pieces` outlines every
   placement with its connectors; `/postroad roads showcase` lays every catalog piece in the air.
