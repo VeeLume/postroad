@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.4
+
+- Travel reaches every road into a town. A depot used to join only the one road its node
+  sat on (usually the pit stop's, often uncharted), so charting the road to a neighbour
+  could still leave "no destinations". Now a town's depot connects to every charted road
+  that ends in the town, a charted walk that meets an uncharted road still connects where
+  it meets it, and a depot that stands away from the roads gets its travel node the first
+  time *Go* is pressed. Existing worlds need no re-charting.
+- Right-click a linked sign to travel; sneak + right-click with an empty hand edits it.
+  Dye, ink sacs and honeycomb still apply to the sign. Left-click no longer travels, so a
+  linked sign breaks like any other, and breaking it removes its destination.
+- The travel list no longer shows destinations right next to you (the sign beside a depot).
+
+## 0.2.3
+
+- The road builder assembles each road once instead of for every chunk and every tick it
+  resumes; it took about 9 ms a tick on the server with three players exploring.
+
 ## 0.2.2
 
 - Fresh loot stacks again. Only unstackables and items the depot buys get the stamp, so
