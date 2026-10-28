@@ -125,7 +125,7 @@ class Network : SavedData() {
         val attached = ArrayList<String>()
         for (place in towns()) {
             if (place.dimension != path.dimension) continue
-            val depotPos = depots.entries.firstOrNull { it.value == place.id }?.key?.substringAfter('|')?.toLongOrNull()?.let { BlockPos.of(it) } ?: place.pos
+            val depotPos = depotPos(place.id) ?: place.pos
             val (idx, d) = path.nearestIndex(depotPos) ?: continue
             if (d > maxDistance) continue
             val id = "town/${place.id}"
@@ -195,6 +195,10 @@ class Network : SavedData() {
     }
 
     fun hasDepot(placeId: String): Boolean = depots.values.contains(placeId)
+
+    /** Position of the first depot bound to [placeId], if any. */
+    fun depotPos(placeId: String): BlockPos? =
+        depots.entries.firstOrNull { it.value == placeId }?.key?.substringAfter('|')?.toLongOrNull()?.let { BlockPos.of(it) }
 
     /** Places that have a depot, in discovery order. */
     fun towns(): List<Place> = places.values.filter { hasDepot(it.id) }

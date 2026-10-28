@@ -125,6 +125,10 @@ live in `docs/` (one per increment). This file is about the code.
   scale); the depot's controls sit in a panel attached to its right, outside the rectangle a recipe
   viewer can see — hence `columnArea()`, the `hasClickedOutside` override (a click on the column
   must not throw the carried stack) and `compat/PostroadEmiPlugin`.
+- `map/MapOverlay` — what map mods show: towns with a depot, linked way signs, every `Network` path (simplified
+  polyline, charted or not, end-town names from the plan). Sent on login and to everyone when a cheap fingerprint
+  changes (every 5 s); only to connections with the channel (game-test mock players have none). `MapOverlayClient`
+  holds it client-side, no client imports. `map.roadsBeyondExplored` decides whether roads show on unexplored map.
 - `advancement/PostroadAdvancements` — mod-granted milestones (impossible trigger) for FTB Quests.
 - `command/PostroadCommands` — `/postroad …`.
 - `compat/PostroadJadePlugin` — Jade block tooltip for the mailbox. `compileOnly` on Jade's Modrinth
@@ -133,6 +137,16 @@ live in `docs/` (one per increment). This file is about the code.
   Same rules as the Jade plugin: `compileOnly` on EMI's Modrinth artifact, loaded only by EMI
   (`@EmiEntrypoint`, found by NeoForge's annotation scan), every EMI import inside `compat/`.
   NeoForge 21.1 has no `getGuiExtraAreas`, so a recipe viewer has to be told through its own API.
+- `compat/xaero/` — the map overlay on Xaero's Minimap and World Map. Xaero has no documented API; this uses the
+  public classes Xaero's own Waystones and Open Parties and Claims support use: towns and signs as third-party
+  waypoint origins `postroad:towns` / `postroad:signs` (switchable in Xaero's waypoint options; only towns within
+  768 blocks show in the world and on the minimap, the rest and all signs are world-map-only), roads as an
+  `AbstractHighlighter` painting per block. The world map freezes its highlighter list at session start, so
+  `XaeroRoadHighlights` adds ours by reflection (Xaero jars are automatic modules, so the field is reachable).
+  Highlight colours are `B<<24 | G<<16 | R<<8 | A`. `compileOnly` on the Modrinth artifacts; registered from
+  `ClientSetup` only when the mods are loaded; a failing part logs once and switches itself off. Every Xaero import
+  inside `compat/xaero/`. `./gradlew runServer -PwithXaero` and `runClient -PwithXaero -PquickJoin=localhost`
+  bring Xaero into the dev runs.
 
 ## Conventions
 

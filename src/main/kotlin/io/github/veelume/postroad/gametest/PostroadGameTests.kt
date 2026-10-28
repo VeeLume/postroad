@@ -1919,6 +1919,35 @@ class PostroadGameTests {
         helper.succeed()
     }
 
+    /**
+     * The map overlay keeps a road's shape through simplification (a turn back survives, a straight run
+     * collapses) and through the wire format's deltas, negative coordinates included.
+     */
+    @GameTest(template = ARENA)
+    fun map_overlay_keeps_road_shape_through_simplify_and_the_wire(helper: GameTestHelper) {
+        val overlay = io.github.veelume.postroad.map.MapOverlay
+        val straight = (0..20).map { BlockPos(-500 + it * 3, 70, -1200) }
+        helper.assertTrue(overlay.simplify(straight, 1.0).size == 2, "a straight run is its two ends")
+        val hairpin = (0..10).map { BlockPos(it * 3, 70, 0) } + (9 downTo 0).map { BlockPos(it * 3, 70, 6) }
+        val kept = overlay.simplify(hairpin, 1.0)
+        helper.assertTrue(BlockPos(30, 70, 0) in kept, "the turning point of a hairpin stays")
+
+        val dim = net.minecraft.resources.ResourceLocation.withDefaultNamespace("overworld")
+        val road = io.github.veelume.postroad.map.MapRoad(dim, true, "Zulmba", "Apple End", kept.map { it.x }.toIntArray(), kept.map { it.z - 3000 }.toIntArray())
+        val state = io.github.veelume.postroad.map.MapOverlayState(
+            listOf(io.github.veelume.postroad.map.MapTown("t", "Zulmba", dim, BlockPos(-40, 64, 17))),
+            emptyList(), listOf(road), true,
+        )
+        val buf = net.minecraft.network.RegistryFriendlyByteBuf(io.netty.buffer.Unpooled.buffer(), helper.level.registryAccess())
+        io.github.veelume.postroad.map.MapOverlayState.STREAM_CODEC.encode(buf, state)
+        val back = io.github.veelume.postroad.map.MapOverlayState.STREAM_CODEC.decode(buf)
+        val r = back.roads.single()
+        helper.assertTrue(r.xs.contentEquals(road.xs) && r.zs.contentEquals(road.zs), "road points survive the deltas")
+        helper.assertTrue(r.charted && r.from == "Zulmba" && r.to == "Apple End", "road labels survive")
+        helper.assertTrue(back.towns.single().pos == BlockPos(-40, 64, 17) && back.roadsBeyondExplored, "towns and the flag survive")
+        helper.succeed()
+    }
+
     companion object {
         private const val ARENA = "arena"
         private const val ARENA_WIDE = "arena_wide"

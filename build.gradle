@@ -61,6 +61,10 @@ neoForge {
         client {
             client()
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            // `-PquickJoin=localhost` joins that server straight away (with runServer in another terminal).
+            if (project.hasProperty('quickJoin')) {
+                programArguments.addAll '--quickPlayMultiplayer', project.property('quickJoin').toString()
+            }
         }
 
         server {
@@ -108,6 +112,15 @@ dependencies {
     // Optional integration: EMI keeps clear of the depot screen's control column. Compile-time only;
     // the plugin class is loaded by EMI, never by us.
     compileOnly "maven.modrinth:emi:${emi_version}"
+    // Optional integration: towns, signposts and roads on Xaero's Minimap and World Map. Compile-time only;
+    // compat/xaero is only touched when the mods are present (ClientSetup).
+    compileOnly "maven.modrinth:xaeros-minimap:${xaero_minimap_version}"
+    compileOnly "maven.modrinth:xaeros-world-map:${xaero_worldmap_version}"
+    // `-PwithXaero` puts them into the dev runs too, to see compat/xaero in game.
+    if (project.hasProperty('withXaero')) {
+        localRuntime "maven.modrinth:xaeros-minimap:${xaero_minimap_version}"
+        localRuntime "maven.modrinth:xaeros-world-map:${xaero_worldmap_version}"
+    }
 }
 
 // Expand ${...} properties in src/main/templates (neoforge.mods.toml lives there).

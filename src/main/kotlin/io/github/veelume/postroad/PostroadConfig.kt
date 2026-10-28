@@ -66,6 +66,7 @@ object PostroadConfig {
     private val TIER_FACTOR_PAVED: ModConfigSpec.IntValue
     private val AUTO_NAME_SIGNS: ModConfigSpec.BooleanValue
     private val FLIP_SIGN_FACES: ModConfigSpec.BooleanValue
+    private val MAP_ROADS_BEYOND_EXPLORED: ModConfigSpec.BooleanValue
     private val TARGET_POOLS: ModConfigSpec.ConfigValue<List<out String>>
     private val PLAN_ENABLED: ModConfigSpec.BooleanValue
     private val PLAN_AUTO: ModConfigSpec.BooleanValue
@@ -188,6 +189,10 @@ object PostroadConfig {
         FLIP_SIGN_FACES = BUILDER.comment("Invert which side of a way-sign arm carries the text (if arms come out facing away from the road).").define("flipFaces", false)
         BUILDER.pop()
 
+        BUILDER.push("map")
+        MAP_ROADS_BEYOND_EXPLORED = BUILDER.comment("Draw roads on Xaero's World Map where the player has not explored yet; off draws them only over explored map.").define("roadsBeyondExplored", false)
+        BUILDER.pop()
+
         SPEC = BUILDER.build()
     }
 
@@ -233,4 +238,5 @@ object PostroadConfig {
     val chartMarkShare: Double get() = CHART_MARK_SHARE.get() / 100.0
     val autoNameSigns: Boolean get() = AUTO_NAME_SIGNS.get()
     val flipSignFaces: Boolean get() = FLIP_SIGN_FACES.get()
+    val mapRoadsBeyondExplored: Boolean get() = MAP_ROADS_BEYOND_EXPLORED.get()
 }
