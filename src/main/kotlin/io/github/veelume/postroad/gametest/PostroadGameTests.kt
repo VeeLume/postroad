@@ -404,6 +404,15 @@ class PostroadGameTests {
         helper.setBlock(BlockPos(2, 0, 2), Blocks.COBBLESTONE)
         val onRoad = helper.absoluteVec(net.minecraft.world.phys.Vec3(2.5, 1.0, 2.5))
         player.setPos(onRoad.x, onRoad.y, onRoad.z)
+        helper.assertTrue(buff.update(player) == null, "road blocks the network does not know give nothing")
+        helper.assertValueEqual(buff.currentStrength(player), 0.0, "no buff off the network")
+
+        // The same ground with a path running past it.
+        val network = Network.get(helper.level.server)
+        val points = (0..4).map { helper.absolutePos(BlockPos(it, 0, 2)) }
+        val path = io.github.veelume.postroad.roads.RoadPath("test-buff-" + java.util.UUID.randomUUID().toString().take(6), helper.level.dimension().location(),
+            points.toMutableList(), MutableList(points.size) { io.github.veelume.postroad.roads.Tier.PAVED }, "tester", 0, charted = false)
+        network.addPath(path)
         val tier = buff.update(player)
         helper.assertValueEqual(tier, io.github.veelume.postroad.roads.Tier.PAVED, "paved under the player")
         helper.assertValueEqual(buff.currentStrength(player), io.github.veelume.postroad.PostroadConfig.buffPaved, "paved buff applied")
@@ -412,6 +421,7 @@ class PostroadGameTests {
         player.setPos(onStone.x, onStone.y, onStone.z)
         helper.assertTrue(buff.update(player) == null, "stone is not road")
         helper.assertValueEqual(buff.currentStrength(player), 0.0, "buff removed off the road")
+        network.removePath(path.id)
         helper.succeed()
     }
 

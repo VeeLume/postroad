@@ -29,7 +29,8 @@ live in `docs/` (one per increment). This file is about the code.
   buyback stackables only), `FreshLootSettling` (takes settled/unwanted stamps off), client tooltip.
 - `worldgen/CourierPostInjector` — appends the courier post to village house pools at server start.
 - `roads/` — `Tier`, `RoadRules` (data file `data/postroad/roads/rules.json`, reload listener), `RoadClassifier`
-  (ground sampling + walk verdict), `RoadBuff` (movement-speed modifier every 10 ticks, player and mount).
+  (ground sampling + walk verdict), `RoadBuff` (movement-speed modifier every 10 ticks, player and mount; only within `roads.buffReach` of a `Network`
+  path, looked up through `Network.nearRoad`'s per-chunk index; the ground decides the tier).
   `RoadPath`/`PathLink`/`RoadNode` (the travel graph, stored on `Network`), `Charting` (per-player
   sessions, sampling + particles, record/link/attach), `ChartingMapItem` + payloads + `ChartingClient`
   (client-side state holder with no client imports; `ClientSetup` plugs the screen opener in).

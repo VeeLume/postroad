@@ -75,10 +75,14 @@ itself is free):
 ## Road buff
 
 - Every 10 ticks, per player: if the block under the player (or under their
-  vehicle) is a path block, apply a movement-speed attribute modifier scaled
+  vehicle) is a path block *and* lies within `roads.buffReach` (6) blocks of a
+  road the network knows, apply a movement-speed attribute modifier scaled
   by tier; remove it otherwise. Mounts get the same modifier.
 - Defaults `dirt +10 %`, `gravel +15 %`, `paved +20 %`, config. This is layer
-  one of the design: no ceremony, any road, generated or built.
+  one of the design: no ceremony for generated roads, which are in the network
+  from the start; a player-built road counts once it is charted. (It first
+  counted any road-like ground, which put the buff on plank floors, logs and
+  gravel beaches.)
 
 ## Paths and nodes
 

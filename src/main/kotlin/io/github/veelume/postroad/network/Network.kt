@@ -4,6 +4,7 @@ import io.github.veelume.postroad.PostroadConfig
 import io.github.veelume.postroad.roads.PathLink
 import io.github.veelume.postroad.roads.RoadNode
 import io.github.veelume.postroad.roads.RoadPath
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import net.minecraft.core.BlockPos
 import net.minecraft.core.HolderLookup
 import net.minecraft.nbt.CompoundTag
@@ -12,6 +13,7 @@ import net.minecraft.nbt.Tag
 import net.minecraft.resources.ResourceKey
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.MinecraftServer
+import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.ContainerHelper
 import net.minecraft.world.SimpleContainer
 import net.minecraft.world.item.ItemStack
@@ -62,9 +64,40 @@ class Network : SavedData() {
     val links: MutableList<PathLink> = ArrayList()
     val nodes: MutableMap<String, RoadNode> = LinkedHashMap()
 
+    /** Dimension → chunk → paths passing within [pathIndexReach] blocks of it; dropped whenever [paths] changes. */
+    private var pathIndex: Map<ResourceLocation, Long2ObjectOpenHashMap<MutableList<RoadPath>>>? = null
+    private var pathIndexReach = 0
+
     fun addPath(path: RoadPath) {
         paths[path.id] = path
+        pathIndex = null
         setDirty()
+    }
+
+    /** Whether [pos] is within [reach] blocks of any path in [dimension], generated or charted. */
+    fun nearRoad(dimension: ResourceLocation, pos: BlockPos, reach: Int): Boolean {
+        val index = pathIndex.takeIf { pathIndexReach == reach } ?: buildPathIndex(reach)
+        val candidates = index[dimension]?.get(ChunkPos.asLong(pos.x shr 4, pos.z shr 4)) ?: return false
+        return candidates.any { it.passesNear(pos, reach.toDouble(), ROAD_RISE) }
+    }
+
+    private fun buildPathIndex(reach: Int): Map<ResourceLocation, Long2ObjectOpenHashMap<MutableList<RoadPath>>> {
+        val index = HashMap<ResourceLocation, Long2ObjectOpenHashMap<MutableList<RoadPath>>>()
+        for (path in paths.values) {
+            val chunks = index.getOrPut(path.dimension) { Long2ObjectOpenHashMap() }
+            for (i in path.points.indices) {
+                val a = path.points[i]; val b = path.points[minOf(i + 1, path.points.size - 1)]
+                for (cx in ((minOf(a.x, b.x) - reach) shr 4)..((maxOf(a.x, b.x) + reach) shr 4))
+                    for (cz in ((minOf(a.z, b.z) - reach) shr 4)..((maxOf(a.z, b.z) + reach) shr 4)) {
+                        val key = ChunkPos.asLong(cx, cz)
+                        val list = chunks.get(key) ?: ArrayList<RoadPath>(2).also { chunks.put(key, it) }
+                        if (list.lastOrNull() !== path && path !in list) list.add(path)
+                    }
+            }
+        }
+        pathIndex = index
+        pathIndexReach = reach
+        return index
     }
 
     fun addLink(link: PathLink) {
@@ -107,6 +140,7 @@ class Network : SavedData() {
 
     fun removePath(pathId: String) {
         paths.remove(pathId) ?: return
+        pathIndex = null
         links.removeAll { it.pathA == pathId || it.pathB == pathId }
         nodes.values.removeAll { it.pathId == pathId }
         setDirty()
@@ -122,6 +156,7 @@ class Network : SavedData() {
             path.tiers.subList(0, index + 1).toMutableList(), path.recordedBy, path.recordedDay)
         paths[head.id] = head
         paths[tail.id] = tail
+        pathIndex = null
         val relinked = links.map { l ->
             var a = l.pathA; var ia = l.indexA; var b = l.pathB; var ib = l.indexB
             if (a == pathId && ia > index) { a = tail.id; ia -= index }
@@ -393,6 +428,9 @@ class Network : SavedData() {
 
     companion object {
         const val NAME = "postroad_network"
+
+        /** How far above or below a road's line the ground may be and still count as on it (bridges, cuts). */
+        const val ROAD_RISE = 4
         const val ROAD_FUND = "fund:road"
 
         /** Player names are matched case-insensitively (`player:veelume`). */

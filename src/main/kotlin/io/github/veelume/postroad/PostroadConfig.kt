@@ -56,6 +56,7 @@ object PostroadConfig {
     private val BUFF_DIRT: ModConfigSpec.IntValue
     private val BUFF_GRAVEL: ModConfigSpec.IntValue
     private val BUFF_PAVED: ModConfigSpec.IntValue
+    private val BUFF_REACH: ModConfigSpec.IntValue
     private val CHART_MAX_LENGTH: ModConfigSpec.IntValue
     private val JOIN_DISTANCE: ModConfigSpec.IntValue
     private val FREE_DISTANCE: ModConfigSpec.IntValue
@@ -134,6 +135,7 @@ object PostroadConfig {
         BUFF_DIRT = BUILDER.comment("Movement speed bonus in percent on dirt-tier roads.").defineInRange("buffDirt", 10, 0, 200)
         BUFF_GRAVEL = BUILDER.comment("Movement speed bonus in percent on gravel-tier roads.").defineInRange("buffGravel", 15, 0, 200)
         BUFF_PAVED = BUILDER.comment("Movement speed bonus in percent on paved roads.").defineInRange("buffPaved", 20, 0, 200)
+        BUFF_REACH = BUILDER.comment("The buff only applies within this many blocks of a road the network knows (generated or charted); the ground under the player still decides the tier.").defineInRange("buffReach", 6, 1, 32)
         BUILDER.pop()
 
         BUILDER.push("chart")
@@ -201,6 +203,7 @@ object PostroadConfig {
     val buffDirt: Double get() = BUFF_DIRT.get() / 100.0
     val buffGravel: Double get() = BUFF_GRAVEL.get() / 100.0
     val buffPaved: Double get() = BUFF_PAVED.get() / 100.0
+    val buffReach: Int get() = BUFF_REACH.get()
     val chartMaxLength: Int get() = CHART_MAX_LENGTH.get()
     val joinDistance: Double get() = JOIN_DISTANCE.get().toDouble()
     val freeDistance: Double get() = FREE_DISTANCE.get().toDouble()

@@ -3,6 +3,7 @@ package io.github.veelume.postroad.roads
 import net.minecraft.core.BlockPos
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.resources.ResourceLocation
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
@@ -58,6 +59,30 @@ class RoadPath(
             }
         }
         return if (best < 0) null else best to bestDist
+    }
+
+    /**
+     * Whether [pos] lies within [reach] blocks of the polyline across, and within [rise] blocks of its
+     * height there (interpolated along the segment), so a cave under a road does not count as on it.
+     */
+    fun passesNear(pos: BlockPos, reach: Double, rise: Int): Boolean {
+        val reachSq = reach * reach
+        if (points.size == 1) {
+            val p = points[0]
+            val dx = (pos.x - p.x).toDouble(); val dz = (pos.z - p.z).toDouble()
+            return dx * dx + dz * dz <= reachSq && abs(pos.y - p.y) <= rise
+        }
+        for (i in 0 until points.size - 1) {
+            val a = points[i]; val b = points[i + 1]
+            val sx = (b.x - a.x).toDouble(); val sz = (b.z - a.z).toDouble()
+            val px = (pos.x - a.x).toDouble(); val pz = (pos.z - a.z).toDouble()
+            val lenSq = sx * sx + sz * sz
+            val t = if (lenSq == 0.0) 0.0 else ((px * sx + pz * sz) / lenSq).coerceIn(0.0, 1.0)
+            val dx = px - t * sx; val dz = pz - t * sz
+            if (dx * dx + dz * dz > reachSq) continue
+            if (abs(pos.y - (a.y + t * (b.y - a.y))) <= rise) return true
+        }
+        return false
     }
 
     fun toTag(): CompoundTag {

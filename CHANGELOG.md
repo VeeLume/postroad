@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.5
+
+- The road speed buff only applies on roads the network knows: generated roads, and roads
+  a player has charted. Plank floors, logs, gravel beaches and village streets no longer
+  make you faster. A road you build yourself gets the buff once you chart it. How far from
+  the road's line it still counts is `roads.buffReach` (6 blocks).
+
 ## 0.2.4
 
 - Travel reaches every road into a town. A depot used to join only the one road its node
