@@ -1155,6 +1155,48 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun road_works_sweep_what_the_pieces_miss(helper: GameTestHelper) {
+        val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
+        val floorY = shapeFloor(helper) { _, _ -> 0 }
+        val points = listOf(BlockPos(1, F + 1, 3), BlockPos(4, F + 1, 3))
+        layRoad(helper, floorY, points)
+        // Road blocks where no piece of today's layout puts any: as an older version laid them.
+        helper.setBlock(BlockPos(2, F, 5), Blocks.DIRT_PATH)
+        helper.setBlock(BlockPos(2, F, 6), Blocks.DIRT_PATH)
+        val road = io.github.veelume.postroad.roads.gen.PlannedRoad("test/works/" + java.util.UUID.randomUUID().toString().take(6),
+            helper.level.dimension().location(), "test/a", "test/b", points.map { helper.absolutePos(it) }, ByteArray(points.size))
+        road.tier = 1
+        for (chunk in road.chunks()) io.github.veelume.postroad.roads.gen.RoadWorks.upgradeChunk(helper.level, road, chunk)
+        val gravel = styles.style(0, 1)
+        helper.assertTrue(blockAt(helper, 2, F, 5) in gravel.surface.blocks + gravel.edge.blocks, "two off the line: swapped (${blockAt(helper, 2, F, 5)})")
+        helper.assertValueEqual(blockAt(helper, 2, F, 6), Blocks.DIRT_PATH, "three off the line: not the road's")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun trees_are_cleared_off_the_road_but_buildings_stay(helper: GameTestHelper) {
+        val floorY = shapeFloor(helper) { _, _ -> 0 }
+        val points = listOf(BlockPos(1, F + 1, 3), BlockPos(4, F + 1, 3))
+        layRoad(helper, floorY, points)
+        val leaves = Blocks.OAK_LEAVES.defaultBlockState().setValue(net.minecraft.world.level.block.LeavesBlock.PERSISTENT, false)
+        // A tree on the road, its crown above the headroom.
+        for (y in F + 1..F + 4) helper.setBlock(BlockPos(2, y, 3), Blocks.OAK_LOG)
+        helper.setBlock(BlockPos(2, F + 5, 3), leaves)
+        // Leaves hanging into the road from somewhere else, and a log with no leaves: a building.
+        helper.setBlock(BlockPos(4, F + 2, 2), leaves)
+        helper.setBlock(BlockPos(6, F + 1, 3), Blocks.OAK_LOG)
+        val road = io.github.veelume.postroad.roads.gen.PlannedRoad("test/clear/" + java.util.UUID.randomUUID().toString().take(6),
+            helper.level.dimension().location(), "test/a", "test/b", points.map { helper.absolutePos(it) }, ByteArray(points.size))
+        var found = false
+        for (chunk in road.chunks()) if (io.github.veelume.postroad.roads.gen.RoadClearing.clear(helper.level, road, chunk) >= 0) found = true
+        helper.assertTrue(found, "the road was found")
+        for (y in F + 1..F + 4) helper.assertValueEqual(blockAt(helper, 2, y, 3), Blocks.AIR, "the trunk is gone at y $y")
+        helper.assertValueEqual(blockAt(helper, 4, F + 2, 2), Blocks.AIR, "hanging leaves gone")
+        helper.assertValueEqual(blockAt(helper, 6, F + 1, 3), Blocks.OAK_LOG, "the building's log stays")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun road_works_pool_coins_and_material_then_upgrade(helper: GameTestHelper) {
         val works = io.github.veelume.postroad.roads.gen.RoadWorks
         val player = helper.makeMockServerPlayerInLevel()

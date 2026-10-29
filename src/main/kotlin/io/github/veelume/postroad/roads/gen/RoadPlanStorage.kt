@@ -112,6 +112,8 @@ class PlannedRoad(
     var worksMaterial: Int = 0
     /** Chunks still to be swapped to [tier]'s palette after an upgrade; each goes once it is loaded. */
     val upgradeChunks = LongOpenHashSet()
+    /** Chunks whose road has had the trees cleared off it ([RoadClearing]). */
+    val clearedChunks = LongOpenHashSet()
     /** Town ends the pit-stop pass has handled (stop or signpost): [END_FROM] and [END_TO] bits. */
     var endsDone: Int = 0
     /** End bit → the lowest way sign of the signpost put up at that end, so a junction sign can replace it. */
@@ -140,6 +142,7 @@ class PlannedRoad(
         tag.putLong("WorksCoins", worksCoins)
         tag.putInt("WorksMaterial", worksMaterial)
         tag.putLongArray("UpgradeChunks", upgradeChunks.toLongArray())
+        tag.putLongArray("Cleared", clearedChunks.toLongArray())
         tag.putInt("EndsDone", endsDone)
         tag.putLongArray("EndPosts", endPosts.flatMap { (bit, pos) -> listOf(bit.toLong(), pos.asLong()) }.toLongArray())
         return tag
@@ -162,6 +165,7 @@ class PlannedRoad(
             road.worksCoins = tag.getLong("WorksCoins")
             road.worksMaterial = tag.getInt("WorksMaterial")
             for (c in tag.getLongArray("UpgradeChunks")) road.upgradeChunks.add(c)
+            for (c in tag.getLongArray("Cleared")) road.clearedChunks.add(c)
             road.endsDone = tag.getInt("EndsDone")
             tag.getLongArray("EndPosts").toList().chunked(2).forEach { if (it.size == 2) road.endPosts[it[0].toInt()] = BlockPos.of(it[1]) }
             return road

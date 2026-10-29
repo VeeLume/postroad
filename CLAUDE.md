@@ -118,7 +118,13 @@ live in `docs/` (one per increment). This file is about the code.
   (by the road's dominant family) toward a generated road of that town; prices are `roadWorks.*` per 100 blocks. Paid up, the
   road's tier rises, its network path takes the tier, the snapshot is republished, and its chunks queue in
   `PlannedRoad.upgradeChunks`: once loaded, `upgradeChunk` re-derives the placements (all terrain variants of each piece) and
-  swaps every block that is still a lower tier's for its role, properties kept, nothing regraded. A re-planned road keeps its tier.
+  swaps every block that is still a lower tier's for its role, properties kept, nothing regraded; then a sweep of every column
+  within 2.5 blocks of the road's line catches blocks an older layout put elsewhere (`/postroad roads relay` re-queues every
+  upgraded road). A re-planned road keeps its tier.
+  **Trees** (`RoadClearing`): world generation plants trees after the road feature, so once per road chunk (loaded, road
+  present; `PlannedRoad.clearedChunks`) the space over the road is cleared: trunks standing in it are felled (connected logs,
+  only with natural leaves on them, block updates so crowns decay), natural leaves and plants in it removed; village pieces and
+  pit stops are kept out of.
   **Pit stops** (`docs/increment-8.md`): `PitStops` runs in the chunk-load builder's tick like the junction signs.
   Each town's depot is a schematic (`structure/pit_stop_<style>.nbt`) beside the end of its first road the builder
   reaches (or a street exit when no road will come), bound to the predicted place in `Network` before the depot

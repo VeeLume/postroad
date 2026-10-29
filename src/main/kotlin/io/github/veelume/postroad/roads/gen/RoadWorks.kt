@@ -128,6 +128,15 @@ object RoadWorks {
         Postroad.LOGGER.info("Road {} ({} -> {}) upgraded to {}; {} chunk(s) to re-lay", road.id, road.from, road.to, tier, road.upgradeChunks.size)
     }
 
+    /** Queues every chunk of every upgraded road again; returns how many. */
+    fun requeueUpgraded(server: MinecraftServer): Int {
+        val storage = RoadPlanStorage.get(server)
+        var n = 0
+        for (road in storage.roads.values) if (road.tier > 0) { val chunks = road.chunks(); n += chunks.size; road.upgradeChunks.addAll(chunks) }
+        storage.setDirty()
+        return n
+    }
+
     fun onServerTick(event: ServerTickEvent.Post) {
         val server = event.server
         if (server.tickCount % 10 != 0) return
@@ -178,6 +187,48 @@ object RoadWorks {
                 }
             }
         }
+        return changed + sweep(level, road, cx, cz)
+    }
+
+    /**
+     * What the pieces missed: a road laid by an older version (other pieces, other points) is not where
+     * today's placements put it. Every column within [SWEEP_RADIUS] of the road's line in the chunk is
+     * looked at from a little under the line's height to just over it; a block still of a lower tier's
+     * palette there takes the new tier's for the same job — surface on the line, edge off it.
+     */
+    private fun sweep(level: ServerLevel, road: PlannedRoad, cx: Int, cz: Int): Int {
+        val styles = RoadStyles.current
+        val points = road.points
+        val roles = HashMap<Int, Pair<RoadStyle, Roles>>()
+        val x0 = cx shl 4; val z0 = cz shl 4
+        val reach = SWEEP_RADIUS.toInt() + 1
+        var changed = 0
+        for (i in 0 until points.size - 1) {
+            val a = points[i]; val b = points[i + 1]
+            if (maxOf(a.x, b.x) + reach < x0 || minOf(a.x, b.x) - reach > x0 + 15 || maxOf(a.z, b.z) + reach < z0 || minOf(a.z, b.z) - reach > z0 + 15) continue
+            val family = road.families.getOrElse(i) { 0 }.toInt()
+            val (target, lower) = roles.getOrPut(family) {
+                val t = styles.style(family, road.tier)
+                t to Roles((0 until road.tier).map { styles.style(family, it) }, t)
+            }
+            for (x in maxOf(x0, minOf(a.x, b.x) - reach)..minOf(x0 + 15, maxOf(a.x, b.x) + reach)) {
+                for (z in maxOf(z0, minOf(a.z, b.z) - reach)..minOf(z0 + 15, maxOf(a.z, b.z) + reach)) {
+                    val dx = (b.x - a.x).toDouble(); val dz = (b.z - a.z).toDouble()
+                    val len2 = dx * dx + dz * dz
+                    val t = if (len2 == 0.0) 0.0 else (((x - a.x) * dx + (z - a.z) * dz) / len2).coerceIn(0.0, 1.0)
+                    val d = kotlin.math.hypot(x - (a.x + t * dx), z - (a.z + t * dz))
+                    if (d > SWEEP_RADIUS) continue
+                    val lineY = Math.round(a.y + (b.y - a.y) * t).toInt()
+                    val patch = java.util.Random(net.minecraft.util.Mth.getSeed(x shr 1, 0, z shr 1) xor level.seed)
+                    val walk = if (d <= 0.75) target.surface.pick(patch) else target.edge.pick(patch)
+                    for (y in lineY - SWEEP_BELOW..lineY + 1) {
+                        val pos = BlockPos(x, y, z)
+                        changed += swap(level, pos, lower.road) { walk } + swap(level, pos, lower.stairs) { target.stairs } +
+                            swap(level, pos, lower.slab) { target.slab } + swap(level, pos, lower.fill) { target.fill }
+                    }
+                }
+            }
+        }
         return changed
     }
 
@@ -221,4 +272,8 @@ object RoadWorks {
 
     /** Blocks under a road block checked for the old tier's fill. */
     private const val FILL_DEPTH = 3
+
+    /** How far off the road's line the sweep looks, in blocks: the 3-wide road and a little more. */
+    private const val SWEEP_RADIUS = 2.5
+    private const val SWEEP_BELOW = 3
 }

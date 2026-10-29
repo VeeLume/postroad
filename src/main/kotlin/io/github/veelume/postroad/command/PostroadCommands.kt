@@ -56,6 +56,7 @@ object PostroadCommands {
                         .then(Commands.literal("plan").requires { it.hasPermission(2) }.executes { roadsPlan(it) })
                         .then(Commands.literal("clear").requires { it.hasPermission(2) }.executes { roadsClear(it) })
                         .then(Commands.literal("rebuild").requires { it.hasPermission(2) }.executes { roadsRebuild(it) })
+                        .then(Commands.literal("relay").requires { it.hasPermission(2) }.executes { roadsRelay(it) })
                         .then(Commands.literal("export").requires { it.hasPermission(2) }.executes { roadsExport(it) })
                         .then(Commands.literal("planner").requires { it.hasPermission(2) }
                             .then(Commands.literal("off").executes { roadsPlanner(it, false) })
@@ -618,6 +619,13 @@ object PostroadCommands {
     private fun roadsRebuild(ctx: CommandContext<CommandSourceStack>): Int {
         val n = io.github.veelume.postroad.roads.gen.RoadBuilder.requeueLoaded(ctx.source.server)
         ctx.source.sendSuccess({ Component.literal("$n loaded road chunk(s) queued for building.") }, true)
+        return n
+    }
+
+    /** Every chunk of every upgraded road goes through the swap again (it only touches blocks still of a lower tier). */
+    private fun roadsRelay(ctx: CommandContext<CommandSourceStack>): Int {
+        val n = io.github.veelume.postroad.roads.gen.RoadWorks.requeueUpgraded(ctx.source.server)
+        ctx.source.sendSuccess({ Component.literal("$n chunk(s) of upgraded roads queued to be re-laid as they load.") }, true)
         return n
     }
 

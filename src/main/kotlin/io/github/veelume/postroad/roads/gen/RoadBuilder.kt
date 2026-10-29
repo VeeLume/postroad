@@ -107,6 +107,7 @@ object RoadBuilder {
             val finished = buildChunkStep(level, storage, job, deadline)
             if (!finished) break // resumes next tick where it stopped
             queue.removeFirst(); queued.remove(key(job))
+            RoadClearing.offer(level, job.chunk)
             val total = (System.nanoTime() - job.startedAt) / 1_000_000
             if (total > 100) Postroad.LOGGER.info("Road chunk {}: {} block(s) over {} ms wall, {} ms of it in setBlock",
                 ChunkPos(job.chunk), job.blocks, total, job.setBlockNanos / 1_000_000)

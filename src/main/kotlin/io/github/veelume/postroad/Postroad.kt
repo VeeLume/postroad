@@ -98,6 +98,8 @@ object Postroad {
         FORGE_BUS.addListener(ChunkEvent.Load::class.java, Consumer(RoadBuilder::onChunkLoad))
         FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(RoadBuilder::onServerTick))
         FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(io.github.veelume.postroad.roads.gen.RoadWorks::onServerTick))
+        FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(io.github.veelume.postroad.roads.gen.RoadClearing::onServerTick))
+        FORGE_BUS.addListener(net.neoforged.neoforge.event.level.ChunkEvent.Load::class.java, Consumer(io.github.veelume.postroad.roads.gen.RoadClearing::onChunkLoad))
         FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(io.github.veelume.postroad.roads.gen.RoadDebug::onServerTick))
         FORGE_BUS.addListener(PlayerEvent.PlayerLoggedInEvent::class.java, Consumer(io.github.veelume.postroad.map.MapOverlay::onPlayerLoggedIn))
         FORGE_BUS.addListener(ServerTickEvent.Post::class.java, Consumer(io.github.veelume.postroad.map.MapOverlay::onServerTick))
