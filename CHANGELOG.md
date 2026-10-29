@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2
+
+- **Mail chime switch.** A mailbox's *Chime* button turns the arrival sound off or on for
+  you. The chat message and the login reminder still come. Switched back on, it plays the
+  chime once.
+
 ## 0.3.1
 
 - **Mailboxes announce mail.** When mail lands in your mailbox you get a chat message and a
