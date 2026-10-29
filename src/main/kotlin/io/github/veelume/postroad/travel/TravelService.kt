@@ -20,6 +20,8 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.item.ItemStack
 import net.neoforged.neoforge.network.PacketDistributor
+import net.minecraft.resources.ResourceLocation
+import net.minecraft.world.level.levelgen.structure.BoundingBox
 
 /** Opening the travel list at a node, and the journey itself: fare, fresh loot, teleport. */
 object TravelService {
@@ -28,7 +30,7 @@ object TravelService {
     fun open(player: ServerPlayer, fromNodeId: String) {
         val network = Network.get(player.server)
         val from = network.nodes[fromNodeId] ?: return
-        val routes = Routing.routes(network, fromNodeId, townEnds(player.server))
+        val routes = Routing.routes(network, fromNodeId, townAnchors(player.server))
         val near = PostroadConfig.joinDistance * PostroadConfig.joinDistance
         val entries = routes.entries
             .mapNotNull { (id, route) -> network.nodes[id]?.takeIf { it.pos.distSqr(from.pos) > near }?.let { node -> TravelEntry(id, node.name, route.length.toInt(), route.worstTier?.key ?: "dirt", Fares.fare(route.length, route.worstTier)) } }
@@ -56,7 +58,7 @@ object TravelService {
             player.displayClientMessage(Component.translatable("message.postroad.travel.too_far").withStyle(ChatFormatting.YELLOW), false)
             return false
         }
-        val ends = townEnds(player.server)
+        val ends = townAnchors(player.server)
         val route = Routing.routes(network, fromNodeId, ends)[toNodeId] ?: run {
             player.displayClientMessage(Component.translatable("message.postroad.travel.unreachable").withStyle(ChatFormatting.YELLOW), false)
             return false
@@ -131,6 +133,67 @@ object TravelService {
             ends.getOrPut(road.to) { ArrayList() }.add(Routing.Anchor(road.id, path.points.size - 1))
         }
         return ends
+    }
+
+    /** Where a town's roads count as charted: its village box and [TOWN_MARGIN] around it, else [TOWN_RADIUS] around the depot. */
+    class TownArea(val placeId: String, val dimension: ResourceLocation, val box: BoundingBox?, val depot: BlockPos) {
+        fun contains(p: BlockPos): Boolean {
+            if (box != null && p.x in box.minX() - TOWN_MARGIN..box.maxX() + TOWN_MARGIN && p.z in box.minZ() - TOWN_MARGIN..box.maxZ() + TOWN_MARGIN) return true
+            val dx = (p.x - depot.x).toDouble(); val dz = (p.z - depot.z).toDouble()
+            return dx * dx + dz * dz <= TOWN_RADIUS.toDouble() * TOWN_RADIUS
+        }
+    }
+
+    /** Blocks around a predicted village's box: street exits, road ends and the pit stop beside them. */
+    const val TOWN_MARGIN = 16
+
+    /** Blocks around the depot of a town the planner did not predict. */
+    const val TOWN_RADIUS = 48
+
+    /** [townEnds] plus everything inside each town with a depot (see the other overload). */
+    fun townAnchors(server: MinecraftServer): Map<String, List<Routing.Anchor>> {
+        val network = Network.get(server)
+        val planned = RoadPlanStorage.get(server).towns
+        val areas = network.towns().mapNotNull { place ->
+            TownArea(place.id, place.dimension, planned[place.id]?.box, network.depotPos(place.id) ?: return@mapNotNull null)
+        }
+        return townAnchors(network, townEnds(server), areas)
+    }
+
+    /**
+     * Inside a town every road counts as charted: the town's hub joins, besides its generated road ends,
+     * every node and link end in its [TownArea], and the point of each charted path nearest the depot
+     * within it. A walk or sign that lands on an uncharted road at a street exit still reaches the town.
+     */
+    fun townAnchors(network: Network, ends: Map<String, List<Routing.Anchor>>, areas: List<TownArea>): Map<String, List<Routing.Anchor>> {
+        val out = HashMap<String, MutableList<Routing.Anchor>>()
+        for ((place, list) in ends) out[place] = list.toMutableList()
+        val candidates = ArrayList<Pair<Routing.Anchor, RoadPath>>()
+        for (node in network.nodes.values) network.paths[node.pathId]?.let { candidates.add(Routing.Anchor(node.pathId, node.pointIndex) to it) }
+        for (link in network.links) {
+            network.paths[link.pathA]?.let { candidates.add(Routing.Anchor(link.pathA, link.indexA) to it) }
+            network.paths[link.pathB]?.let { candidates.add(Routing.Anchor(link.pathB, link.indexB) to it) }
+        }
+        for (area in areas) {
+            val list = out.getOrPut(area.placeId) { ArrayList() }
+            for ((anchor, path) in candidates) {
+                if (path.dimension != area.dimension) continue
+                val point = path.points.getOrNull(anchor.index) ?: continue
+                if (area.contains(point)) list.add(anchor)
+            }
+            for (path in network.paths.values) {
+                if (!path.charted || path.dimension != area.dimension) continue
+                var best = -1
+                var bestDistance = Double.MAX_VALUE
+                for ((i, p) in path.points.withIndex()) {
+                    if (!area.contains(p)) continue
+                    val d = RoadPath.distance(p, area.depot)
+                    if (d < bestDistance) { bestDistance = d; best = i }
+                }
+                if (best >= 0) list.add(Routing.Anchor(path.id, best))
+            }
+        }
+        return out
     }
 
     /**

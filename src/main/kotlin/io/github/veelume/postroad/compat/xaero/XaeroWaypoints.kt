@@ -16,22 +16,29 @@ import xaero.hud.minimap.world.container.MinimapWorldContainer
 import xaero.hud.minimap.world.container.MinimapWorldRootContainer
 
 /**
- * Towns and way signs as two third-party waypoint origins, the way Xaero's own Waystones support adds
- * waystones: each can be switched off in Xaero's waypoint options. Refilled whenever the overlay or the
- * minimap's world (a new session, another server) changes, and every [REFILL_DISTANCE] blocks the player moves.
+ * Towns as a third-party waypoint origin, the way Xaero's own Waystones support adds waystones: it can
+ * be switched off in Xaero's waypoint options. Refilled whenever the overlay, the minimap's world (a new
+ * session, another server) or the set of [explored] towns changes, and every [REFILL_DISTANCE] blocks the
+ * player moves.
  *
  * A world has hundreds of towns; as ordinary waypoints they crowd the horizon and the minimap's rim. Only
- * towns within [NEAR] blocks show in the world and on the minimap, the rest (and every sign) on the world map.
+ * towns the player has explored on their map get one; within [NEAR] blocks it shows in the world and on
+ * the minimap, further out on the world map only.
  */
 object XaeroWaypoints {
     private val TOWNS = Postroad.id("towns")
-    private val SIGNS = Postroad.id("signs")
 
     private var filledRoot: MinimapWorldRootContainer? = null
     private var filledVersion = -1
     private var filledAt: BlockPos? = null
     private var filledDimension: ResourceLocation? = null
     private val filled = ArrayList<MinimapWorldContainer>()
+    private var filledTowns: List<String> = emptyList()
+
+    /** Whether a spot is explored on the player's map ([XaeroExplored] when the World Map is there); null shows every town. */
+    var explored: ((ResourceLocation, BlockPos) -> Boolean)? = null
+    private var ticks = 0
+    private var shown: List<String> = emptyList()
 
     fun tick() {
         val session = BuiltInHudModules.MINIMAP.currentSession ?: return
@@ -41,11 +48,16 @@ object XaeroWaypoints {
         val dimension = player.level().dimension().location()
         val version = MapOverlayClient.version
         val moved = filledAt?.let { here.distSqr(it) > REFILL_DISTANCE.toDouble() * REFILL_DISTANCE } ?: true
-        if (root === filledRoot && version == filledVersion && dimension == filledDimension && !moved) return
+        val state = MapOverlayClient.state
+        // Exploration grows while the player walks; asking the map once a second is plenty.
+        if (ticks++ % EXPLORED_INTERVAL == 0 || version != filledVersion) {
+            val test = explored
+            shown = state.towns.filter { test == null || test(it.dimension, it.pos) }.map { it.id }
+        }
+        if (root === filledRoot && version == filledVersion && dimension == filledDimension && !moved && shown == filledTowns) return
 
         for (container in filled) {
             container.thirdPartyWaypointManager.clearOrigin(TOWNS)
-            container.thirdPartyWaypointManager.clearOrigin(SIGNS)
         }
         filled.clear()
         val containers = HashMap<ResourceLocation, MinimapWorldContainer>()
@@ -54,25 +66,21 @@ object XaeroWaypoints {
             root.addSubContainer(root.path.resolve(directory)).also { filled.add(it) }
         }
 
-        val state = MapOverlayClient.state
+        val visible = shown.toHashSet()
         for (town in state.towns) {
+            if (town.id !in visible) continue
             val initials = town.name.firstOrNull()?.uppercase() ?: "T"
             val waypoint = waypoint(town.pos, town.name, initials, WaypointColor.GOLD)
             val near = town.dimension == dimension && town.pos.distSqr(here) <= NEAR.toDouble() * NEAR
             if (!near) waypoint.setVisibility(WaypointVisibilityType.WORLD_MAP_LOCAL)
             container(town.dimension).thirdPartyWaypointManager.get(TOWNS).add(town.id, waypoint)
         }
-        for (sign in state.signs) {
-            // Signs are many and close together; world map only.
-            val waypoint = waypoint(sign.pos, sign.name, "+", WaypointColor.GRAY)
-            waypoint.setVisibility(WaypointVisibilityType.WORLD_MAP_LOCAL)
-            container(sign.dimension).thirdPartyWaypointManager.get(SIGNS).add(sign.id, waypoint)
-        }
         filledRoot = root
         filledVersion = version
         filledAt = here
         filledDimension = dimension
-        Postroad.LOGGER.debug("Xaero's Minimap: {} towns, {} signs", state.towns.size, state.signs.size)
+        filledTowns = shown
+        Postroad.LOGGER.debug("Xaero's Minimap: {} of {} towns explored", shown.size, state.towns.size)
     }
 
     /** Blocks within which a town shows in the world and on the minimap. */
@@ -80,6 +88,9 @@ object XaeroWaypoints {
 
     /** Blocks the player moves before the near set is worked out again. */
     private const val REFILL_DISTANCE = 256
+
+    /** Ticks between asking the map which towns are explored. */
+    private const val EXPLORED_INTERVAL = 20
 
     private fun waypoint(pos: BlockPos, name: String, initials: String, color: WaypointColor): Waypoint =
         Waypoint(pos.x, pos.y + 1, pos.z, name, initials, color, WaypointPurpose.NORMAL)

@@ -3,7 +3,6 @@ package io.github.veelume.postroad.map
 import io.github.veelume.postroad.Postroad
 import io.github.veelume.postroad.PostroadConfig
 import io.github.veelume.postroad.network.Network
-import io.github.veelume.postroad.roads.RoadNode
 import io.github.veelume.postroad.roads.gen.RoadPlanStorage
 import net.minecraft.core.BlockPos
 import net.minecraft.network.RegistryFriendlyByteBuf
@@ -21,19 +20,16 @@ import kotlin.math.sqrt
 /** A town with a depot, marked at the depot. */
 data class MapTown(val id: String, val name: String, val dimension: ResourceLocation, val pos: BlockPos)
 
-/** A linked way sign: a travel node off the towns. */
-data class MapSign(val id: String, val name: String, val dimension: ResourceLocation, val pos: BlockPos)
-
 /**
  * A road of the network as a simplified polyline on the ground plane. [from]/[to] are the end towns'
  * names for a generated road, both empty for a walk somebody charted by hand.
  */
 class MapRoad(val dimension: ResourceLocation, val charted: Boolean, val from: String, val to: String, val xs: IntArray, val zs: IntArray)
 
-/** What the client's maps show: everything the network knows, the same for every player. */
-class MapOverlayState(val towns: List<MapTown>, val signs: List<MapSign>, val roads: List<MapRoad>, val roadsBeyondExplored: Boolean) {
+/** What the client's maps show: the network's towns and roads, the same for every player. */
+class MapOverlayState(val towns: List<MapTown>, val roads: List<MapRoad>, val roadsBeyondExplored: Boolean) {
     companion object {
-        val EMPTY = MapOverlayState(emptyList(), emptyList(), emptyList(), false)
+        val EMPTY = MapOverlayState(emptyList(), emptyList(), false)
 
         private fun zigzag(v: Int): Int = (v shl 1) xor (v shr 31)
         private fun unzigzag(v: Int): Int = (v ushr 1) xor -(v and 1)
@@ -41,7 +37,6 @@ class MapOverlayState(val towns: List<MapTown>, val signs: List<MapSign>, val ro
         val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, MapOverlayState> = StreamCodec.of(
             { buf, s ->
                 buf.writeCollection(s.towns) { b, t -> b.writeUtf(t.id); b.writeUtf(t.name); b.writeResourceLocation(t.dimension); b.writeLong(t.pos.asLong()) }
-                buf.writeCollection(s.signs) { b, n -> b.writeUtf(n.id); b.writeUtf(n.name); b.writeResourceLocation(n.dimension); b.writeLong(n.pos.asLong()) }
                 buf.writeCollection(s.roads) { b, r ->
                     b.writeResourceLocation(r.dimension); b.writeBoolean(r.charted); b.writeUtf(r.from); b.writeUtf(r.to)
                     // First point absolute, the rest as deltas: most steps along a simplified road fit a byte or two.
@@ -55,7 +50,6 @@ class MapOverlayState(val towns: List<MapTown>, val signs: List<MapSign>, val ro
             },
             { buf ->
                 val towns = buf.readList { b -> MapTown(b.readUtf(), b.readUtf(), b.readResourceLocation(), BlockPos.of(b.readLong())) }
-                val signs = buf.readList { b -> MapSign(b.readUtf(), b.readUtf(), b.readResourceLocation(), BlockPos.of(b.readLong())) }
                 val roads = buf.readList { b ->
                     val dim = b.readResourceLocation(); val charted = b.readBoolean(); val from = b.readUtf(); val to = b.readUtf()
                     val n = b.readVarInt()
@@ -66,7 +60,7 @@ class MapOverlayState(val towns: List<MapTown>, val signs: List<MapSign>, val ro
                     }
                     MapRoad(dim, charted, from, to, xs, zs)
                 }
-                MapOverlayState(towns, signs, roads, buf.readBoolean())
+                MapOverlayState(towns, roads, buf.readBoolean())
             },
         )
     }
@@ -99,7 +93,7 @@ object MapOverlayClient {
 }
 
 /**
- * Sends every player the network's towns, way signs and roads for their map mod: on login, and to
+ * Sends every player the network's towns and roads for their map mod: on login, and to
  * everyone whenever a cheap fingerprint of that data changes (checked every [INTERVAL_TICKS]).
  */
 object MapOverlay {
@@ -111,8 +105,9 @@ object MapOverlay {
     private var sentFingerprint = 0
     private var current: MapOverlayState? = null
 
+    /** Optional: a client still on an older postroad joins all the same, it just has no overlay. */
     fun register(registrar: PayloadRegistrar) {
-        registrar.playToClient(MapOverlayPayload.TYPE, MapOverlayPayload.STREAM_CODEC) { payload, _ ->
+        registrar.optional().playToClient(MapOverlayPayload.TYPE, MapOverlayPayload.STREAM_CODEC) { payload, _ ->
             MapOverlayClient.update(payload.state)
         }
     }
@@ -152,7 +147,6 @@ object MapOverlay {
         var h = PostroadConfig.mapRoadsBeyondExplored.hashCode()
         for (place in network.towns()) h = 31 * (31 * h + place.id.hashCode()) + place.name.hashCode()
         h = 31 * h + network.depots.hashCode()
-        for (node in network.nodes.values) h = 31 * (31 * h + node.id.hashCode()) + node.name.hashCode()
         for (path in network.paths.values) {
             h = 31 * (31 * h + path.id.hashCode()) + path.charted.hashCode()
             h = 31 * h + path.points.hashCode()
@@ -166,7 +160,6 @@ object MapOverlay {
         val network = Network.get(server)
         val storage = RoadPlanStorage.get(server)
         val towns = network.towns().map { MapTown(it.id, it.name, it.dimension, network.depotPos(it.id) ?: it.pos) }
-        val signs = network.nodes.values.filter { it.kind == RoadNode.KIND_SIGN }.map { MapSign(it.id, it.name, it.dimension, it.pos) }
         fun nameOf(townId: String): String = network.places[townId]?.name ?: ""
         val roads = network.paths.values.filter { it.points.size >= 2 }.map { path ->
             // A severed path keeps its id with a "b" per cut on the tail; its plan entry is under the original id.
@@ -175,7 +168,7 @@ object MapOverlay {
             MapRoad(path.dimension, path.charted, planned?.let { nameOf(it.from) } ?: "", planned?.let { nameOf(it.to) } ?: "",
                 IntArray(points.size) { points[it].x }, IntArray(points.size) { points[it].z })
         }
-        return MapOverlayState(towns, signs, roads, PostroadConfig.mapRoadsBeyondExplored)
+        return MapOverlayState(towns, roads, PostroadConfig.mapRoadsBeyondExplored)
     }
 
     /** Ramer–Douglas–Peucker on the ground plane. */

@@ -111,8 +111,11 @@ live in `docs/` (one per increment). This file is about the code.
   signpost (`RoadBuilder.erectSignpost`, shared with the junction signs). State: `PlannedTown.stop`/`stopDone`,
   `PlannedRoad.endsDone`; a standing stop blocks its inner cells for later passes (`PassRequest.stops`).
 - `roads/Routing` — Dijkstra over anchors (nodes + link ends) on the charted path polylines. Links join
-  even on uncharted roads (no travel along them); a town node is a hub to every charted road end into its
-  town (`TravelService.townEnds`, from `RoadPlanStorage` from/to — roads end at street exits, not the depot).
+  even on uncharted roads (no travel along them); a town node is a hub, and inside a town every road counts as
+  charted: it joins the generated road ends into its town (`TravelService.townEnds`, from `RoadPlanStorage`
+  from/to — roads end at street exits, not the depot) and every node, link end and charted path in its
+  `TownArea` (village box + 16, else 48 around the depot; `TravelService.townAnchors`). Several roads end on one
+  street-exit block and a walk or sign links to whichever comes first, so an uncharted one there must not cut it off.
 - `travel/` — `Fares`, `TravelService` (open list, depart: fare, fresh-loot mailing, teleport), `SignNodes`
   (map-on-sign links/unlinks, right-click on a linked sign opens travel, sneak + right-click reaches the editor,
   dye/ink/wax still apply, breaking drops the node; block tag `#postroad:sign_nodes`), payloads + `TravelClient`.
@@ -125,7 +128,7 @@ live in `docs/` (one per increment). This file is about the code.
   scale); the depot's controls sit in a panel attached to its right, outside the rectangle a recipe
   viewer can see — hence `columnArea()`, the `hasClickedOutside` override (a click on the column
   must not throw the carried stack) and `compat/PostroadEmiPlugin`.
-- `map/MapOverlay` — what map mods show: towns with a depot, linked way signs, every `Network` path (simplified
+- `map/MapOverlay` — what map mods show: towns with a depot and every `Network` path (simplified
   polyline, charted or not, end-town names from the plan). Sent on login and to everyone when a cheap fingerprint
   changes (every 5 s); only to connections with the channel (game-test mock players have none). `MapOverlayClient`
   holds it client-side, no client imports. `map.roadsBeyondExplored` decides whether roads show on unexplored map.
@@ -138,9 +141,10 @@ live in `docs/` (one per increment). This file is about the code.
   (`@EmiEntrypoint`, found by NeoForge's annotation scan), every EMI import inside `compat/`.
   NeoForge 21.1 has no `getGuiExtraAreas`, so a recipe viewer has to be told through its own API.
 - `compat/xaero/` — the map overlay on Xaero's Minimap and World Map. Xaero has no documented API; this uses the
-  public classes Xaero's own Waystones and Open Parties and Claims support use: towns and signs as third-party
-  waypoint origins `postroad:towns` / `postroad:signs` (switchable in Xaero's waypoint options; only towns within
-  768 blocks show in the world and on the minimap, the rest and all signs are world-map-only), roads as an
+  public classes Xaero's own Waystones and Open Parties and Claims support use: towns as the third-party
+  waypoint origin `postroad:towns` (switchable in Xaero's waypoint options), only towns whose 512-block region the
+  player has explored on the World Map (`XaeroExplored`), and within 768 blocks in the world and on the minimap,
+  further out on the world map only; roads as an
   `AbstractHighlighter` painting per block. The world map freezes its highlighter list at session start, so
   `XaeroRoadHighlights` adds ours by reflection (Xaero jars are automatic modules, so the field is reachable).
   Highlight colours are `B<<24 | G<<16 | R<<8 | A`. `compileOnly` on the Modrinth artifacts; registered from

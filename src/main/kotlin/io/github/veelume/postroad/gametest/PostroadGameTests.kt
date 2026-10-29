@@ -473,10 +473,11 @@ class PostroadGameTests {
         val player = helper.makeMockServerPlayerInLevel()
         val dim = helper.level.dimension().location()
         // Two hand-made paths joined by a link, three nodes: A at the start, B in the middle, C on the branch.
+        // They start 100 blocks out, so A is not inside the depot's town (every road there joins the town).
         val pA = io.github.veelume.postroad.roads.RoadPath("test-a-" + java.util.UUID.randomUUID().toString().take(6), dim,
-            (0..10).map { helper.absolutePos(BlockPos(it * 100, 1, 0)) }.toMutableList(), MutableList(11) { io.github.veelume.postroad.roads.Tier.PAVED }, "tester", 0)
+            (0..10).map { helper.absolutePos(BlockPos(100 + it * 100, 1, 0)) }.toMutableList(), MutableList(11) { io.github.veelume.postroad.roads.Tier.PAVED }, "tester", 0)
         val pB = io.github.veelume.postroad.roads.RoadPath("test-b-" + java.util.UUID.randomUUID().toString().take(6), dim,
-            (0..3).map { helper.absolutePos(BlockPos(500, 1, it * 100)) }.toMutableList(), MutableList(4) { io.github.veelume.postroad.roads.Tier.DIRT }, "tester", 0)
+            (0..3).map { helper.absolutePos(BlockPos(600, 1, it * 100)) }.toMutableList(), MutableList(4) { io.github.veelume.postroad.roads.Tier.DIRT }, "tester", 0)
         network.addPath(pA); network.addPath(pB)
         network.addLink(io.github.veelume.postroad.roads.PathLink(pB.id, 0, pA.id, 5))
         val a = io.github.veelume.postroad.roads.RoadNode("sign/test/a", "sign", dim, pA.points[0], pA.id, 0, "A", null)
@@ -598,6 +599,50 @@ class PostroadGameTests {
             helper.succeed()
         } finally {
             listOf(stopRoad, walk, road).forEach { network.removePath(it.id) }
+        }
+    }
+
+    /**
+     * Fenhollow on the VPS: several uncharted roads end at one street exit, the town's node sits on one
+     * and a charted walk linked to another. Inside a town every road counts as charted: that walk, and
+     * a charted road that only passes through, both reach the town's node.
+     */
+    @GameTest(template = ARENA)
+    fun every_road_inside_a_town_reaches_its_node(helper: GameTestHelper) {
+        val network = Network.get(helper.level.server)
+        val dim = helper.level.dimension().location()
+        val tag = java.util.UUID.randomUUID().toString().take(6)
+        fun path(id: String, points: List<BlockPos>, charted: Boolean) = io.github.veelume.postroad.roads.RoadPath(id, dim,
+            points.map { helper.absolutePos(it) }.toMutableList(), MutableList(points.size) { io.github.veelume.postroad.roads.Tier.PAVED }, "tester", 0, charted = charted)
+        fun node(id: String, kind: String, p: io.github.veelume.postroad.roads.RoadPath, index: Int, place: String? = null) =
+            io.github.veelume.postroad.roads.RoadNode(id, kind, dim, p.points[index], p.id, index, id, place).also { network.nodes[id] = it }
+        val place = "test/$tag/town"
+        val depot = helper.absolutePos(BlockPos(0, 1, 0))
+        val nodeRoad = path("test-n-$tag", (0..5).map { BlockPos(-it * 10, 1, 0) }, charted = false)
+        val otherRoad = path("test-o-$tag", (0..5).map { BlockPos(30, 1, it * 10) }, charted = false)
+        val walk = path("test-w-$tag", (0..4).map { BlockPos(30 + it * 100, 1, 0) }, charted = true)
+        val through = path("test-t-$tag", (-3..3).map { BlockPos(it * 10, 1, 20) }, charted = true)
+        val roads = listOf(nodeRoad, otherRoad, walk, through)
+        roads.forEach(network::addPath)
+        network.addLink(io.github.veelume.postroad.roads.PathLink(walk.id, 0, otherRoad.id, 0))
+        val town = node("town/$place", io.github.veelume.postroad.roads.RoadNode.KIND_TOWN, nodeRoad, 0, place)
+        val walkEnd = node("sign/test/$tag/walk", io.github.veelume.postroad.roads.RoadNode.KIND_SIGN, walk, 4)
+        val throughEnd = node("sign/test/$tag/through", io.github.veelume.postroad.roads.RoadNode.KIND_SIGN, through, 6)
+        val outside = node("sign/test/$tag/outside", io.github.veelume.postroad.roads.RoadNode.KIND_SIGN, nodeRoad, 5)
+        val travel = io.github.veelume.postroad.travel.TravelService
+        val area = io.github.veelume.postroad.travel.TravelService.TownArea(place, dim, null, depot)
+        try {
+            val alone = io.github.veelume.postroad.roads.Routing.routes(network, town.id)
+            helper.assertTrue(alone[walkEnd.id] == null && alone[throughEnd.id] == null, "without the town's area both are cut off")
+            val anchors = travel.townAnchors(network, emptyMap(), listOf(area))
+            val routes = io.github.veelume.postroad.roads.Routing.routes(network, town.id, anchors)
+            helper.assertTrue(routes[walkEnd.id] != null, "the walk linked to an uncharted road in town reaches the town")
+            helper.assertTrue(routes[throughEnd.id] != null, "so does a charted road that only passes through")
+            helper.assertTrue(io.github.veelume.postroad.roads.Routing.routes(network, walkEnd.id, anchors)[throughEnd.id] != null, "and the two reach each other through the town")
+            helper.assertTrue(routes[outside.id] == null, "a node 50 blocks out along the uncharted road is not in town")
+            helper.succeed()
+        } finally {
+            roads.forEach { network.removePath(it.id) }
         }
     }
 
@@ -1936,7 +1981,7 @@ class PostroadGameTests {
         val road = io.github.veelume.postroad.map.MapRoad(dim, true, "Zulmba", "Apple End", kept.map { it.x }.toIntArray(), kept.map { it.z - 3000 }.toIntArray())
         val state = io.github.veelume.postroad.map.MapOverlayState(
             listOf(io.github.veelume.postroad.map.MapTown("t", "Zulmba", dim, BlockPos(-40, 64, 17))),
-            emptyList(), listOf(road), true,
+            listOf(road), true,
         )
         val buf = net.minecraft.network.RegistryFriendlyByteBuf(io.netty.buffer.Unpooled.buffer(), helper.level.registryAccess())
         io.github.veelume.postroad.map.MapOverlayState.STREAM_CODEC.encode(buf, state)

@@ -6,7 +6,7 @@ import thedarkcolour.kotlinforforge.neoforge.forge.FORGE_BUS
 import java.util.function.Consumer
 
 /**
- * Postroad on Xaero's maps: towns and way signs as third-party waypoints on the minimap (the world map
+ * Postroad on Xaero's maps: towns as third-party waypoints on the minimap (the world map
  * shows them too), roads as a highlighter on the world map. Fed from [io.github.veelume.postroad.map.MapOverlayClient].
  *
  * Xaero has no documented API; this uses the public classes its own Waystones and Open Parties and Claims
@@ -20,6 +20,8 @@ object XaeroMaps {
     fun register(minimap: Boolean, worldMap: Boolean) {
         waypoints = minimap
         roads = worldMap
+        // Towns get a waypoint once explored on the world map; with the minimap alone every town does.
+        if (minimap && worldMap) XaeroWaypoints.explored = XaeroExplored::contains
         FORGE_BUS.addListener(ClientTickEvent.Post::class.java, Consumer { onClientTick() })
     }
 
