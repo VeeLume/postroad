@@ -5,6 +5,7 @@ import io.github.veelume.postroad.roads.PathLink
 import io.github.veelume.postroad.roads.RoadNode
 import io.github.veelume.postroad.roads.RoadPath
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import net.minecraft.core.BlockPos
 import net.minecraft.core.HolderLookup
 import net.minecraft.nbt.CompoundTag
@@ -120,9 +121,9 @@ class Network : SavedData() {
         return best
     }
 
-    /** Every town whose depot lies within [maxDistance] of the path gets (or keeps) a node on it. */
-    fun attachTowns(path: RoadPath, maxDistance: Double): List<String> {
-        val attached = ArrayList<String>()
+    /** Every town whose depot lies within [maxDistance] of the path gets (or keeps) a node on it; returns those that got one. */
+    fun attachTowns(path: RoadPath, maxDistance: Double): List<Place> {
+        val attached = ArrayList<Place>()
         for (place in towns()) {
             if (place.dimension != path.dimension) continue
             val depotPos = depotPos(place.id) ?: place.pos
@@ -131,11 +132,45 @@ class Network : SavedData() {
             val id = "town/${place.id}"
             if (nodes[id] == null) {
                 nodes[id] = RoadNode(id, RoadNode.KIND_TOWN, path.dimension, depotPos, path.id, idx, place.name, place.id)
-                attached.add(place.name)
+                attached.add(place)
             }
         }
         if (attached.isNotEmpty()) setDirty()
         return attached
+    }
+
+    // ---- survey -------------------------------------------------------------------------------
+
+    /**
+     * Where the network has paid a surveyor: [SURVEY_CELL]-block cells per dimension, and town ids. Kept
+     * when paths go, so a road removed (or replanned) and charted again is not paid twice.
+     */
+    private val surveyed: MutableMap<ResourceLocation, LongOpenHashSet> = HashMap()
+    val surveyedTowns: MutableSet<String> = HashSet()
+
+    /** Blocks of new road a player has charted beyond their last whole survey coin. */
+    private val surveyCarry: MutableMap<String, Double> = HashMap()
+
+    fun surveyCarry(player: String): Double = surveyCarry[player.lowercase()] ?: 0.0
+
+    fun setSurveyCarry(player: String, blocks: Double) {
+        surveyCarry[player.lowercase()] = blocks
+        setDirty()
+    }
+
+    /** Whether [pos] lies in or next to a cell the network has already paid for. */
+    fun isSurveyed(dimension: ResourceLocation, pos: BlockPos): Boolean {
+        val cells = surveyed[dimension] ?: return false
+        val cx = Math.floorDiv(pos.x, SURVEY_CELL); val cz = Math.floorDiv(pos.z, SURVEY_CELL)
+        for (dx in -1..1) for (dz in -1..1) if (cells.contains(ChunkPos.asLong(cx + dx, cz + dz))) return true
+        return false
+    }
+
+    fun markSurveyed(dimension: ResourceLocation, points: Collection<BlockPos>) {
+        if (points.isEmpty()) return
+        val cells = surveyed.getOrPut(dimension) { LongOpenHashSet() }
+        for (p in points) cells.add(ChunkPos.asLong(Math.floorDiv(p.x, SURVEY_CELL), Math.floorDiv(p.z, SURVEY_CELL)))
+        setDirty()
     }
 
     fun removePath(pathId: String) {
@@ -369,6 +404,9 @@ class Network : SavedData() {
         tag.putLong("LastDeliveryDay", lastDeliveryDay)
         tag.put("Homes", CompoundTag().also { homes.forEach { (p, place) -> it.putString(p, place) } })
         tag.put("KnownPlayers", CompoundTag().also { knownPlayers.forEach { (k, v) -> it.putString(k, v) } })
+        tag.put("Surveyed", CompoundTag().also { surveyed.forEach { (dim, cells) -> it.putLongArray(dim.toString(), cells.toLongArray()) } })
+        tag.put("SurveyCarry", CompoundTag().also { surveyCarry.forEach { (p, b) -> it.putDouble(p, b) } })
+        tag.put("SurveyedTowns", ListTag().also { list -> surveyedTowns.forEach { list.add(net.minecraft.nbt.StringTag.valueOf(it)) } })
         tag.put("Parcels", ListTag().also { list -> parcels.forEach { if (it.items.isNotEmpty()) list.add(it.toTag(registries)) } })
         tag.put("Paths", ListTag().also { list -> paths.values.forEach { list.add(it.toTag()) } })
         tag.put("Links", ListTag().also { list -> links.forEach { list.add(it.toTag()) } })
@@ -416,12 +454,25 @@ class Network : SavedData() {
         homesTag.allKeys.forEach { homes[it] = homesTag.getString(it) }
         val knownTag = tag.getCompound("KnownPlayers")
         knownTag.allKeys.forEach { knownPlayers[it] = knownTag.getString(it) }
+        val surveyedTag = tag.getCompound("Surveyed")
+        for (key in surveyedTag.allKeys) {
+            val dim = ResourceLocation.tryParse(key) ?: continue
+            surveyed[dim] = LongOpenHashSet(surveyedTag.getLongArray(key))
+        }
+        tag.getList("SurveyedTowns", Tag.TAG_STRING.toInt()).forEach { surveyedTowns.add(it.asString) }
+        val carryTag = tag.getCompound("SurveyCarry")
+        carryTag.allKeys.forEach { surveyCarry[it] = carryTag.getDouble(it) }
         tag.getList("Parcels", Tag.TAG_COMPOUND.toInt()).forEach { t ->
             Parcel.fromTag(t as CompoundTag, registries)?.let { if (it.items.isNotEmpty()) parcels.add(it) }
         }
         tag.getList("Paths", Tag.TAG_COMPOUND.toInt()).forEach { t -> RoadPath.fromTag(t as CompoundTag)?.let { paths[it.id] = it } }
         tag.getList("Links", Tag.TAG_COMPOUND.toInt()).forEach { t -> links.add(PathLink.fromTag(t as CompoundTag)) }
         tag.getList("Nodes", Tag.TAG_COMPOUND.toInt()).forEach { t -> RoadNode.fromTag(t as CompoundTag)?.let { nodes[it.id] = it } }
+        // A save from before survey pay: what is charted and every town on the network count as paid already.
+        if (!tag.contains("Surveyed")) {
+            for (path in paths.values) if (path.charted) markSurveyed(path.dimension, path.points)
+            nodes.values.forEach { node -> if (node.kind == RoadNode.KIND_TOWN) node.placeId?.let { surveyedTowns.add(it) } }
+        }
         tag.getList("Mailboxes", Tag.TAG_COMPOUND.toInt()).forEach { t ->
             val c = t as CompoundTag
             val container = TownContainer(this, TownContainer.MAILBOX_SIZE)
@@ -436,6 +487,9 @@ class Network : SavedData() {
         /** How far above or below a road's line the ground may be and still count as on it (bridges, cuts). */
         const val ROAD_RISE = 4
         const val ROAD_FUND = "fund:road"
+
+        /** Cell size of the survey record, in blocks: the join distance a charted path covers to each side. */
+        const val SURVEY_CELL = 8
 
         /** Player names are matched case-insensitively (`player:veelume`). */
         fun playerAccount(name: String): String = "player:${name.lowercase()}"

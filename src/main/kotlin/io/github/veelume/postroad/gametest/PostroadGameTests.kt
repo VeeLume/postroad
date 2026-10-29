@@ -506,25 +506,40 @@ class PostroadGameTests {
         val player = helper.makeMockServerPlayerInLevel()
         val dim = helper.level.dimension().location()
         val charting = io.github.veelume.postroad.roads.Charting
-        // Out of every other test's way: high up and far south.
-        val walk = (0..10).map { helper.absolutePos(BlockPos(it * 30, 200, 7000)) }
-        helper.assertValueEqual(charting.newRoadLength(network, dim, walk, 0, 10) { true }.toInt(), 300, "all of it is new")
-        helper.assertValueEqual(charting.newRoadLength(network, dim, walk, 0, 10) { it != 5 }.toInt(), 240, "a sample off the road breaks both its segments")
+        val cfg = io.github.veelume.postroad.PostroadConfig
+        // Out of every other test's way, and somewhere new on each run: the survey record stays in the world.
+        val x0 = java.util.Random().nextInt(40_000) * 512
+        val walk = (0..10).map { helper.absolutePos(BlockPos(x0 + it * 30, 200, 7000)) }
+        helper.assertValueEqual(charting.newRoad(network, dim, walk, 0, 10) { true }.blocks.toInt(), 300, "all of it is new")
+        helper.assertValueEqual(charting.newRoad(network, dim, walk, 0, 10) { it != 5 }.blocks.toInt(), 240, "a sample off the road breaks both its segments")
 
         val old = io.github.veelume.postroad.roads.RoadPath("test-survey-" + java.util.UUID.randomUUID().toString().take(6), dim,
             walk.subList(0, 6).toMutableList(), MutableList(6) { io.github.veelume.postroad.roads.Tier.DIRT }, "tester", 0)
         network.addPath(old)
-        helper.assertValueEqual(charting.newRoadLength(network, dim, walk, 0, 10) { true }.toInt(), 120, "the charted half is not paid again")
+        helper.assertValueEqual(charting.newRoad(network, dim, walk, 0, 10) { true }.blocks.toInt(), 120, "the charted half is not paid again")
         old.charted = false
-        helper.assertValueEqual(charting.newRoadLength(network, dim, walk, 0, 10) { true }.toInt(), 300, "an uncharted road does not count as charted")
+        helper.assertValueEqual(charting.newRoad(network, dim, walk, 0, 10) { true }.blocks.toInt(), 300, "an uncharted road does not count as charted")
         network.removePath(old.id)
 
-        val account = Network.playerAccount(player.gameProfile.name)
+        val name = player.gameProfile.name
+        val account = Network.playerAccount(name)
+        network.setSurveyCarry(name, 0.0)
         val before = network.balance(account)
-        val cfg = io.github.veelume.postroad.PostroadConfig
-        charting.paySurvey(player, network, 0, cfg.surveyBlocksPerCoin * 2.0, 1)
-        helper.assertValueEqual(network.balance(account), before + 2 + cfg.surveyTownBonus, "two coins of road and one town")
+        val town = Place("test/survey/" + java.util.UUID.randomUUID().toString().take(8), "T", "common", Place.TYPE_FOUNDED, dim, walk[0], 0)
+        val survey = charting.newRoad(network, dim, walk, 0, 10) { true }
+        charting.paySurvey(player, network, 0, survey, listOf(town))
+        val perCoin = cfg.surveyBlocksPerCoin
+        val coins = (300 / perCoin).toLong()
+        helper.assertValueEqual(network.balance(account), before + coins + cfg.surveyTownBonus, "whole coins of road and one town")
         helper.assertValueEqual(network.ledger.last().op, LedgerEntry.OP_SURVEY, "ledger op")
+        helper.assertValueEqual(network.surveyCarry(name).toInt(), 300 - coins.toInt() * perCoin, "the rest carries over")
+
+        // The same road again, as after removing its path and charting it anew: nothing is new, the town is paid.
+        helper.assertValueEqual(charting.newRoad(network, dim, walk, 0, 10) { true }.blocks.toInt(), 0, "paid road stays paid without its path")
+        val paid = network.balance(account)
+        charting.paySurvey(player, network, 0, charting.newRoad(network, dim, walk, 0, 10) { true }, listOf(town))
+        helper.assertValueEqual(network.balance(account), paid, "nothing paid twice")
+        network.setSurveyCarry(name, 0.0)
         helper.succeed()
     }
 
