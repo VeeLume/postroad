@@ -1140,20 +1140,6 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
-    fun the_map_terrain_travels_intact(helper: GameTestHelper) {
-        val rgb = IntArray(7 * 5) { (it * 0x030507) and 0xFFFFFF }
-        val image = io.github.veelume.postroad.map.MapTerrainImage(helper.level.dimension().location(), -100, 40, 24, 7, 5, rgb)
-        val buf = net.minecraft.network.RegistryFriendlyByteBuf(io.netty.buffer.Unpooled.buffer(), helper.level.registryAccess())
-        io.github.veelume.postroad.map.MapTerrainImage.STREAM_CODEC.encode(buf, image)
-        val back = io.github.veelume.postroad.map.MapTerrainImage.STREAM_CODEC.decode(buf)
-        helper.assertValueEqual(listOf(back.x0, back.z0, back.blocksPerPixel, back.width, back.height), listOf(-100, 40, 24, 7, 5), "the frame")
-        helper.assertTrue(back.rgb.contentEquals(rgb), "every pixel")
-        // The request a map sends on opening: it once failed to encode and dropped the connection.
-        io.github.veelume.postroad.map.MapTerrainRequestPayload.STREAM_CODEC.encode(buf, io.github.veelume.postroad.map.MapTerrainRequestPayload)
-        helper.succeed()
-    }
-
-    @GameTest(template = ARENA)
     fun the_road_guide_travels_intact(helper: GameTestHelper) {
         val guide = io.github.veelume.postroad.roads.RoadGuide.current()
         val buf = net.minecraft.network.RegistryFriendlyByteBuf(io.netty.buffer.Unpooled.buffer(), helper.level.registryAccess())

@@ -19,6 +19,7 @@ object ClientSetup {
             event.register(PostroadMenus.SATCHEL.get(), ::SatchelScreen)
         })
         SalvageTooltip.register()
+        Atlas.register()
         RoadDebugRenderer.register()
         io.github.veelume.postroad.roads.ChartingClient.screenOpener = Runnable { net.minecraft.client.Minecraft.getInstance().setScreen(ChartingScreen()) }
         io.github.veelume.postroad.travel.TravelClient.screenOpener = Runnable { net.minecraft.client.Minecraft.getInstance().setScreen(TravelScreen()) }

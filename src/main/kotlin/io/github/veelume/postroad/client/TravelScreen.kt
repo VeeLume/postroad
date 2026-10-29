@@ -76,8 +76,8 @@ class TravelScreen : Screen(Component.translatable("screen.postroad.travel.title
                 affordable(e) -> PAID
                 else -> UNAFFORDABLE
             }
-            RoadMapWidget.Marker(e.nodeId, e.x, e.z, color, active = affordable(e))
-        } + RoadMapWidget.Marker(HERE, state.fromX, state.fromZ, HERE_COLOR, active = false)
+            RoadMapWidget.Marker(e.nodeId, e.x, e.z, color, active = affordable(e), label = e.name)
+        } + RoadMapWidget.Marker(HERE, state.fromX, state.fromZ, HERE_COLOR, active = false, label = state.fromName)
     }
 
     private fun price(e: TravelEntry): Component =
@@ -158,7 +158,7 @@ class TravelScreen : Screen(Component.translatable("screen.postroad.travel.title
         private const val HERE = "here"
         private val FREE = 0xFF60D060.toInt()
         private val PAID = 0xFFE0B040.toInt()
-        private val UNAFFORDABLE = 0xFFB04040.toInt()
+        private val UNAFFORDABLE = 0xFF808080.toInt()
         private val HERE_COLOR = 0xFFFFFFFF.toInt()
     }
 }

@@ -142,8 +142,10 @@ live in `docs/` (one per increment). This file is about the code.
 - `menu/` — `DepotMenu` (one 54-slot grid, backing container swapped per tab; ints via data
   slots, names via `DepotStatePayload`), `DepotState` + the two payloads, `PostroadNetworking`.
 - `client/` — `DepotScreen`, `SatchelScreen` (a one-row chest, the sell button on the inventory label's line), `ClientSetup`,
-  `RoadMapWidget` (the schematic map of `MapOverlayClient`'s towns and roads: tier colours, pan/zoom, pickable markers and roads),
-  shared by `TravelScreen` (destinations on the map plus a short list) and `RoadWorksScreen`. Only referenced from the `Dist.CLIENT` branch in `Postroad`.
+  `RoadMapWidget` (the road map: the `Atlas` under charted roads in tier colours, towns the player has seen, pan/zoom,
+  pickable markers and roads), shared by `TravelScreen` (destinations on the map plus a short list) and `RoadWorksScreen`.
+  `Atlas`: what this client has seen, sampled every 2 blocks in vanilla map colours from every chunk it loads, in
+  512-block regions saved as PNGs under `<game dir>/postroad/atlas/<server>/<dimension>/`; unexplored land stays dark. Only referenced from the `Dist.CLIENT` branch in `Postroad`.
   `DepotScreen`'s body is the vanilla 6-row chest to the pixel (176×222, so it fits at every GUI
   scale); the depot's controls sit in a panel attached to its right, outside the rectangle a recipe
   viewer can see — hence `columnArea()`, the `hasClickedOutside` override (a click on the column
