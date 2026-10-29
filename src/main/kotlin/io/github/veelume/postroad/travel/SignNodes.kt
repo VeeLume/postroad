@@ -94,7 +94,7 @@ object SignNodes {
         }
         val town = nearestTownName(network, dimension, pos)
         val name = ownText ?: defaultNodeName(network, path, index) ?: town?.let { Component.translatable("message.postroad.sign.default_name", it).string } ?: "Signpost"
-        val node = RoadNode(id, RoadNode.KIND_SIGN, dimension, pos, path.id, index, name, null)
+        val node = RoadNode(id, RoadNode.KIND_SIGN, dimension, pos, path.id, index, name, null, named = ownText != null)
         network.nodes[id] = node
         network.setDirty()
         if (PostroadConfig.autoNameSigns) {
@@ -154,7 +154,7 @@ object SignNodes {
         if (node.kind != RoadNode.KIND_SIGN) return false
         val name = newName.trim().take(32)
         if (name.isEmpty()) return false
-        network.nodes[nodeId] = node.copy(name = name)
+        network.nodes[nodeId] = node.copy(name = name, named = true)
         network.setDirty()
         (level.getBlockEntity(node.pos) as? SignBlockEntity)?.let { SignWriter.labelSign(level, it, name, "") }
         player.displayClientMessage(Component.translatable("message.postroad.sign.renamed", name).withStyle(ChatFormatting.GOLD), false)

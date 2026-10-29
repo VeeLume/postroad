@@ -31,10 +31,7 @@ object TravelService {
         val network = Network.get(player.server)
         val from = network.nodes[fromNodeId] ?: return
         val routes = Routing.routes(network, fromNodeId, townAnchors(player.server))
-        val near = PostroadConfig.joinDistance * PostroadConfig.joinDistance
-        val entries = routes.entries
-            .mapNotNull { (id, route) -> network.nodes[id]?.takeIf { it.pos.distSqr(from.pos) > near }?.let { node -> TravelEntry(id, node.name, route.length.toInt(), route.worstTier?.key ?: "dirt", Fares.fare(route.length, route.worstTier)) } }
-            .sortedBy { it.length }
+        val entries = destinations(network, from, routes)
         val state = TravelState(
             fromNodeId = fromNodeId,
             fromName = from.name,
@@ -45,6 +42,23 @@ object TravelService {
         )
         // A client without the mod (or a game test's mock player) has no screen to open.
         if (player.connection.hasChannel(TravelStatePayload.TYPE)) PacketDistributor.sendToPlayer(player, TravelStatePayload(state))
+    }
+
+    /**
+     * What the travel list offers, nearest first: towns, and signs players named, except one named like
+     * a town on the list (a sign put up at a town, labelled with its name). Nothing within joinDistance of
+     * where you stand. The builder's junction and road-end signs are places to leave from, not to go to.
+     */
+    fun destinations(network: Network, from: RoadNode, routes: Map<String, Routing.Route>): List<TravelEntry> {
+        val near = PostroadConfig.joinDistance * PostroadConfig.joinDistance
+        val reachable = routes.mapNotNull { (id, route) ->
+            network.nodes[id]?.takeIf { it.pos.distSqr(from.pos) > near && (it.kind == RoadNode.KIND_TOWN || it.named) }?.let { it to route }
+        }
+        val towns = reachable.filter { it.first.kind == RoadNode.KIND_TOWN }.map { it.first.name.lowercase() }.toSet()
+        return reachable
+            .filter { (node, _) -> node.kind == RoadNode.KIND_TOWN || node.name.lowercase() !in towns }
+            .map { (node, route) -> TravelEntry(node.id, node.name, route.length.toInt(), route.worstTier?.key ?: "dirt", Fares.fare(route.length, route.worstTier)) }
+            .sortedBy { it.length }
     }
 
     /** The journey. Validates everything again server-side; the client only chose. */

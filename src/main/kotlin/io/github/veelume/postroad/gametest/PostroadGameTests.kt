@@ -603,6 +603,39 @@ class PostroadGameTests {
     }
 
     /**
+     * The travel list offers towns and signs players named; junction and road-end signs, and a named sign
+     * that only repeats a town's name, stay out. Saves from before the flag read it off the name.
+     */
+    @GameTest(template = ARENA)
+    fun travel_list_offers_towns_and_named_signs(helper: GameTestHelper) {
+        val network = Network.get(helper.level.server)
+        val dim = helper.level.dimension().location()
+        val tag = java.util.UUID.randomUUID().toString().take(6)
+        fun node(id: String, kind: String, name: String, x: Int, named: Boolean = false) =
+            io.github.veelume.postroad.roads.RoadNode("test/$tag/$id", kind, dim, helper.absolutePos(BlockPos(x, 1, 0)), "p", 0, name, null, named)
+                .also { network.nodes[it.id] = it }
+        val from = node("from", io.github.veelume.postroad.roads.RoadNode.KIND_SIGN, "Here", 0)
+        val town = node("town", io.github.veelume.postroad.roads.RoadNode.KIND_TOWN, "Elmbridge", 100)
+        val home = node("home", io.github.veelume.postroad.roads.RoadNode.KIND_SIGN, "Home", 200, named = true)
+        val junction = node("junction", io.github.veelume.postroad.roads.RoadNode.KIND_SIGN, "Elmbridge - Hochstein road", 300)
+        val echo = node("echo", io.github.veelume.postroad.roads.RoadNode.KIND_SIGN, "elmbridge", 400, named = true)
+        try {
+            val routes = listOf(town, home, junction, echo).associate { it.id to io.github.veelume.postroad.roads.Routing.Route(it.pos.distManhattan(from.pos).toDouble(), null) }
+            val names = io.github.veelume.postroad.travel.TravelService.destinations(network, from, routes).map { it.name }
+            helper.assertValueEqual(names, listOf("Elmbridge", "Home"), "towns and named signs, nearest first")
+            fun legacy(name: String): Boolean {
+                val t = junction.toTag(); t.remove("Named"); t.putString("Name", name)
+                return io.github.veelume.postroad.roads.RoadNode.fromTag(t)!!.named
+            }
+            helper.assertTrue(!legacy("Hazel Cross - Apple End road") && !legacy("Apple End road, 206 blocks") && !legacy("Near Kainui") && !legacy("Junction"), "given names read as unnamed")
+            helper.assertTrue(legacy("Woodworth") && legacy("Berg-Bach"), "a player's own names read as named")
+            helper.succeed()
+        } finally {
+            listOf(from, town, home, junction, echo).forEach { network.nodes.remove(it.id) }
+        }
+    }
+
+    /**
      * Fenhollow on the VPS: several uncharted roads end at one street exit, the town's node sits on one
      * and a charted walk linked to another. Inside a town every road counts as charted: that walk, and
      * a charted road that only passes through, both reach the town's node.

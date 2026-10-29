@@ -129,7 +129,11 @@ data class PathLink(val pathA: String, val indexA: Int, val pathB: String, val i
     }
 }
 
-/** Something you can travel to: a town's depot or a linked sign, sitting on a path point. */
+/**
+ * Something you can travel to: a town's depot or a linked sign, sitting on a path point. [named]: a sign a
+ * player gave a name of their own (its text when linked, or renamed in the travel screen); only those and
+ * towns are offered as destinations, the builder's junction and road-end signs are not.
+ */
 data class RoadNode(
     val id: String,
     val kind: String,
@@ -139,12 +143,14 @@ data class RoadNode(
     val pointIndex: Int,
     val name: String,
     val placeId: String?,
+    val named: Boolean = false,
 ) {
     fun toTag(): CompoundTag {
         val tag = CompoundTag()
         tag.putString("Id", id); tag.putString("Kind", kind); tag.putString("Dimension", dimension.toString()); tag.putLong("Pos", pos.asLong())
         tag.putString("Path", pathId); tag.putInt("Index", pointIndex); tag.putString("Name", name)
         placeId?.let { tag.putString("Place", it) }
+        tag.putBoolean("Named", named)
         return tag
     }
 
@@ -152,12 +158,20 @@ data class RoadNode(
         const val KIND_TOWN = "town"
         const val KIND_SIGN = "sign"
 
+        /**
+         * Names the mod gives a sign (en_us, the server's language): junctions, road ends, a sign linked
+         * without text of its own. Only for saves from before [named] was stored.
+         */
+        private val GIVEN_NAMES = listOf(Regex("^.+ - .+ road$"), Regex("^Junction$"), Regex("^.+ road, \\d+ blocks$"), Regex("^Near .+$"), Regex("^Signpost$"))
+
         fun fromTag(tag: CompoundTag): RoadNode? {
             val dimension = ResourceLocation.tryParse(tag.getString("Dimension")) ?: return null
             return RoadNode(
                 tag.getString("Id"), tag.getString("Kind"), dimension, BlockPos.of(tag.getLong("Pos")),
                 tag.getString("Path"), tag.getInt("Index"), tag.getString("Name"),
                 if (tag.contains("Place")) tag.getString("Place") else null,
+                if (tag.contains("Named")) tag.getBoolean("Named")
+                else tag.getString("Kind") == KIND_SIGN && GIVEN_NAMES.none { it.matches(tag.getString("Name")) },
             )
         }
     }
