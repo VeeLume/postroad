@@ -24,20 +24,27 @@ class MapTerrainImage(val dimension: ResourceLocation, val x0: Int, val z0: Int,
     val x1: Int get() = x0 + width * blocksPerPixel
     val z1: Int get() = z0 + height * blocksPerPixel
 
+    /** The pixels deflated, made once: the same picture goes to every player who opens a map. */
+    val packed: ByteArray by lazy {
+        val raw = ByteArray(rgb.size * 3)
+        for ((i, c) in rgb.withIndex()) { raw[i * 3] = (c shr 16).toByte(); raw[i * 3 + 1] = (c shr 8).toByte(); raw[i * 3 + 2] = c.toByte() }
+        val deflater = Deflater(Deflater.BEST_COMPRESSION)
+        try {
+            deflater.setInput(raw); deflater.finish()
+            val out = java.io.ByteArrayOutputStream()
+            val chunk = ByteArray(16384)
+            while (!deflater.finished()) out.write(chunk, 0, deflater.deflate(chunk))
+            out.toByteArray()
+        } finally { deflater.end() }
+    }
+
     companion object {
         /** Pixels as 3 bytes each, deflated: terrain compresses well, and a packet has a size limit. */
         val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, MapTerrainImage> = StreamCodec.of(
             { buf, m ->
                 buf.writeResourceLocation(m.dimension); buf.writeVarInt(m.x0); buf.writeVarInt(m.z0); buf.writeVarInt(m.blocksPerPixel)
                 buf.writeVarInt(m.width); buf.writeVarInt(m.height)
-                val raw = ByteArray(m.rgb.size * 3)
-                for ((i, c) in m.rgb.withIndex()) { raw[i * 3] = (c shr 16).toByte(); raw[i * 3 + 1] = (c shr 8).toByte(); raw[i * 3 + 2] = c.toByte() }
-                val deflater = Deflater(Deflater.BEST_COMPRESSION).apply { setInput(raw); finish() }
-                val out = java.io.ByteArrayOutputStream()
-                val chunk = ByteArray(16384)
-                while (!deflater.finished()) out.write(chunk, 0, deflater.deflate(chunk))
-                deflater.end()
-                buf.writeByteArray(out.toByteArray())
+                buf.writeByteArray(m.packed)
             },
             { buf ->
                 val dim = buf.readResourceLocation(); val x0 = buf.readVarInt(); val z0 = buf.readVarInt(); val bpp = buf.readVarInt()
@@ -45,10 +52,18 @@ class MapTerrainImage(val dimension: ResourceLocation, val x0: Int, val z0: Int,
                 require(w in 1..MapTerrain.MAX_PIXELS && h in 1..MapTerrain.MAX_PIXELS) { "map terrain of $w x $h" }
                 val packed = buf.readByteArray(4 * 1024 * 1024)
                 val raw = ByteArray(w * h * 3)
-                val inflater = Inflater().apply { setInput(packed) }
-                var n = 0
-                while (n < raw.size && !inflater.finished()) n += inflater.inflate(raw, n, raw.size - n)
-                inflater.end()
+                val inflater = Inflater()
+                try {
+                    inflater.setInput(packed)
+                    var n = 0
+                    while (n < raw.size && !inflater.finished()) {
+                        val got = inflater.inflate(raw, n, raw.size - n)
+                        // Truncated or not deflate at all: an error, never a loop that waits for input that will not come.
+                        if (got == 0 && (inflater.needsInput() || inflater.needsDictionary())) throw IllegalArgumentException("map terrain data ends early")
+                        n += got
+                    }
+                    require(n == raw.size) { "map terrain data is $n bytes, not ${raw.size}" }
+                } finally { inflater.end() }
                 val rgb = IntArray(w * h) { i -> ((raw[i * 3].toInt() and 0xFF) shl 16) or ((raw[i * 3 + 1].toInt() and 0xFF) shl 8) or (raw[i * 3 + 2].toInt() and 0xFF) }
                 MapTerrainImage(dim, x0, z0, bpp, w, h, rgb)
             },
@@ -99,6 +114,9 @@ object MapTerrain {
     private val cache = HashMap<ResourceLocation, Cached>()
     private val computing = HashSet<ResourceLocation>()
     private val waiting = HashMap<ResourceLocation, MutableSet<UUID>>()
+    /** When each player last asked: a map opens a few times a minute at most, the rest is spam. */
+    private val lastAsked = HashMap<UUID, Long>()
+    private const val REQUEST_COOLDOWN_MS = 5000L
 
     fun register(registrar: PayloadRegistrar) {
         registrar.playToClient(MapTerrainPayload.TYPE, MapTerrainPayload.STREAM_CODEC) { payload, _ -> MapTerrainClient.update(payload.image) }
@@ -119,6 +137,9 @@ object MapTerrain {
     }
 
     fun request(player: ServerPlayer) {
+        val now = System.currentTimeMillis()
+        if (now - (lastAsked[player.uuid] ?: 0L) < REQUEST_COOLDOWN_MS) return
+        lastAsked[player.uuid] = now
         val dimension = player.level().dimension().location()
         val area = extent(player, dimension) ?: return
         val cached = cache[dimension]
