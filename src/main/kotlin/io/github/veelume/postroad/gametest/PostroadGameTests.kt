@@ -1140,6 +1140,21 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun the_road_guide_travels_intact(helper: GameTestHelper) {
+        val guide = io.github.veelume.postroad.roads.RoadGuide.current()
+        val buf = net.minecraft.network.RegistryFriendlyByteBuf(io.netty.buffer.Unpooled.buffer(), helper.level.registryAccess())
+        io.github.veelume.postroad.roads.RoadGuide.STREAM_CODEC.encode(buf, guide)
+        val back = io.github.veelume.postroad.roads.RoadGuide.STREAM_CODEC.decode(buf)
+        helper.assertValueEqual(back, guide, "the guide after a round trip")
+        // The client classifies with what it received: it must agree with the server on every block.
+        for (block in net.minecraft.core.registries.BuiltInRegistries.BLOCK) {
+            val state = block.defaultBlockState()
+            if (back.rules.classify(state) != guide.rules.classify(state)) return helper.fail("the guide disagrees on $block")
+        }
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun road_works_pool_coins_and_material_then_upgrade(helper: GameTestHelper) {
         val works = io.github.veelume.postroad.roads.gen.RoadWorks
         val player = helper.makeMockServerPlayerInLevel()

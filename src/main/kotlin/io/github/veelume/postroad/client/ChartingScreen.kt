@@ -30,7 +30,10 @@ class ChartingScreen : Screen(Component.translatable("screen.postroad.charting.t
         abortButton = addRenderableWidget(Button.builder(Component.translatable("screen.postroad.charting.abort"), send(ChartingActionPayload.ABORT)).bounds(cx - 100, top + 24, 200, 20).build())
         removeButton = addRenderableWidget(Button.builder(Component.translatable("screen.postroad.charting.remove"), send(ChartingActionPayload.REMOVE_PATH)).bounds(cx - 100, top + 56, 98, 20).build())
         severButton = addRenderableWidget(Button.builder(Component.translatable("screen.postroad.charting.sever"), send(ChartingActionPayload.SEVER)).bounds(cx + 2, top + 56, 98, 20).build())
-        addRenderableWidget(Button.builder(Component.translatable("gui.done"), Button.OnPress { onClose() }).bounds(cx - 50, top + 90, 100, 20).build())
+        addRenderableWidget(Button.builder(Component.translatable("screen.postroad.charting.guide"), Button.OnPress {
+            PacketDistributor.sendToServer(ChartingActionPayload(ChartingActionPayload.GUIDE))
+        }).bounds(cx - 100, top + 90, 98, 20).build())
+        addRenderableWidget(Button.builder(Component.translatable("gui.done"), Button.OnPress { onClose() }).bounds(cx + 2, top + 90, 98, 20).build())
     }
 
     private fun onMain() {

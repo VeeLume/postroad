@@ -41,7 +41,8 @@ live in `docs/` (one per increment). This file is about the code.
   sessions, sampling + particles, record/link/attach; road no charted path covers yet is paid to the walker,
   `chart.surveyBlocksPerCoin` plus `surveyTownBonus` per town brought on; `Network` keeps what it paid for as 8-block
   cells and town ids, so a path removed or replanned and charted again is not paid twice; what falls short of a coin
-  carries over per player), `ChartingMapItem` + payloads + `ChartingClient`
+  carries over per player). The screen's Guide button asks for `RoadGuide` (the rules and per-tier numbers); the client
+  classifies every registered block with those rules, so the guide shows modded road blocks too, `ChartingMapItem` + payloads + `ChartingClient`
   (client-side state holder with no client imports; `ClientSetup` plugs the screen opener in).
 - `roads/gen/` — generated roads. `Terrain` (cells of 3 blocks = the piece grid; coarse map 12: height, flags, biome family) with two forms:
   `TerrainGrid` (dense, tests) and `TiledTerrain` (lazy tiles from a `TileSampler`, BLOCKED/ROAD in an overlay).

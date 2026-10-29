@@ -72,6 +72,7 @@ data class ChartingActionPayload(val action: Int) : CustomPacketPayload {
         const val ABORT = 3
         const val REMOVE_PATH = 4
         const val SEVER = 5
+        const val GUIDE = 6
 
         val TYPE: CustomPacketPayload.Type<ChartingActionPayload> = CustomPacketPayload.Type(Postroad.id("charting_action"))
         val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, ChartingActionPayload> =
@@ -97,6 +98,10 @@ object ChartingNetworking {
         registrar.playToClient(ChartingStatePayload.TYPE, ChartingStatePayload.STREAM_CODEC) { payload, _ ->
             ChartingClient.state = payload.state
         }
+        registrar.playToClient(RoadGuidePayload.TYPE, RoadGuidePayload.STREAM_CODEC) { payload, _ ->
+            RoadGuideClient.guide = payload.guide
+            RoadGuideClient.screenOpener?.run()
+        }
         registrar.playToServer(ChartingActionPayload.TYPE, ChartingActionPayload.STREAM_CODEC) { payload, context ->
             val player = context.player() as? ServerPlayer ?: return@playToServer
             handle(player, payload.action)
@@ -111,6 +116,7 @@ object ChartingNetworking {
             }
             ChartingActionPayload.FINISH -> Charting.finish(player)
             ChartingActionPayload.ABORT -> Charting.abort(player, "message.postroad.chart.aborted")
+            ChartingActionPayload.GUIDE -> if (player.connection.hasChannel(RoadGuidePayload.TYPE)) PacketDistributor.sendToPlayer(player, RoadGuidePayload(RoadGuide.current()))
             ChartingActionPayload.REMOVE_PATH -> {
                 val near = network.nearestPathPoint(player.level().dimension().location(), player.blockPosition(), PostroadConfig.joinDistance * 2.0)
                 if (near == null) {

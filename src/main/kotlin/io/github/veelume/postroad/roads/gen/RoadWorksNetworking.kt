@@ -115,7 +115,11 @@ object RoadWorksNetworking {
     private fun act(player: ServerPlayer, payload: RoadWorksActionPayload) {
         val network = Network.get(player.server)
         // At the depot of the town the road belongs to, like every other depot action.
+        val place = network.places[payload.placeId] ?: return
         val depot = network.depotPos(payload.placeId) ?: return
+        // Same dimension and a depot really standing there: the position alone exists in every dimension.
+        if (player.level().dimension().location() != place.dimension) return
+        if (!player.level().getBlockState(depot).`is`(io.github.veelume.postroad.registry.PostroadBlocks.DEPOT.get())) return
         if (player.distanceToSqr(depot.x + 0.5, depot.y + 0.5, depot.z + 0.5) > 64.0) return
         val road = RoadWorks.roadsOf(player.server, payload.placeId).firstOrNull { it.id == payload.roadId } ?: return
         val tierBefore = road.tier

@@ -22,6 +22,7 @@ object ClientSetup {
         RoadDebugRenderer.register()
         io.github.veelume.postroad.roads.ChartingClient.screenOpener = Runnable { net.minecraft.client.Minecraft.getInstance().setScreen(ChartingScreen()) }
         io.github.veelume.postroad.travel.TravelClient.screenOpener = Runnable { net.minecraft.client.Minecraft.getInstance().setScreen(TravelScreen()) }
+        io.github.veelume.postroad.roads.RoadGuideClient.screenOpener = Runnable { net.minecraft.client.Minecraft.getInstance().setScreen(RoadGuideScreen()) }
         io.github.veelume.postroad.roads.gen.RoadWorksClient.screenOpener = Runnable {
             val mc = net.minecraft.client.Minecraft.getInstance()
             (mc.screen as? RoadWorksScreen)?.refresh() ?: mc.setScreen(RoadWorksScreen())
