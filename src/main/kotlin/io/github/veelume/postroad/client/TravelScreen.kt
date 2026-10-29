@@ -76,8 +76,10 @@ class TravelScreen : Screen(Component.translatable("screen.postroad.travel.title
                 affordable(e) -> PAID
                 else -> UNAFFORDABLE
             }
-            RoadMapWidget.Marker(e.nodeId, e.x, e.z, color, active = affordable(e), label = e.name)
-        } + RoadMapWidget.Marker(HERE, state.fromX, state.fromZ, HERE_COLOR, active = false, label = state.fromName)
+            // Town nodes are "town/<place>"; anything else is a sign a player named.
+            val kind = if (e.nodeId.startsWith("town/")) RoadMapWidget.Kind.TOWN else RoadMapWidget.Kind.SIGN
+            RoadMapWidget.Marker(e.nodeId, e.x, e.z, color, active = affordable(e), label = e.name, kind = kind)
+        } + RoadMapWidget.Marker(HERE, state.fromX, state.fromZ, HERE_COLOR, active = false, label = state.fromName, kind = RoadMapWidget.Kind.HERE)
     }
 
     private fun price(e: TravelEntry): Component =

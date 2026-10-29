@@ -26,7 +26,10 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
     AbstractWidget(x, y, width, height, Component.empty()) {
 
     /** Something to pick on the map: a destination, say. [id] is the screen's own; an inactive one shows but is not clicked. [label] is drawn beside it. */
-    data class Marker(val id: String, val x: Int, val z: Int, val color: Int, val active: Boolean = true, val label: String = "")
+    data class Marker(val id: String, val x: Int, val z: Int, val color: Int, val active: Boolean = true, val label: String = "", val kind: Kind = Kind.TOWN)
+
+    /** How a marker is drawn: a town (village icon on a coloured disc), a sign (banner), or where the player leaves from (a pin). */
+    enum class Kind { TOWN, SIGN, HERE }
 
     var markers: List<Marker> = emptyList()
     /** Plan ids of roads drawn wider and outlined. */
@@ -73,66 +76,125 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
         graphics.fill(x, y, x + width, y + height, BACKGROUND)
         graphics.enableScissor(x, y, x + width, y + height)
         drawAtlas(graphics)
-        val pose = graphics.pose().last().pose()
-        val buffer = graphics.bufferSource().getBuffer(RenderType.gui())
-        fun line(r: MapRoad, widthPx: Float, color: Int) {
-            for (i in 0 until r.xs.size - 1) {
-                val ax = sx(r.xs[i].toDouble()); val az = sz(r.zs[i].toDouble())
-                val bx = sx(r.xs[i + 1].toDouble()); val bz = sz(r.zs[i + 1].toDouble())
-                val len = hypot((bx - ax).toDouble(), (bz - az).toDouble()).toFloat()
-                if (len < 0.01f) continue
-                val nx = -(bz - az) / len * widthPx / 2; val nz = (bx - ax) / len * widthPx / 2
-                // The winding vanilla's fill uses; the other way round the quad is culled as a back face.
-                buffer.addVertex(pose, ax - nx, az - nz, 0f).setColor(color)
-                buffer.addVertex(pose, ax + nx, az + nz, 0f).setColor(color)
-                buffer.addVertex(pose, bx + nx, bz + nz, 0f).setColor(color)
-                buffer.addVertex(pose, bx - nx, bz - nz, 0f).setColor(color)
-            }
-        }
-        val lineWidth = (2.5 * scale / 0.05).coerceIn(2.0, 5.0).toFloat()
-        val ordered = roads.sortedBy { (if (it.plannedId in highlighted) 1 else 0) + (if (it.plannedId == selectedRoad || it === hoveredRoad) 2 else 0) }
-        // A dark casing under every road first, so a road reads on any ground; then the roads.
-        for (r in ordered) {
-            val emphasis = r.plannedId.isNotEmpty() && (r.plannedId == selectedRoad || r === hoveredRoad)
-            line(r, lineWidth + if (emphasis) 6f else 2f, if (emphasis) SELECTED else CASING)
-        }
-        for (r in ordered) {
-            val base = TIER_COLORS.getOrElse(r.tier) { TIER_COLORS[0] }
-            line(r, lineWidth, if (r.charted) base else (base and 0x00FFFFFF) or UNCHARTED_ALPHA)
-        }
-        graphics.flush()
-
+        drawRoads(graphics, roads)
+        RenderSystem.enableBlend()
         for (t in towns) {
-            val tx = sx(t.pos.x.toDouble()).toInt(); val tz = sz(t.pos.z.toDouble()).toInt()
-            graphics.fill(tx - 2, tz - 2, tx + 3, tz + 3, 0xFF000000.toInt())
-            graphics.fill(tx - 1, tz - 1, tx + 2, tz + 2, if (t === hoveredTown) 0xFFFFFFFF.toInt() else TOWN)
+            if (markers.any { it.x == t.pos.x && it.z == t.pos.z }) continue
+            icon(graphics, VILLAGE, sx(t.pos.x.toDouble()), sz(t.pos.z.toDouble()), if (t === hoveredTown) 10f else 8f)
         }
         // Names only for markers, emphasised first, and none over another: a full map of labels is unreadable.
         val labelled = ArrayList<IntArray>()
-        val byPriority = markers.sortedBy { if (it === hoveredMarker || it.id == emphasised) 0 else if (!it.active) 2 else 1 }
-        for (m in byPriority) {
-            val mx = sx(m.x.toDouble()).toInt(); val mz = sz(m.z.toDouble()).toInt()
-            val big = m === hoveredMarker || m.id == emphasised
-            val r = if (big) 5 else 3
-            graphics.fill(mx - r - 1, mz - r - 1, mx + r + 2, mz + r + 2, 0xFF000000.toInt())
-            graphics.fill(mx - r, mz - r, mx + r + 1, mz + r + 1, m.color)
+        val byPriority = markers.sortedBy { if (it === hoveredMarker || it.id == emphasised) 2 else if (!it.active) 0 else 1 }
+        // Drawn back to front, labels decided front to back.
+        for (m in byPriority) drawMarker(graphics, m, m === hoveredMarker || m.id == emphasised)
+        for (m in byPriority.reversed()) {
             if (m.label.isEmpty()) continue
+            val big = m === hoveredMarker || m.id == emphasised
+            val mx = sx(m.x.toDouble()).toInt(); val mz = sz(m.z.toDouble()).toInt()
             val lw = font.width(m.label)
-            val box = intArrayOf(mx + r + 3, mz - 5, mx + r + 3 + lw + 4, mz + 6)
+            val box = intArrayOf(mx + 8, mz - 5, mx + 8 + lw + 4, mz + 6)
             if (!big && labelled.any { it[0] < box[2] && box[0] < it[2] && it[1] < box[3] && box[1] < it[3] }) continue
             labelled.add(box)
             graphics.fill(box[0], box[1], box[2], box[3], LABEL_BACK)
             graphics.drawString(font, m.label, box[0] + 2, box[1] + 2, if (m.active) 0xFFFFFFFF.toInt() else 0xFFB0B0B0.toInt(), false)
         }
         Minecraft.getInstance().player?.let { p ->
-            if (p.level().dimension().location() == dimension) {
-                val px = sx(p.x).toInt(); val pz = sz(p.z).toInt()
-                graphics.fill(px - 1, pz - 4, px + 2, pz + 5, PLAYER)
-                graphics.fill(px - 4, pz - 1, px + 5, pz + 2, PLAYER)
-            }
+            // Vanilla's map arrow points north; a yaw of 0 faces south.
+            if (p.level().dimension().location() == dimension) icon(graphics, PLAYER_ICON, sx(p.x), sz(p.z), 10f, p.yRot + 180f)
         }
+        RenderSystem.disableBlend()
         graphics.disableScissor()
         graphics.renderOutline(x, y, width, height, 0xFF606060.toInt())
+    }
+
+    /**
+     * Roads as continuous strokes: the polyline thinned in screen space (points closer than a couple of
+     * pixels merged, so a zoomed-out road is not a bristle of tiny segments), each segment a quad and
+     * each bend a square of the stroke's width, over a dark casing drawn the same way.
+     */
+    private fun drawRoads(graphics: GuiGraphics, roads: List<MapRoad>) {
+        val pose = graphics.pose().last().pose()
+        val buffer = graphics.bufferSource().getBuffer(RenderType.gui())
+        fun quad(ax: Float, az: Float, bx: Float, bz: Float, cx: Float, cz: Float, dx: Float, dz: Float, color: Int) {
+            // The winding vanilla's fill uses; the other way round the quad is culled as a back face.
+            buffer.addVertex(pose, ax, az, 0f).setColor(color)
+            buffer.addVertex(pose, bx, bz, 0f).setColor(color)
+            buffer.addVertex(pose, cx, cz, 0f).setColor(color)
+            buffer.addVertex(pose, dx, dz, 0f).setColor(color)
+        }
+        fun stroke(pts: FloatArray, w: Float, color: Int) {
+            val h = w / 2
+            for (i in 0 until pts.size / 2 - 1) {
+                val ax = pts[i * 2]; val az = pts[i * 2 + 1]; val bx = pts[i * 2 + 2]; val bz = pts[i * 2 + 3]
+                val len = hypot((bx - ax).toDouble(), (bz - az).toDouble()).toFloat()
+                if (len < 0.01f) continue
+                val nx = -(bz - az) / len * h; val nz = (bx - ax) / len * h
+                quad(ax - nx, az - nz, ax + nx, az + nz, bx + nx, bz + nz, bx - nx, bz - nz, color)
+            }
+            for (i in 0 until pts.size / 2) {
+                val px = pts[i * 2]; val pz = pts[i * 2 + 1]
+                quad(px - h, pz - h, px - h, pz + h, px + h, pz + h, px + h, pz - h, color)
+            }
+        }
+        val w = (2.0 * scale / 0.05).coerceIn(2.0, 5.0).toFloat()
+        val strokes = roads.map { r -> r to screenPoints(r) }
+            .sortedBy { (r, _) -> (if (r.plannedId in highlighted) 1 else 0) + (if (r.plannedId == selectedRoad || r === hoveredRoad) 2 else 0) }
+        for ((r, pts) in strokes) {
+            val emphasis = r.plannedId.isNotEmpty() && (r.plannedId == selectedRoad || r === hoveredRoad)
+            stroke(pts, w + if (emphasis) 5f else 2f, if (emphasis) SELECTED else CASING)
+        }
+        for ((r, pts) in strokes) {
+            val base = TIER_COLORS.getOrElse(r.tier) { TIER_COLORS[0] }
+            // In road works the other roads step back behind the town's own.
+            val faded = !r.charted || (highlighted.isNotEmpty() && r.plannedId !in highlighted)
+            stroke(pts, w, if (faded) (base and 0x00FFFFFF) or FADED_ALPHA else base)
+        }
+        graphics.flush()
+    }
+
+    private fun screenPoints(r: MapRoad): FloatArray {
+        val out = ArrayList<Float>(r.xs.size * 2)
+        var lastX = Float.NaN; var lastZ = Float.NaN
+        for (i in r.xs.indices) {
+            val px = sx(r.xs[i].toDouble()); val pz = sz(r.zs[i].toDouble())
+            val keep = i == 0 || i == r.xs.size - 1 || hypot((px - lastX).toDouble(), (pz - lastZ).toDouble()) >= MIN_SEGMENT_PX
+            if (!keep) continue
+            out.add(px); out.add(pz); lastX = px; lastZ = pz
+        }
+        return out.toFloatArray()
+    }
+
+    /** One of vanilla's 8-pixel map icons, centred on (cx, cz), [size] pixels across, turned [degrees] clockwise. */
+    private fun icon(graphics: GuiGraphics, texture: ResourceLocation, cx: Float, cz: Float, size: Float, degrees: Float = 0f) {
+        graphics.pose().pushPose()
+        graphics.pose().translate(cx, cz, 0f)
+        if (degrees != 0f) graphics.pose().mulPose(com.mojang.math.Axis.ZP.rotationDegrees(degrees))
+        graphics.pose().scale(size / 8f, size / 8f, 1f)
+        graphics.blit(texture, -4, -4, 0f, 0f, 8, 8, 8, 8)
+        graphics.pose().popPose()
+    }
+
+    private fun drawMarker(graphics: GuiGraphics, m: Marker, big: Boolean) {
+        val mx = sx(m.x.toDouble()); val mz = sz(m.z.toDouble())
+        when (m.kind) {
+            // A pin whose tip is the spot.
+            Kind.HERE -> icon(graphics, PIN, mx, mz - 4f, if (big) 12f else 10f)
+            else -> {
+                val r = if (big) 7 else 6
+                disc(graphics, mx.toInt(), mz.toInt(), r + 1, 0xFF000000.toInt())
+                disc(graphics, mx.toInt(), mz.toInt(), r, m.color)
+                graphics.flush()
+                icon(graphics, if (m.kind == Kind.SIGN) BANNER else VILLAGE, mx, mz, if (big) 10f else 8f)
+            }
+        }
+    }
+
+    /** A filled circle out of one fill per row. */
+    private fun disc(graphics: GuiGraphics, cx: Int, cz: Int, r: Int, color: Int) {
+        for (dz in -r..r) {
+            val half = kotlin.math.sqrt((r * r - dz * dz).toDouble() + 0.5).toInt()
+            graphics.fill(cx - half, cz + dz, cx + half + 1, cz + dz + 1, color)
+        }
     }
 
     /**
@@ -223,18 +285,22 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
     companion object {
         /** Atlas regions read from disk per frame at most; the rest follow over the next frames. */
         private const val LOADS_PER_FRAME = 4
-        private val CASING = 0xE0201810.toInt()
+        private val CASING = 0xD0281A0E.toInt()
+        /** Screen pixels a road's thinned polyline keeps between its points. */
+        private const val MIN_SEGMENT_PX = 2.5
+        private const val FADED_ALPHA = 0x90000000.toInt()
+        private val VILLAGE = ResourceLocation.withDefaultNamespace("textures/map/decorations/plains_village.png")
+        private val BANNER = ResourceLocation.withDefaultNamespace("textures/map/decorations/white_banner.png")
+        private val PIN = ResourceLocation.withDefaultNamespace("textures/map/decorations/target_point.png")
+        private val PLAYER_ICON = ResourceLocation.withDefaultNamespace("textures/map/decorations/player.png")
         private val LABEL_BACK = 0xB0101010.toInt()
         private const val MIN_SCALE = 0.005
         private const val MAX_SCALE = 2.0
         private const val PICK_MARKER = 7.0
         private const val PICK_ROAD = 5.0
         private val BACKGROUND = 0xFF1E2428.toInt()
-        private val TOWN = 0xFFC8C8C8.toInt()
-        private val PLAYER = 0xFFFF5050.toInt()
         private val SELECTED = 0xFFFFE070.toInt()
-        private const val UNCHARTED_ALPHA = 0x50000000
-        /** Dirt, gravel, paved: earth brown, stone grey, pale stone. */
-        val TIER_COLORS = intArrayOf(0xFFA0703C.toInt(), 0xFF9AA0A4.toInt(), 0xFFF0E8D0.toInt())
+        /** Dirt, gravel, paved: light enough to read on grass and forest, told apart by warmth. */
+        val TIER_COLORS = intArrayOf(0xFFE2B26E.toInt(), 0xFFC4CACF.toInt(), 0xFFFFF6E2.toInt())
     }
 }
