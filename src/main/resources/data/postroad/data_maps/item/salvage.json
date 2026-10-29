@@ -6,7 +6,7 @@
     "minecraft:iron_horse_armor": 3,
     "minecraft:golden_horse_armor": 4,
     "minecraft:diamond_horse_armor": 8,
-    "#minecraft:music_discs": 5,
+    "#c:music_discs": 5,
     "#minecraft:trim_templates": 4,
     "minecraft:heart_of_the_sea": 10,
     "minecraft:enchanted_golden_apple": 10,
