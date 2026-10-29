@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.3.0
+
+- **Charting pays.** Road nobody has charted yet earns a coin per 150 blocks
+  (`chart.surveyBlocksPerCoin`), plus 2 for every town a walk brings onto the travel network.
+  A stretch is paid once, even after its path is removed or the road is replanned; a walk that
+  doubles back is paid once; a teleport during a walk abandons it. Everything charted before
+  this version counts as paid.
+- **Free journeys.** Beyond the free distance, a journey is free whenever your free journey
+  is ready, and starts a cooldown of an in-game day per 1000 blocks (`travel.cooldownBlocksPerDay`,
+  0 switches it off); sleeping shortens it. During the cooldown journeys cost their fare.
+- **Travel on a map.** The travel screen is a map: your atlas, the charted roads by tier, the
+  destinations (green free, gold a fare, grey out of reach) and the towns you have seen.
+- **The atlas.** Your client keeps a map of everything it has loaded, in vanilla map colours,
+  saved per server under `postroad/atlas/` in the game folder. Unexplored land stays dark.
+- **Loot travels with you.** Fresh loot is no longer mailed when you travel.
+- **Salvage Satchel** (leather, string, paper): sells looted gear and treasure on the spot,
+  straight into your wallet, and pays in coins you put in. Gear from loot chests carries a
+  permanent *Looted* mark and sells by its material; treasure nobody can craft sells marked
+  or not. The satchel shows the price on every slot and takes only what it buys. The depot
+  buys the same way. The fresh-loot stamp is gone: old stamps turn into the mark, and loot
+  stacks again. Data maps `salvage` and `salvage_material` replace `buyback`.
+- **Road works.** A depot's *Road works* shows the town's roads on the map; anyone chips in
+  coins and the next tier's material, and the road becomes gravel, then paved, where it
+  stands: faster to walk, cheaper to travel. Prices are `roadWorks.*`.
+- **Trees come off the roads.** Trees on or right beside a road are felled and leaves over it
+  cleared, once per road chunk as it loads. Log buildings, villages and pit stops are left alone.
+- **Mail from your mailbox.** A mailbox sends too: mark stacks and send them to another
+  player's mailbox or a town, as at a depot.
+- **Charting guide.** The charting map's *Guide* shows every block that counts as road, by
+  tier, and what each tier gives.
+- Operators: `/postroad roads relay` re-lays upgraded roads, `/postroad roads trees` clears
+  the roads round you and reports what it saw.
+
 ## 0.2.6
 
 - Towns and roads on Xaero's maps. Towns you have explored on your World Map get a gold
