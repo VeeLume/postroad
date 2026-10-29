@@ -33,6 +33,8 @@ object Charting {
         var nextSpacing = spacing()
         var lastPos: BlockPos? = null
         var sinceReadout = 0
+        /** Set when the player moved further than [MAX_STEP] between two samples: a teleport, not a walk. */
+        var jumped = false
 
         val roadShare: Double get() = if (tiers.isEmpty()) 0.0 else tiers.count { it != null }.toDouble() / tiers.size
 
@@ -44,9 +46,10 @@ object Charting {
         /** Adds a sample at [pos] if the walk has moved far enough; returns the tier when sampled. */
         fun step(pos: BlockPos, force: Boolean = false): Tier? {
             val last = lastPos
-            if (last != null && !force) {
+            if (last != null) {
                 val d = RoadPath.distance(last, pos)
-                if (d < nextSpacing) return null
+                if (d > MAX_STEP) { jumped = true; return null }
+                if (d < nextSpacing && !force) return null
                 distance += d
             }
             return sampleAt(pos)
@@ -86,6 +89,10 @@ object Charting {
     fun finish(player: ServerPlayer): RoadPath? {
         val session = sessions.remove(player.uuid) ?: return null
         session.step(player.onPos.above(), force = true)
+        if (session.jumped) {
+            player.displayClientMessage(Component.translatable("message.postroad.chart.aborted_teleport").withStyle(ChatFormatting.YELLOW), false)
+            return null
+        }
         return record(player, session)
     }
 
@@ -202,7 +209,7 @@ object Charting {
         for (i in from until to) {
             val a = points[i]; val b = points[i + 1]
             val length = RoadPath.distance(a, b)
-            if (fresh[i] && fresh[i + 1]) {
+            if (fresh[i] && fresh[i + 1] && length <= MAX_STEP) {
                 val mx = (a.x + b.x) / 2.0; val mz = (a.z + b.z) / 2.0
                 val cx = Math.floorDiv(mx.toInt(), cell); val cz = Math.floorDiv(mz.toInt(), cell)
                 var revisit = false
@@ -226,6 +233,9 @@ object Charting {
         }
         return Survey(dimension, total, record)
     }
+
+    /** Further than this between two samples is a teleport: the walk is abandoned, and no such segment is paid. */
+    const val MAX_STEP = 64.0
 
     /** Blocks of a walk after which coming back next to its own counted road is a revisit, not progress. */
     private const val REVISIT = 4.0 * Network.SURVEY_CELL
@@ -283,6 +293,10 @@ object Charting {
             return
         }
         session.step(player.onPos.above())
+        if (session.jumped) {
+            abort(player, "message.postroad.chart.aborted_teleport")
+            return
+        }
         if (session.distance > PostroadConfig.chartMaxLength) {
             abort(player, "message.postroad.chart.aborted_length")
             return
