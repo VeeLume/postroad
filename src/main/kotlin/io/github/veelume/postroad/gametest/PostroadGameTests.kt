@@ -523,16 +523,19 @@ class PostroadGameTests {
         helper.assertValueEqual(menu.slots[0].item.count, 12, "the grid is the mailbox's own storage")
         menu.handleAction(io.github.veelume.postroad.menu.DepotMenu.ACTION_SELECT_MODE, 0)
         menu.clicked(0, 0, net.minecraft.world.inventory.ClickType.PICKUP, player)
-        // Other players' mailboxes come first; step to the friend's if another test's box is nearer.
-        repeat(network.destinations().size) {
-            if (menu.state.destinationNames.getOrNull(menu.state.destinationIndex) == friend.name) return@repeat
-            menu.handleAction(io.github.veelume.postroad.menu.DepotMenu.ACTION_DESTINATION, 1)
-        }
-        helper.assertValueEqual(menu.state.destinationNames.getOrNull(menu.state.destinationIndex), friend.name, "the friend's mailbox is offered")
+        // Picked outright, the way the destination screen does; another test's box may be listed first.
+        val offered = menu.state.destinations.indexOfFirst { it.name == friend.name }
+        helper.assertTrue(offered >= 0, "the friend's mailbox is offered")
+        helper.assertValueEqual(menu.state.destinations[offered].kind, io.github.veelume.postroad.menu.DepotDestination.KIND_MAILBOX, "as a player mailbox")
+        menu.handleAction(io.github.veelume.postroad.menu.DepotMenu.ACTION_DESTINATION_SET, offered)
+        helper.assertValueEqual(menu.state.destinationNames.getOrNull(menu.state.destinationIndex), friend.name, "and picked")
         menu.handleAction(io.github.veelume.postroad.menu.DepotMenu.ACTION_SEND, 0)
 
         helper.assertTrue(network.mailboxStorage(mine).getItem(0).isEmpty, "the logs left the mailbox")
         helper.assertValueEqual(network.mailboxStorage(friend.id).countItem(Items.OAK_LOG), 12, "and arrived in the friend's (stackables at once)")
+        helper.assertTrue(network.hasUnreadMail("friend"), "the friend has unread mail")
+        helper.assertTrue(!network.hasUnreadMail(player.gameProfile.name), "the sender has none")
+        network.setUnreadMail("friend", false)
         network.removeMailbox(friend.id)
         network.removeMailbox(mine)
         helper.succeed()

@@ -16,6 +16,7 @@ import io.github.veelume.postroad.salvage.SatchelMenu
 import net.minecraft.core.component.DataComponentType
 import net.minecraft.core.registries.Registries
 import net.minecraft.network.chat.Component
+import net.minecraft.sounds.SoundEvent
 import net.minecraft.world.item.BlockItem
 import net.minecraft.world.item.CreativeModeTab
 import net.minecraft.world.item.Item
@@ -171,4 +172,12 @@ object PostroadMenus {
         "satchel",
         Supplier { MenuType({ id, inventory -> SatchelMenu(id, inventory) }, net.minecraft.world.flag.FeatureFlags.DEFAULT_FLAGS) },
     )
+}
+
+object PostroadSounds {
+    val REGISTER: DeferredRegister<SoundEvent> = DeferredRegister.create(Registries.SOUND_EVENT, Postroad.MOD_ID)
+
+    /** The chime a mailbox owner hears when mail lands in it. */
+    val MAIL_ARRIVED: DeferredHolder<SoundEvent, SoundEvent> =
+        REGISTER.register("mail_arrived", Supplier { SoundEvent.createVariableRangeEvent(Postroad.id("mail_arrived")) })
 }

@@ -1,0 +1,6 @@
+{
+  "mail_arrived": {
+    "subtitle": "subtitles.postroad.mail_arrived",
+    "sounds": ["postroad:mail_arrived"]
+  }
+}

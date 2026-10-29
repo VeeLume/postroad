@@ -35,6 +35,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
     private lateinit var sendButton: Button
     private lateinit var destinationPrev: Button
     private lateinit var destinationNext: Button
+    private lateinit var destinationName: Button
     private lateinit var expressButton: Button
     private lateinit var sellButton: Button
     private lateinit var travelButton: Button
@@ -78,6 +79,10 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
 
         destinationPrev = arrow("<", DepotMenu.ACTION_DESTINATION, -1, BX, DEST_Y, ARROW)
         destinationNext = arrow(">", DepotMenu.ACTION_DESTINATION, 1, BX + BW - ARROW, DEST_Y, ARROW)
+        destinationName = addRenderableWidget(
+            Button.builder(Component.empty(), Button.OnPress { minecraft?.setScreen(DestinationScreen(this, menu)) })
+                .bounds(leftPos + BX + ARROW + 2, topPos + DEST_Y, NAME_W, BH).build(),
+        )
         expressButton = button("screen.postroad.depot.express", DepotMenu.ACTION_EXPRESS, BX, EXPRESS_Y, BW, "screen.postroad.depot.express.tooltip")
         sendButton = button("screen.postroad.depot.send", DepotMenu.ACTION_SEND, BX, SEND_Y, BW)
         sellButton = button("screen.postroad.depot.sell", DepotMenu.ACTION_SELL, BX, SELL_Y, BW, "screen.postroad.depot.sell.tooltip")
@@ -108,6 +113,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         lootButton.active = canSend
         destinationPrev.visible = canSend
         destinationNext.visible = canSend
+        destinationName.visible = canSend
         destinationPrev.active = state.destinationNames.size > 1
         destinationNext.active = state.destinationNames.size > 1
         sendButton.visible = canSend
@@ -122,6 +128,8 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
             val tooltip = Tooltip.create(Component.literal(named))
             destinationPrev.tooltip = tooltip
             destinationNext.tooltip = tooltip
+            destinationName.message = Component.literal(font.plainSubstrByWidth(destination, NAME_W - 6))
+            destinationName.tooltip = Tooltip.create(Component.literal(named + "\n").append(Component.translatable("screen.postroad.depot.pick.tooltip")))
         }
         val timing = when {
             state.selected.isEmpty() -> ""
@@ -196,11 +204,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         graphics.renderItem(COIN, walletRight - 16, 2)
         graphics.drawString(font, wallet, walletRight - 18 - font.width(wallet), 6, TEXT_STRONG, false)
 
-        if (menu.unlocked && state.destinationNames.isNotEmpty()) {
-            val destination = state.destinationNames.getOrElse(state.destinationIndex) { "—" }
-            val text = font.plainSubstrByWidth(destination, NAME_W)
-            graphics.drawString(font, text, BX + BW / 2 - font.width(text) / 2, DEST_Y + 5, TEXT_STRONG, false)
-        } else if (!menu.unlocked) {
+        if (!menu.unlocked) {
             font.split(Component.translatable("screen.postroad.depot.not_chartered"), BW).forEachIndexed { line, text ->
                 graphics.drawString(font, text, BX, DEST_Y + line * 10, TEXT_MUTED, false)
             }

@@ -11,7 +11,7 @@ live in `docs/` (one per increment). This file is about the code.
 - `./gradlew runServer` / `runClient` start dev instances in `run/`.
 - `tools/*.py` are `uv run` scripts (inline dependencies) that generate checked-in assets:
   `gen_courier_post.py` → the courier-post structure NBT, `gen_pit_stop.py` → the pit-stop NBT (same
-  palettes), `gen_test_arena.py` → the game-test arenas, `gen_textures.py` → placeholder textures.
+  palettes), `gen_test_arena.py` → the game-test arenas, `gen_textures.py` → placeholder textures, `gen_sounds.py` → synthesized sounds (the mail chime).
   Regenerate rather than hand-edit.
 
 ## Layout (`io.github.veelume.postroad`)
@@ -144,12 +144,16 @@ live in `docs/` (one per increment). This file is about the code.
   dye/ink/wax still apply, breaking drops the node; block tag `#postroad:sign_nodes`), payloads + `TravelClient`.
 - `mailbox/` — the player's mailbox block; contents are in `Network`, the block entity only holds its place id. It
   opens `DepotMenu` on its own storage (`atMailbox`: no paging, travel or home), so players send each other mail from home.
+  Mail landing in someone's mailbox tells the owner (chat + the `PostroadSounds.MAIL_ARRIVED` chime) and sets
+  `Network`'s unread flag, which reminds them on login until they open the mailbox (`MailService.announce`/`remind`).
 - `mail/MailService` — parcels: lane split, arrival days, delivery on day change; `network/Parcel`.
 - `menu/` — `DepotMenu` (one 54-slot grid, backing container swapped per tab; ints via data
   slots, names via `DepotStatePayload`), `DepotState` + the two payloads, `PostroadNetworking`.
 - `client/` — `DepotScreen`, `SatchelScreen` (a one-row chest, the sell button on the inventory label's line), `ClientSetup`,
   `RoadMapWidget` (the road map: the `Atlas` under charted roads in tier colours, towns the player has seen, pan/zoom,
-  pickable markers and roads), shared by `TravelScreen` (destinations on the map plus a short list) and `RoadWorksScreen`.
+  pickable markers and roads), shared by `TravelScreen` (destinations on the map plus a short list), `RoadWorksScreen` and `DestinationScreen`
+  (the depot's "send to" picker: map + searchable list from `DepotState.destinations`, opened over the depot screen
+  with the menu left open, picks through `ACTION_DESTINATION_SET`).
   `Atlas`: what this client has seen, sampled every 2 blocks in vanilla map colours from every chunk it loads, in
   512-block regions saved as PNGs under `<game dir>/postroad/atlas/<server>/<dimension>/`; unexplored land stays dark. Only referenced from the `Dist.CLIENT` branch in `Postroad`.
   `DepotScreen`'s body is the vanilla 6-row chest to the pixel (176×222, so it fits at every GUI

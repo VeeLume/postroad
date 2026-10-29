@@ -14,7 +14,7 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent
 data class DepotState(
     val townName: String,
     val pageNames: List<String>,
-    val destinationNames: List<String>,
+    val destinations: List<DepotDestination>,
     val destinationIndex: Int,
     val homeName: String,
     val transitLines: List<String>,
@@ -29,6 +29,8 @@ data class DepotState(
     val sellCount: Int,
     val sellValue: Long,
 ) {
+    val destinationNames: List<String> get() = destinations.map { it.name }
+
     companion object {
         val EMPTY = DepotState("", emptyList(), emptyList(), 0, "", emptyList(), emptyList(), 0L, 0L, 0L, 0, 0L)
 
@@ -36,7 +38,7 @@ data class DepotState(
             { buf, s ->
                 buf.writeUtf(s.townName)
                 buf.writeCollection(s.pageNames) { b, v -> b.writeUtf(v) }
-                buf.writeCollection(s.destinationNames) { b, v -> b.writeUtf(v) }
+                buf.writeCollection(s.destinations) { b, v -> DepotDestination.STREAM_CODEC.encode(b as RegistryFriendlyByteBuf, v) }
                 buf.writeVarInt(s.destinationIndex)
                 buf.writeUtf(s.homeName)
                 buf.writeCollection(s.transitLines) { b, v -> b.writeUtf(v) }
@@ -51,7 +53,7 @@ data class DepotState(
                 DepotState(
                     townName = buf.readUtf(),
                     pageNames = buf.readList { it.readUtf() },
-                    destinationNames = buf.readList { it.readUtf() },
+                    destinations = buf.readList { DepotDestination.STREAM_CODEC.decode(it as RegistryFriendlyByteBuf) },
                     destinationIndex = buf.readVarInt(),
                     homeName = buf.readUtf(),
                     transitLines = buf.readList { it.readUtf() },
@@ -63,6 +65,40 @@ data class DepotState(
                     sellValue = buf.readVarLong(),
                 )
             },
+        )
+    }
+}
+
+/**
+ * One place a parcel can go, as the destination picker shows it: where it is (for the map), how far, and how
+ * long unstackables would take from here. [kind] is one of the `KIND_` constants.
+ */
+data class DepotDestination(
+    val name: String,
+    val kind: Int,
+    val dimension: String,
+    val x: Int,
+    val z: Int,
+    val distance: Int,
+    val valuablesDays: Long,
+) {
+    companion object {
+        const val KIND_TOWN = 0
+        const val KIND_HOME = 1
+        const val KIND_MAILBOX = 2
+        const val KIND_OWN_MAILBOX = 3
+
+        val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, DepotDestination> = StreamCodec.of(
+            { buf, d ->
+                buf.writeUtf(d.name)
+                buf.writeVarInt(d.kind)
+                buf.writeUtf(d.dimension)
+                buf.writeVarInt(d.x)
+                buf.writeVarInt(d.z)
+                buf.writeVarInt(d.distance)
+                buf.writeVarLong(d.valuablesDays)
+            },
+            { buf -> DepotDestination(buf.readUtf(), buf.readVarInt(), buf.readUtf(), buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readVarLong()) },
         )
     }
 }

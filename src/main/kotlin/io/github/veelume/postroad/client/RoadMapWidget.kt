@@ -28,8 +28,8 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
     /** Something to pick on the map: a destination, say. [id] is the screen's own; an inactive one shows but is not clicked. [label] is drawn beside it. */
     data class Marker(val id: String, val x: Int, val z: Int, val color: Int, val active: Boolean = true, val label: String = "", val kind: Kind = Kind.TOWN)
 
-    /** How a marker is drawn: a town (village icon on a coloured disc), a sign (banner), or where the player leaves from (a pin). */
-    enum class Kind { TOWN, SIGN, HERE }
+    /** How a marker is drawn: a town (village icon on a coloured disc), a sign (banner), a mailbox, or where the player leaves from (a pin). */
+    enum class Kind { TOWN, SIGN, MAILBOX, HERE }
 
     var markers: List<Marker> = emptyList()
     /** Plan ids of roads drawn wider and outlined. */
@@ -197,7 +197,12 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
                 disc(graphics, mx.toInt(), mz.toInt(), r + 1, 0xFF000000.toInt())
                 disc(graphics, mx.toInt(), mz.toInt(), r, m.color)
                 graphics.flush()
-                icon(graphics, if (m.kind == Kind.SIGN) BANNER else VILLAGE, mx, mz, if (big) 10f else 8f)
+                val texture = when (m.kind) {
+                    Kind.SIGN -> BANNER
+                    Kind.MAILBOX -> MAILBOX
+                    else -> VILLAGE
+                }
+                icon(graphics, texture, mx, mz, if (big) 10f else 8f)
             }
         }
     }
@@ -305,6 +310,7 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
         private val VILLAGE = ResourceLocation.withDefaultNamespace("textures/map/decorations/plains_village.png")
         private val BANNER = ResourceLocation.withDefaultNamespace("textures/map/decorations/white_banner.png")
         private val PIN = ResourceLocation.withDefaultNamespace("textures/map/decorations/target_point.png")
+        private val MAILBOX = io.github.veelume.postroad.Postroad.id("textures/block/mailbox_front.png")
         private val PLAYER_ICON = ResourceLocation.withDefaultNamespace("textures/map/decorations/player.png")
         private val LABEL_BACK = 0xB0101010.toInt()
         private const val MIN_SCALE = 0.005

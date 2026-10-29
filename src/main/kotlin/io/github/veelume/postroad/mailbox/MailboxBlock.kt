@@ -87,6 +87,7 @@ class MailboxBlock(properties: Properties) : HorizontalDirectionalBlock(properti
         val placeId = entity.placeId ?: return InteractionResult.CONSUME
         val network = Network.get(serverLevel.server)
         val name = network.places[placeId]?.name ?: "Mailbox"
+        if (network.places[placeId]?.owner == player.gameProfile.name.lowercase()) network.setUnreadMail(player.gameProfile.name, false)
         val incoming = network.parcelsTo(placeId)
         val today = GameDay.of(serverLevel)
         for (parcel in incoming) {

@@ -328,6 +328,16 @@ class Network : SavedData() {
         return contents
     }
 
+    /** Mailbox owners with mail they have not looked at yet; cleared when they open their mailbox. */
+    private val unreadMail: MutableSet<String> = HashSet()
+
+    fun hasUnreadMail(player: String): Boolean = player.lowercase() in unreadMail
+
+    fun setUnreadMail(player: String, unread: Boolean) {
+        val changed = if (unread) unreadMail.add(player.lowercase()) else unreadMail.remove(player.lowercase())
+        if (changed) setDirty()
+    }
+
     // ---- parcels ------------------------------------------------------------------------------
 
     fun addParcel(parcel: Parcel) {
@@ -420,6 +430,7 @@ class Network : SavedData() {
         tag.put("FreeJourneyAt", CompoundTag().also { freeJourneyAt.forEach { (p, t) -> it.putLong(p, t) } })
         tag.put("SurveyCarry", CompoundTag().also { surveyCarry.forEach { (p, b) -> it.putDouble(p, b) } })
         tag.put("SurveyedTowns", ListTag().also { list -> surveyedTowns.forEach { list.add(net.minecraft.nbt.StringTag.valueOf(it)) } })
+        tag.put("UnreadMail", ListTag().also { list -> unreadMail.forEach { list.add(net.minecraft.nbt.StringTag.valueOf(it)) } })
         tag.put("Parcels", ListTag().also { list -> parcels.forEach { if (it.items.isNotEmpty()) list.add(it.toTag(registries)) } })
         tag.put("Paths", ListTag().also { list -> paths.values.forEach { list.add(it.toTag()) } })
         tag.put("Links", ListTag().also { list -> links.forEach { list.add(it.toTag()) } })
@@ -473,6 +484,7 @@ class Network : SavedData() {
             surveyed[dim] = LongOpenHashSet(surveyedTag.getLongArray(key))
         }
         tag.getList("SurveyedTowns", Tag.TAG_STRING.toInt()).forEach { surveyedTowns.add(it.asString) }
+        tag.getList("UnreadMail", Tag.TAG_STRING.toInt()).forEach { unreadMail.add(it.asString) }
         val journeyTag = tag.getCompound("FreeJourneyAt")
         journeyTag.allKeys.forEach { freeJourneyAt[it] = journeyTag.getLong(it) }
         val carryTag = tag.getCompound("SurveyCarry")

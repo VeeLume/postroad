@@ -7,11 +7,16 @@ import io.github.veelume.postroad.network.GameDay
 import io.github.veelume.postroad.network.LedgerEntry
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.network.Parcel
+import io.github.veelume.postroad.network.Place
+import io.github.veelume.postroad.registry.PostroadSounds
 import net.minecraft.ChatFormatting
 import net.minecraft.network.chat.Component
 import net.minecraft.server.MinecraftServer
+import net.minecraft.server.level.ServerPlayer
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.SimpleContainer
 import net.minecraft.world.item.ItemStack
+import net.neoforged.neoforge.event.entity.player.PlayerEvent
 import net.neoforged.neoforge.event.server.ServerStartedEvent
 import net.neoforged.neoforge.event.tick.ServerTickEvent
 import java.util.UUID
@@ -90,6 +95,7 @@ object MailService {
             val target = network.deliveryTarget(parcel.to)
             val before = parcel.items.size
             deliverInto(target, parcel.items)
+            if (parcel.items.size != before) announce(server, network, parcel)
             if (parcel.items.isEmpty()) {
                 iterator.remove()
                 changed = true
@@ -121,6 +127,24 @@ object MailService {
         )
     }
 
+    /**
+     * Tells a mailbox owner that [parcel] landed in their mailbox: a chat line and the chime when they are
+     * online, and the unread flag either way (the login reminder). Not for their own parcels sent the same day.
+     */
+    private fun announce(server: MinecraftServer, network: Network, parcel: Parcel) {
+        val place = network.places[parcel.to]?.takeIf { it.type == Place.TYPE_MAILBOX } ?: return
+        val owner = place.owner ?: return
+        if (owner == parcel.sender && parcel.arrivalDay <= parcel.sentDay) return
+        network.setUnreadMail(owner, true)
+        val player = server.playerList.players.firstOrNull { it.gameProfile.name.equals(owner, ignoreCase = true) } ?: return
+        val sender = network.knownPlayers[parcel.sender] ?: parcel.sender
+        player.sendSystemMessage(Component.translatable("message.postroad.mail.arrived", sender).withStyle(ChatFormatting.GOLD))
+        chimeFor(player)
+    }
+
+    private fun chimeFor(player: ServerPlayer) =
+        player.playNotifySound(PostroadSounds.MAIL_ARRIVED.get(), SoundSource.PLAYERS, 0.9f, 1f)
+
     // ---- scheduling -----------------------------------------------------------------------------
 
     fun onServerStarted(event: ServerStartedEvent) {
@@ -131,13 +155,38 @@ object MailService {
         Network.get(server).lastDeliveryDay = today
     }
 
+    /** Players who logged in with unread mail → the tick to remind them at, once the join has settled. */
+    private val reminders = HashMap<UUID, Int>()
+
+    fun onPlayerLoggedIn(event: PlayerEvent.PlayerLoggedInEvent) {
+        val player = event.entity as? ServerPlayer ?: return
+        if (Network.get(player.server).hasUnreadMail(player.gameProfile.name)) reminders[player.uuid] = player.server.tickCount + REMINDER_DELAY
+    }
+
     fun onServerTick(event: ServerTickEvent.Post) {
         val server = event.server
         if (server.tickCount % 20 != 0) return
+        if (reminders.isNotEmpty()) remind(server)
         val today = GameDay.of(server.overworld())
         val network = Network.get(server)
         if (network.lastDeliveryDay == today) return
         deliverDue(server, today)
         network.lastDeliveryDay = today
     }
+
+    private fun remind(server: MinecraftServer) {
+        val network = Network.get(server)
+        val iterator = reminders.entries.iterator()
+        while (iterator.hasNext()) {
+            val (uuid, at) = iterator.next()
+            if (server.tickCount < at) continue
+            iterator.remove()
+            val player = server.playerList.getPlayer(uuid) ?: continue
+            if (!network.hasUnreadMail(player.gameProfile.name)) continue
+            player.sendSystemMessage(Component.translatable("message.postroad.mail.waiting").withStyle(ChatFormatting.GOLD))
+            chimeFor(player)
+        }
+    }
+
+    private const val REMINDER_DELAY = 100
 }

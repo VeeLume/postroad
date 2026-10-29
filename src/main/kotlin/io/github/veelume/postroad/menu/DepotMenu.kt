@@ -171,7 +171,7 @@ class DepotMenu private constructor(
         state = DepotState(
             townName = s.network.places[s.placeId]?.name ?: "",
             pageNames = pages.map { s.network.places[it]?.name ?: it },
-            destinationNames = destinations.map { s.network.places[it]?.name ?: it },
+            destinations = destinationEntries(s),
             destinationIndex = destinationIndex,
             homeName = s.network.homeOf(playerName)?.name ?: "",
             transitLines = lines,
@@ -185,6 +185,23 @@ class DepotMenu private constructor(
         // A game test's mock player has no channel to send it on.
         (playerInventory.player as? ServerPlayer)?.takeIf { it.connection.hasChannel(DepotStatePayload.TYPE) }
             ?.let { PacketDistributor.sendToPlayer(it, DepotStatePayload(state)) }
+    }
+
+    private fun destinationEntries(s: ServerSide): List<DepotDestination> {
+        val mailbox = s.network.mailboxOf(playerName)?.id
+        val home = s.network.homeOf(playerName)?.id
+        return destinations.map { id ->
+            val place = s.network.places[id]
+            val kind = when {
+                id == mailbox -> DepotDestination.KIND_OWN_MAILBOX
+                place?.type == Place.TYPE_MAILBOX -> DepotDestination.KIND_MAILBOX
+                id == home -> DepotDestination.KIND_HOME
+                else -> DepotDestination.KIND_TOWN
+            }
+            val distance = s.network.distanceBetween(s.placeId, id)
+            DepotDestination(place?.name ?: id, kind, place?.dimension?.toString() ?: "", place?.pos?.x ?: 0, place?.pos?.z ?: 0,
+                distance.toInt(), MailService.valuablesDays(distance))
+        }
     }
 
     /** Vanilla calls this once the client has the screen open; anything sent from init is too early. */
@@ -206,6 +223,10 @@ class DepotMenu private constructor(
             }
             ACTION_DESTINATION -> if (destinations.isNotEmpty()) {
                 destinationIndex = Math.floorMod(destinationIndex + value, destinations.size)
+                sendState()
+            }
+            ACTION_DESTINATION_SET -> if (value in destinations.indices) {
+                destinationIndex = value
                 sendState()
             }
             ACTION_SELECT_MODE -> {
@@ -387,6 +408,8 @@ class DepotMenu private constructor(
         const val ACTION_EXPRESS = 12
         const val ACTION_SELL = 13
         const val ACTION_ROAD_WORKS = 15
+        /** Picks destination number `value` outright (the destination picker). */
+        const val ACTION_DESTINATION_SET = 16
 
         fun client(id: Int, inventory: Inventory, buf: RegistryFriendlyByteBuf): DepotMenu =
             DepotMenu(id, inventory, buf.readBlockPos(), null)
