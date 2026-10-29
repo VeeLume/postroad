@@ -96,8 +96,8 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         val paged = menu.unlocked && menu.pageCount > 1
         prevPage.visible = paged
         nextPage.visible = paged
-        homeButton.visible = !menu.isRemotePage()
-        travelButton.visible = !menu.isRemotePage()
+        homeButton.visible = !menu.isRemotePage() && !menu.atMailbox
+        travelButton.visible = !menu.isRemotePage() && !menu.atMailbox
         homeButton.active = state.homeName != state.townName
 
         selectButton.message = Component.translatable(if (menu.selectMode) "screen.postroad.depot.select_done" else "screen.postroad.depot.select")

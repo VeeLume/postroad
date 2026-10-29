@@ -5,6 +5,7 @@ import io.github.veelume.postroad.mail.MailService
 import io.github.veelume.postroad.network.GameDay
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.network.Parcel
+import io.github.veelume.postroad.network.Place
 import io.github.veelume.postroad.registry.PostroadBlocks
 import io.github.veelume.postroad.registry.PostroadMenus
 import io.github.veelume.postroad.salvage.Salvage
@@ -32,6 +33,9 @@ import net.neoforged.neoforge.network.PacketDistributor
  * to the chosen destination. Dump/Take remain for plain chest use. Ints sync through data
  * slots, names and the selection through [DepotStatePayload]. The server instance holds the
  * network; the client instance only mirrors.
+ *
+ * A player's mailbox opens the same menu on its own storage ([atMailbox]): no paging through towns,
+ * no travel or home, but marking and sending work as at a depot — players mail each other from home.
  */
 class DepotMenu private constructor(
     id: Int,
@@ -40,7 +44,9 @@ class DepotMenu private constructor(
     private val server: ServerSide?,
 ) : AbstractContainerMenu(PostroadMenus.DEPOT.get(), id) {
 
-    class ServerSide(val level: ServerLevel, val network: Network, val placeId: String)
+    class ServerSide(val level: ServerLevel, val network: Network, val placeId: String) {
+        val mailbox: Boolean get() = network.places[placeId]?.type == Place.TYPE_MAILBOX
+    }
 
     private val grid = DelegatingContainer(GRID)
 
@@ -50,6 +56,7 @@ class DepotMenu private constructor(
     private val unlockedData: DataSlot = DataSlot.standalone()
     private val selectModeData: DataSlot = DataSlot.standalone()
     private val expressData: DataSlot = DataSlot.standalone()
+    private val mailboxData: DataSlot = DataSlot.standalone()
 
     /** Name state and selection; server builds it, client receives it. */
     var state: DepotState = DepotState.EMPTY
@@ -66,6 +73,7 @@ class DepotMenu private constructor(
     val unlocked: Boolean get() = unlockedData.get() == 1
     val selectMode: Boolean get() = selectModeData.get() == 1
     val express: Boolean get() = expressData.get() == 1
+    val atMailbox: Boolean get() = mailboxData.get() == 1
     val playerName: String get() = playerInventory.player.gameProfile.name
 
     init {
@@ -83,6 +91,7 @@ class DepotMenu private constructor(
         addDataSlot(unlockedData)
         addDataSlot(selectModeData)
         addDataSlot(expressData)
+        addDataSlot(mailboxData)
 
         if (server != null) {
             server.network.seenPlayer(playerName)
@@ -91,7 +100,8 @@ class DepotMenu private constructor(
             currentPageData.set(current)
             pageData.set(current)
             destinationIndex = destinations.indexOf(defaultDestination()).coerceAtLeast(0)
-            grid.target = server.network.storageFor(server.placeId)
+            mailboxData.set(if (server.mailbox) 1 else 0)
+            grid.target = if (server.mailbox) server.network.mailboxStorage(server.placeId) else server.network.storageFor(server.placeId)
         }
     }
 
@@ -127,12 +137,20 @@ class DepotMenu private constructor(
         val s = server ?: return
         val here = s.placeId
         val byDistance = compareBy<String> { s.network.distanceBetween(here, it) }
-        pages = s.network.towns().map { it.id }.sortedWith(compareBy<String> { it != here }.then(byDistance))
         val mailbox = s.network.mailboxOf(playerName)?.id
         val home = s.network.homeOf(playerName)?.id
-        destinations = s.network.destinations().map { it.id }
-            .filter { it != here }
-            .sortedWith(compareBy<String> { it != mailbox }.thenBy { it != home }.then(byDistance))
+        if (s.mailbox) {
+            // From home the point is other people: their mailboxes first, then towns.
+            pages = listOf(here)
+            destinations = s.network.destinations().map { it.id }
+                .filter { it != here }
+                .sortedWith(compareBy<String> { s.network.places[it]?.type != Place.TYPE_MAILBOX }.then(byDistance))
+        } else {
+            pages = s.network.towns().map { it.id }.sortedWith(compareBy<String> { it != here }.then(byDistance))
+            destinations = s.network.destinations().map { it.id }
+                .filter { it != here }
+                .sortedWith(compareBy<String> { it != mailbox }.thenBy { it != home }.then(byDistance))
+        }
         pageCountData.set(pages.size)
         unlockedData.set(if (s.network.postalUnlocked) 1 else 0)
     }
@@ -164,7 +182,9 @@ class DepotMenu private constructor(
             sellCount = quotes.size,
             sellValue = quotes.sum(),
         )
-        (playerInventory.player as? ServerPlayer)?.let { PacketDistributor.sendToPlayer(it, DepotStatePayload(state)) }
+        // A game test's mock player has no channel to send it on.
+        (playerInventory.player as? ServerPlayer)?.takeIf { it.connection.hasChannel(DepotStatePayload.TYPE) }
+            ?.let { PacketDistributor.sendToPlayer(it, DepotStatePayload(state)) }
     }
 
     /** Vanilla calls this once the client has the screen open; anything sent from init is too early. */
@@ -178,7 +198,7 @@ class DepotMenu private constructor(
         val s = server ?: return
         val player = playerInventory.player
         when (action) {
-            ACTION_PAGE -> if (s.network.postalUnlocked && pages.isNotEmpty()) {
+            ACTION_PAGE -> if (s.network.postalUnlocked && pages.isNotEmpty() && !s.mailbox) {
                 pageData.set(Math.floorMod(page + value, pages.size))
                 grid.target = s.network.storageFor(pages[page])
                 selected.removeAll { it < GRID }
@@ -203,7 +223,7 @@ class DepotMenu private constructor(
                 sendState()
             }
             ACTION_SEND -> send(s, player)
-            ACTION_TRAVEL -> {
+            ACTION_TRAVEL -> if (!s.mailbox) {
                 val node = io.github.veelume.postroad.travel.TravelService.townNode(s.level.server, s.placeId, pos)
                 if (node == null) player.displayClientMessage(Component.translatable("message.postroad.travel.no_node"), true)
                 else (player as? ServerPlayer)?.let { io.github.veelume.postroad.travel.TravelService.open(it, node.id) }
@@ -212,7 +232,7 @@ class DepotMenu private constructor(
             ACTION_SELL -> sell(s, player)
             ACTION_DUMP -> dump(player)
             ACTION_TAKE_ALL -> takeAll(player)
-            ACTION_SET_HOME -> {
+            ACTION_SET_HOME -> if (!s.mailbox) {
                 s.network.setHome(playerName, s.placeId)
                 (player as? ServerPlayer)?.let { PostroadAdvancements.award(it, PostroadAdvancements.HOME_SET) }
                 player.displayClientMessage(Component.translatable("command.postroad.home.set", state.townName), true)
@@ -342,7 +362,8 @@ class DepotMenu private constructor(
 
     override fun stillValid(player: Player): Boolean {
         val level = player.level()
-        if (!level.getBlockState(pos).`is`(PostroadBlocks.DEPOT.get())) return false
+        val block = level.getBlockState(pos)
+        if (!block.`is`(PostroadBlocks.DEPOT.get()) && !block.`is`(PostroadBlocks.MAILBOX.get())) return false
         return player.distanceToSqr(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5) <= 64.0
     }
 

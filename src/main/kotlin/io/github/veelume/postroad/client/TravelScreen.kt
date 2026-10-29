@@ -6,6 +6,7 @@ import io.github.veelume.postroad.travel.TravelRenamePayload
 import net.minecraft.client.gui.components.EditBox
 import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.gui.components.Button
+import net.minecraft.client.gui.components.Tooltip
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.network.chat.Component
 import net.neoforged.neoforge.network.PacketDistributor
@@ -62,6 +63,7 @@ class TravelScreen : Screen(Component.translatable("screen.postroad.travel.title
                 val fare = if (entry.fare == 0L) Component.translatable("screen.postroad.travel.free") else Component.translatable("screen.postroad.travel.fare", entry.fare)
                 button.message = Component.translatable("screen.postroad.travel.row", entry.name, entry.length, Component.translatable("tier.postroad.${entry.tier}"), fare)
                 button.active = entry.fare <= state.wallet + state.fund
+                button.tooltip = if (entry.cooldown > 0) Tooltip.create(Component.translatable("screen.postroad.travel.free_journey.tooltip", minutes(entry.cooldown))) else null
             }
         }
         prev.visible = pages > 1
@@ -82,13 +84,21 @@ class TravelScreen : Screen(Component.translatable("screen.postroad.travel.title
         val state = TravelClient.state
         val cx = width / 2
         val top = height / 2 - 90
-        graphics.drawCenteredString(font, Component.translatable("screen.postroad.travel.from", state.fromName), cx, top - 26, 0xFFFFFF)
+        graphics.drawCenteredString(font, Component.translatable("screen.postroad.travel.from", state.fromName), cx, top - 38, 0xFFFFFF)
         if (state.renamable) graphics.drawString(font, Component.translatable("screen.postroad.travel.name_hint"), cx - 120, top + perPage * 22 + 50, 0x808080, false)
-        graphics.drawCenteredString(font, Component.translatable("screen.postroad.travel.wallet", state.wallet, state.fund), cx, top - 14, 0xA0A0A0)
+        graphics.drawCenteredString(font, Component.translatable("screen.postroad.travel.wallet", state.wallet, state.fund), cx, top - 26, 0xA0A0A0)
+        if (state.freeJourneyIn >= 0) {
+            val free = if (state.freeJourneyIn == 0L) Component.translatable("screen.postroad.travel.free_ready")
+            else Component.translatable("screen.postroad.travel.free_in", minutes(state.freeJourneyIn))
+            graphics.drawCenteredString(font, free, cx, top - 14, if (state.freeJourneyIn == 0L) 0x80FF80 else 0xA0A0A0)
+        }
         if (state.entries.isEmpty()) {
             graphics.drawCenteredString(font, Component.translatable("screen.postroad.travel.none"), cx, top + 40, 0xA0A0A0)
         }
     }
 
     override fun isPauseScreen(): Boolean = false
+
+    /** Real minutes for a span of ticks, rounded up. */
+    private fun minutes(ticks: Long): Long = (ticks + 1199) / 1200
 }

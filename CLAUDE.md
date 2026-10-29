@@ -125,10 +125,13 @@ live in `docs/` (one per increment). This file is about the code.
   from/to — roads end at street exits, not the depot) and every node, link end and charted path in its
   `TownArea` (village box + 16, else 48 around the depot; `TravelService.townAnchors`). Several roads end on one
   street-exit block and a walk or sign links to whichever comes first, so an uncharted one there must not cut it off.
-- `travel/` — `Fares`, `TravelService` (open list, depart: fare, teleport — the inventory travels along), `SignNodes`
+- `travel/` — `Fares`, `TravelService` (open list, depart: fare or the free journey, teleport — the inventory travels along; beyond
+  `freeDistance` a player whose free journey is ready travels free and starts a cooldown of a day per
+  `travel.cooldownBlocksPerDay`, on the overworld day time; `Network.freeJourneyAt`), `SignNodes`
   (map-on-sign links/unlinks, right-click on a linked sign opens travel, sneak + right-click reaches the editor,
   dye/ink/wax still apply, breaking drops the node; block tag `#postroad:sign_nodes`), payloads + `TravelClient`.
-- `mailbox/` — the player's mailbox block; contents are in `Network`, the block entity only holds its place id.
+- `mailbox/` — the player's mailbox block; contents are in `Network`, the block entity only holds its place id. It
+  opens `DepotMenu` on its own storage (`atMailbox`: no paging, travel or home), so players send each other mail from home.
 - `mail/MailService` — parcels: lane split, arrival days, delivery on day change; `network/Parcel`.
 - `menu/` — `DepotMenu` (one 54-slot grid, backing container swapped per tab; ints via data
   slots, names via `DepotStatePayload`), `DepotState` + the two payloads, `PostroadNetworking`.

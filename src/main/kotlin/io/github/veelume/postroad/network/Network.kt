@@ -139,6 +139,18 @@ class Network : SavedData() {
         return attached
     }
 
+    // ---- travel -------------------------------------------------------------------------------
+
+    /** Player → the overworld day time (ticks) at which their next free journey is ready. */
+    private val freeJourneyAt: MutableMap<String, Long> = HashMap()
+
+    fun freeJourneyAt(player: String): Long = freeJourneyAt[player.lowercase()] ?: 0L
+
+    fun setFreeJourneyAt(player: String, dayTime: Long) {
+        freeJourneyAt[player.lowercase()] = dayTime
+        setDirty()
+    }
+
     // ---- survey -------------------------------------------------------------------------------
 
     /**
@@ -405,6 +417,7 @@ class Network : SavedData() {
         tag.put("Homes", CompoundTag().also { homes.forEach { (p, place) -> it.putString(p, place) } })
         tag.put("KnownPlayers", CompoundTag().also { knownPlayers.forEach { (k, v) -> it.putString(k, v) } })
         tag.put("Surveyed", CompoundTag().also { surveyed.forEach { (dim, cells) -> it.putLongArray(dim.toString(), cells.toLongArray()) } })
+        tag.put("FreeJourneyAt", CompoundTag().also { freeJourneyAt.forEach { (p, t) -> it.putLong(p, t) } })
         tag.put("SurveyCarry", CompoundTag().also { surveyCarry.forEach { (p, b) -> it.putDouble(p, b) } })
         tag.put("SurveyedTowns", ListTag().also { list -> surveyedTowns.forEach { list.add(net.minecraft.nbt.StringTag.valueOf(it)) } })
         tag.put("Parcels", ListTag().also { list -> parcels.forEach { if (it.items.isNotEmpty()) list.add(it.toTag(registries)) } })
@@ -460,6 +473,8 @@ class Network : SavedData() {
             surveyed[dim] = LongOpenHashSet(surveyedTag.getLongArray(key))
         }
         tag.getList("SurveyedTowns", Tag.TAG_STRING.toInt()).forEach { surveyedTowns.add(it.asString) }
+        val journeyTag = tag.getCompound("FreeJourneyAt")
+        journeyTag.allKeys.forEach { freeJourneyAt[it] = journeyTag.getLong(it) }
         val carryTag = tag.getCompound("SurveyCarry")
         carryTag.allKeys.forEach { surveyCarry[it] = carryTag.getDouble(it) }
         tag.getList("Parcels", Tag.TAG_COMPOUND.toInt()).forEach { t ->

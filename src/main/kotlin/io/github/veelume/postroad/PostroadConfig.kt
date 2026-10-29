@@ -64,6 +64,7 @@ object PostroadConfig {
     private val SURVEY_TOWN_BONUS: ModConfigSpec.IntValue
     private val FREE_DISTANCE: ModConfigSpec.IntValue
     private val BLOCKS_PER_COIN: ModConfigSpec.IntValue
+    private val COOLDOWN_BLOCKS_PER_DAY: ModConfigSpec.IntValue
     private val TIER_FACTOR_DIRT: ModConfigSpec.IntValue
     private val TIER_FACTOR_GRAVEL: ModConfigSpec.IntValue
     private val TIER_FACTOR_PAVED: ModConfigSpec.IntValue
@@ -158,6 +159,7 @@ object PostroadConfig {
         TIER_FACTOR_DIRT = BUILDER.comment("Fare divisor for dirt roads, in percent.").defineInRange("tierFactorDirt", 100, 1, 1000)
         TIER_FACTOR_GRAVEL = BUILDER.comment("Fare divisor for gravel roads, in percent.").defineInRange("tierFactorGravel", 150, 1, 1000)
         TIER_FACTOR_PAVED = BUILDER.comment("Fare divisor for paved roads, in percent.").defineInRange("tierFactorPaved", 200, 1, 1000)
+        COOLDOWN_BLOCKS_PER_DAY = BUILDER.comment("A journey beyond the free distance is free when the player's free journey is ready, and starts a cooldown of one in-game day per this many route-blocks; during it, journeys cost their fare. 0: no free journeys, every journey beyond the free distance costs its fare.").defineInRange("cooldownBlocksPerDay", 1000, 0, 100000)
         BUILDER.pop()
 
         BUILDER.push("plan")
@@ -224,6 +226,7 @@ object PostroadConfig {
     val surveyTownBonus: Long get() = SURVEY_TOWN_BONUS.get().toLong()
     val freeDistance: Double get() = FREE_DISTANCE.get().toDouble()
     val blocksPerCoin: Double get() = BLOCKS_PER_COIN.get().toDouble()
+    val cooldownBlocksPerDay: Double get() = COOLDOWN_BLOCKS_PER_DAY.get().toDouble()
     val tierFactorDirt: Double get() = TIER_FACTOR_DIRT.get() / 100.0
     val tierFactorGravel: Double get() = TIER_FACTOR_GRAVEL.get() / 100.0
     val tierFactorPaved: Double get() = TIER_FACTOR_PAVED.get() / 100.0

@@ -2,6 +2,7 @@ package io.github.veelume.postroad.mailbox
 
 import com.mojang.serialization.MapCodec
 import io.github.veelume.postroad.advancement.PostroadAdvancements
+import io.github.veelume.postroad.menu.DepotMenu
 import io.github.veelume.postroad.network.GameDay
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.network.PlaceResolver
@@ -16,7 +17,6 @@ import net.minecraft.world.InteractionResult
 import net.minecraft.world.SimpleMenuProvider
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.player.Player
-import net.minecraft.world.inventory.ChestMenu
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.context.BlockPlaceContext
 import net.minecraft.world.level.Level
@@ -29,9 +29,9 @@ import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.phys.BlockHitResult
 
 /**
- * A player's mailbox: an earned block that makes their base a parcel destination. Receive-only —
- * sending still happens at a depot. Contents live in the [Network], so parcels arrive even
- * while the chunk is unloaded; the block is just the door to them.
+ * A player's mailbox: an earned block that makes their base a parcel destination, and a place to send
+ * from — it opens the depot menu on its own storage ([DepotMenu.atMailbox]). Contents live in the
+ * [Network], so parcels arrive even while the chunk is unloaded; the block is just the door to them.
  */
 class MailboxBlock(properties: Properties) : HorizontalDirectionalBlock(properties), EntityBlock {
 
@@ -86,7 +86,6 @@ class MailboxBlock(properties: Properties) : HorizontalDirectionalBlock(properti
         }
         val placeId = entity.placeId ?: return InteractionResult.CONSUME
         val network = Network.get(serverLevel.server)
-        val container = network.mailboxStorage(placeId)
         val name = network.places[placeId]?.name ?: "Mailbox"
         val incoming = network.parcelsTo(placeId)
         val today = GameDay.of(serverLevel)
@@ -99,7 +98,7 @@ class MailboxBlock(properties: Properties) : HorizontalDirectionalBlock(properti
             )
         }
         val title = if (incoming.isEmpty()) Component.literal(name) else Component.translatable("message.postroad.mailbox.title_incoming", name, incoming.size)
-        player.openMenu(SimpleMenuProvider({ id, inventory, _ -> ChestMenu.sixRows(id, inventory, container) }, title))
+        player.openMenu(SimpleMenuProvider({ id, inventory, _ -> DepotMenu.server(id, inventory, serverLevel, pos, placeId) }, title)) { buf -> buf.writeBlockPos(pos) }
         return InteractionResult.CONSUME
     }
 

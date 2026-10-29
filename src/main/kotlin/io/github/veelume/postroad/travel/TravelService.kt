@@ -29,7 +29,9 @@ object TravelService {
         val network = Network.get(player.server)
         val from = network.nodes[fromNodeId] ?: return
         val routes = Routing.routes(network, fromNodeId, townAnchors(player.server))
-        val entries = destinations(network, from, routes)
+        val readyIn = if (PostroadConfig.cooldownBlocksPerDay <= 0) -1L
+        else (network.freeJourneyAt(player.gameProfile.name) - now(player.server)).coerceAtLeast(0L)
+        val entries = destinations(network, from, routes, ready = readyIn == 0L)
         val state = TravelState(
             fromNodeId = fromNodeId,
             fromName = from.name,
@@ -37,6 +39,7 @@ object TravelService {
             wallet = network.balance(Network.playerAccount(player.gameProfile.name)),
             fund = network.balance(Network.ROAD_FUND),
             renamable = from.kind == RoadNode.KIND_SIGN,
+            freeJourneyIn = readyIn,
         )
         // A client without the mod (or a game test's mock player) has no screen to open.
         if (player.connection.hasChannel(TravelStatePayload.TYPE)) PacketDistributor.sendToPlayer(player, TravelStatePayload(state))
@@ -46,8 +49,9 @@ object TravelService {
      * What the travel list offers, nearest first: towns, and signs players named, except one named like
      * a town on the list (a sign put up at a town, labelled with its name). Nothing within joinDistance of
      * where you stand. The builder's junction and road-end signs are places to leave from, not to go to.
+     * Each is priced as of now: free while the player's free journey is [ready], else its fare.
      */
-    fun destinations(network: Network, from: RoadNode, routes: Map<String, Routing.Route>): List<TravelEntry> {
+    fun destinations(network: Network, from: RoadNode, routes: Map<String, Routing.Route>, ready: Boolean = false): List<TravelEntry> {
         val near = PostroadConfig.joinDistance * PostroadConfig.joinDistance
         val reachable = routes.mapNotNull { (id, route) ->
             network.nodes[id]?.takeIf { it.pos.distSqr(from.pos) > near && (it.kind == RoadNode.KIND_TOWN || it.named) }?.let { it to route }
@@ -55,7 +59,11 @@ object TravelService {
         val towns = reachable.filter { it.first.kind == RoadNode.KIND_TOWN }.map { it.first.name.lowercase() }.toSet()
         return reachable
             .filter { (node, _) -> node.kind == RoadNode.KIND_TOWN || node.name.lowercase() !in towns }
-            .map { (node, route) -> TravelEntry(node.id, node.name, route.length.toInt(), route.worstTier?.key ?: "dirt", Fares.fare(route.length, route.worstTier)) }
+            .map { (node, route) ->
+                val free = Fares.usesFreeJourney(route.length, ready)
+                TravelEntry(node.id, node.name, route.length.toInt(), route.worstTier?.key ?: "dirt",
+                    Fares.price(route.length, route.worstTier, ready), if (free) Fares.cooldown(route.length) else 0L)
+            }
             .sortedBy { it.length }
     }
 
@@ -77,7 +85,9 @@ object TravelService {
         }
         val name = player.gameProfile.name
         val today = GameDay.of(level)
-        val fare = Fares.fare(route.length, route.worstTier)
+        val now = now(player.server)
+        val free = Fares.usesFreeJourney(route.length, network.freeJourneyAt(name) <= now)
+        val fare = if (free) 0L else Fares.fare(route.length, route.worstTier)
         if (!network.canAfford(name, fare)) {
             val short = fare - network.balance(Network.playerAccount(name)) - network.balance(Network.ROAD_FUND)
             player.displayClientMessage(Component.translatable("message.postroad.travel.unaffordable", fare, short).withStyle(ChatFormatting.RED), false)
@@ -87,17 +97,25 @@ object TravelService {
         if (fare > 0) {
             network.charge(name, fare, today, LedgerEntry.OP_FARE, "${from.name} → ${to.name}, ${route.length.toInt()} blocks")
         }
+        val cooldown = if (free) Fares.cooldown(route.length) else 0L
+        if (free) network.setFreeJourneyAt(name, now + cooldown)
         Charting.abort(player, "message.postroad.chart.aborted_teleport")
         val preferred = network.paths[to.pathId]?.points?.getOrNull(to.pointIndex) ?: to.pos
         val spot = safeSpot(level, to.pos, preferred)
         player.teleportTo(level, spot.x + 0.5, spot.y.toDouble(), spot.z + 0.5, player.yRot, player.xRot)
         PostroadAdvancements.award(player, PostroadAdvancements.FIRST_JOURNEY)
-        if (fare > 0) PostroadAdvancements.award(player, PostroadAdvancements.LONG_JOURNEY)
+        if (route.length > PostroadConfig.freeDistance) PostroadAdvancements.award(player, PostroadAdvancements.LONG_JOURNEY)
         player.displayClientMessage(
             Component.translatable("message.postroad.travel.arrived", to.name, route.length.toInt(), fare).withStyle(ChatFormatting.GOLD),
             false,
         )
-        Postroad.LOGGER.info("{} travelled {} → {} ({} blocks, fare {})", name, from.name, to.name, route.length.toInt(), fare)
+        if (free) {
+            player.displayClientMessage(
+                Component.translatable("message.postroad.travel.free_used", minutes(cooldown)).withStyle(ChatFormatting.GRAY),
+                false,
+            )
+        }
+        Postroad.LOGGER.info("{} travelled {} → {} ({} blocks, fare {}{})", name, from.name, to.name, route.length.toInt(), fare, if (free) ", free journey" else "")
         return true
     }
 
@@ -125,6 +143,12 @@ object TravelService {
             return dx * dx + dz * dz <= TOWN_RADIUS.toDouble() * TOWN_RADIUS
         }
     }
+
+    /** The clock free journeys run on: the overworld's day time, so sleeping shortens a cooldown as it does mail days. */
+    fun now(server: MinecraftServer): Long = server.overworld().dayTime
+
+    /** Real minutes a span of [ticks] takes at 20 ticks a second, rounded up. */
+    fun minutes(ticks: Long): Long = (ticks + 1199) / 1200
 
     /** Blocks around a predicted village's box: street exits, road ends and the pit stop beside them. */
     const val TOWN_MARGIN = 16

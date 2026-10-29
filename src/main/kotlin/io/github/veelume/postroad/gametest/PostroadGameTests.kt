@@ -501,6 +501,41 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun a_mailbox_sends_to_another_players_mailbox(helper: GameTestHelper) {
+        val boxPos = BlockPos(2, 1, 2)
+        helper.setBlock(boxPos, PostroadBlocks.MAILBOX.get())
+        val player = helper.makeMockServerPlayerInLevel()
+        val network = Network.get(helper.level.server)
+        network.postalUnlocked = true
+        val box = helper.getBlockEntity<io.github.veelume.postroad.mailbox.MailboxBlockEntity>(boxPos)
+        box.claim(helper.level, player.gameProfile.name)
+        val mine = box.placeId ?: return helper.fail("mailbox not registered")
+        val friend = Place("test/mailbox/" + java.util.UUID.randomUUID().toString().take(8), "Friend's mailbox", "common", Place.TYPE_MAILBOX,
+            helper.level.dimension().location(), helper.absolutePos(BlockPos(6, 1, 6)), 0, "friend")
+        network.addPlace(friend)
+        network.mailboxStorage(mine).setItem(0, ItemStack(Items.OAK_LOG, 12))
+
+        val menu = io.github.veelume.postroad.menu.DepotMenu.server(0, player.inventory, helper.level, helper.absolutePos(boxPos), mine)
+        helper.assertTrue(menu.atMailbox, "the mailbox opens in mailbox mode")
+        helper.assertValueEqual(menu.slots[0].item.count, 12, "the grid is the mailbox's own storage")
+        menu.handleAction(io.github.veelume.postroad.menu.DepotMenu.ACTION_SELECT_MODE, 0)
+        menu.clicked(0, 0, net.minecraft.world.inventory.ClickType.PICKUP, player)
+        // Other players' mailboxes come first; step to the friend's if another test's box is nearer.
+        repeat(network.destinations().size) {
+            if (menu.state.destinationNames.getOrNull(menu.state.destinationIndex) == friend.name) return@repeat
+            menu.handleAction(io.github.veelume.postroad.menu.DepotMenu.ACTION_DESTINATION, 1)
+        }
+        helper.assertValueEqual(menu.state.destinationNames.getOrNull(menu.state.destinationIndex), friend.name, "the friend's mailbox is offered")
+        menu.handleAction(io.github.veelume.postroad.menu.DepotMenu.ACTION_SEND, 0)
+
+        helper.assertTrue(network.mailboxStorage(mine).getItem(0).isEmpty, "the logs left the mailbox")
+        helper.assertValueEqual(network.mailboxStorage(friend.id).countItem(Items.OAK_LOG), 12, "and arrived in the friend's (stackables at once)")
+        network.removeMailbox(friend.id)
+        network.removeMailbox(mine)
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun survey_pays_for_road_nobody_charted(helper: GameTestHelper) {
         val network = Network.get(helper.level.server)
         val player = helper.makeMockServerPlayerInLevel()
@@ -578,7 +613,7 @@ class PostroadGameTests {
         val paved = fares.fare(1000.0, io.github.veelume.postroad.roads.Tier.PAVED)
         helper.assertTrue(paved < dirt, "paved is cheaper than dirt for the same distance")
 
-        // The journey: fare charged, player moved, inventory along.
+        // The journey: the free one first (player moved, inventory along), then one that pays its fare.
         val depotPos = BlockPos(3, 1, 3)
         helper.setBlock(depotPos, PostroadBlocks.DEPOT.get())
         helper.runAfterDelay(5) {
@@ -594,12 +629,22 @@ class PostroadGameTests {
             network.credit(account, 100, today, "test", LedgerEntry.OP_GRANT, "test")
             val before = network.balance(account)
             val expectedFare = fares.fare(1000.0, io.github.veelume.postroad.roads.Tier.PAVED)
+            val travel = io.github.veelume.postroad.travel.TravelService
+            network.setFreeJourneyAt(player.gameProfile.name, 0L)
+            val now = travel.now(helper.level.server)
 
-            helper.assertTrue(io.github.veelume.postroad.travel.TravelService.depart(player, a.id, town.id), "journey accepted")
+            helper.assertTrue(travel.depart(player, a.id, town.id), "journey accepted")
             helper.assertTrue(Looted.isLooted(player.inventory.getItem(0)), "loot travels with the player")
             helper.assertValueEqual(player.inventory.getItem(1).count, 3, "bread stays")
-            helper.assertValueEqual(network.balance(account), before - expectedFare, "fare charged")
+            helper.assertValueEqual(network.balance(account), before, "the free journey costs nothing")
+            helper.assertTrue(network.freeJourneyAt(player.gameProfile.name) >= now + fares.cooldown(1000.0), "and starts the cooldown")
             helper.assertTrue(player.blockPosition().distSqr(helper.absolutePos(depotPos)) < 25.0, "player arrived next to the depot")
+
+            val readyAt = network.freeJourneyAt(player.gameProfile.name)
+            helper.assertTrue(travel.depart(player, town.id, a.id), "journey back accepted")
+            helper.assertValueEqual(network.balance(account), before - expectedFare, "during the cooldown the fare is charged")
+            helper.assertValueEqual(network.freeJourneyAt(player.gameProfile.name), readyAt, "a paid journey leaves the cooldown as it was")
+            network.setFreeJourneyAt(player.gameProfile.name, 0L)
             helper.succeed()
         }
     }
