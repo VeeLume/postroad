@@ -175,30 +175,60 @@ object Charting {
         return path
     }
 
-    /** Road a walk charted for the first time: its length, and the points that bound it (to record as paid). */
+    /** Road a walk charted for the first time: its length, and points along it at most a survey cell apart (to record as paid). */
     data class Survey(val dimension: net.minecraft.resources.ResourceLocation, val blocks: Double, val points: List<BlockPos>)
 
     /**
      * What of [points] between [from] and [to] nobody has charted yet: segments between two consecutive
      * points that are both road ([isRoad]), both farther than joinDistance from every charted path, and
      * both outside what the network has already paid for (a road removed and charted again stays paid).
-     * Called before the walk's own path is charted, so it never counts itself.
+     * A segment next to one this walk counted more than [REVISIT] blocks earlier is the walk coming back
+     * along its own road, and is not counted twice. Called before the walk's own path is charted.
      */
     fun newRoad(network: Network, dimension: net.minecraft.resources.ResourceLocation, points: List<BlockPos>, from: Int, to: Int, isRoad: (Int) -> Boolean): Survey {
         val reach = PostroadConfig.joinDistance
+        val cell = Network.SURVEY_CELL
         val charted = network.paths.values.filter { it.charted && it.dimension == dimension }
         val fresh = BooleanArray(points.size) { i ->
             i in from..to && isRoad(i) && !network.isSurveyed(dimension, points[i]) &&
                 charted.none { other -> other.nearestIndex(points[i])?.let { it.second <= reach } == true }
         }
+        // Cell of the walk → how far along the walk it was first counted.
+        val countedAt = it.unimi.dsi.fastutil.longs.Long2DoubleOpenHashMap()
+        fun key(x: Double, z: Double) = net.minecraft.world.level.ChunkPos.asLong(Math.floorDiv(x.toInt(), cell), Math.floorDiv(z.toInt(), cell))
         var total = 0.0
-        val counted = LinkedHashSet<BlockPos>()
-        for (i in from until to) if (fresh[i] && fresh[i + 1]) {
-            total += RoadPath.distance(points[i], points[i + 1])
-            counted.add(points[i]); counted.add(points[i + 1])
+        var along = 0.0
+        val record = ArrayList<BlockPos>()
+        for (i in from until to) {
+            val a = points[i]; val b = points[i + 1]
+            val length = RoadPath.distance(a, b)
+            if (fresh[i] && fresh[i + 1]) {
+                val mx = (a.x + b.x) / 2.0; val mz = (a.z + b.z) / 2.0
+                val cx = Math.floorDiv(mx.toInt(), cell); val cz = Math.floorDiv(mz.toInt(), cell)
+                var revisit = false
+                for (dx in -1..1) for (dz in -1..1) {
+                    val k = net.minecraft.world.level.ChunkPos.asLong(cx + dx, cz + dz)
+                    if (countedAt.containsKey(k) && countedAt.get(k) < along - REVISIT) revisit = true
+                }
+                if (!revisit) {
+                    total += length
+                    val steps = (length / cell).toInt() + 1
+                    for (s in 0..steps) {
+                        val t = s.toDouble() / steps
+                        val x = a.x + (b.x - a.x) * t; val z = a.z + (b.z - a.z) * t
+                        val k = key(x, z)
+                        if (!countedAt.containsKey(k)) countedAt.put(k, along + length * t)
+                        record.add(BlockPos.containing(x, a.y + (b.y - a.y) * t, z))
+                    }
+                }
+            }
+            along += length
         }
-        return Survey(dimension, total, counted.toList())
+        return Survey(dimension, total, record)
     }
+
+    /** Blocks of a walk after which coming back next to its own counted road is a revisit, not progress. */
+    private const val REVISIT = 4.0 * Network.SURVEY_CELL
 
     /**
      * The network pays the surveyor: a coin per `surveyBlocksPerCoin` blocks of new road (what falls short

@@ -512,6 +512,9 @@ class PostroadGameTests {
         val walk = (0..10).map { helper.absolutePos(BlockPos(x0 + it * 30, 200, 7000)) }
         helper.assertValueEqual(charting.newRoad(network, dim, walk, 0, 10) { true }.blocks.toInt(), 300, "all of it is new")
         helper.assertValueEqual(charting.newRoad(network, dim, walk, 0, 10) { it != 5 }.blocks.toInt(), 240, "a sample off the road breaks both its segments")
+        val outAndBack = walk + walk.reversed().drop(1)
+        val twice = charting.newRoad(network, dim, outAndBack, 0, outAndBack.size - 1) { true }.blocks.toInt()
+        helper.assertTrue(twice in 300..330, "walking back along the same road is not paid again (got $twice)")
 
         val old = io.github.veelume.postroad.roads.RoadPath("test-survey-" + java.util.UUID.randomUUID().toString().take(6), dim,
             walk.subList(0, 6).toMutableList(), MutableList(6) { io.github.veelume.postroad.roads.Tier.DIRT }, "tester", 0)
