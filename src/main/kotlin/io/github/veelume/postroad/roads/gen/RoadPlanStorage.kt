@@ -143,6 +143,7 @@ class PlannedRoad(
         tag.putInt("WorksMaterial", worksMaterial)
         tag.putLongArray("UpgradeChunks", upgradeChunks.toLongArray())
         tag.putLongArray("Cleared", clearedChunks.toLongArray())
+        tag.putInt("ClearedVersion", RoadClearing.VERSION)
         tag.putInt("EndsDone", endsDone)
         tag.putLongArray("EndPosts", endPosts.flatMap { (bit, pos) -> listOf(bit.toLong(), pos.asLong()) }.toLongArray())
         return tag
@@ -165,7 +166,8 @@ class PlannedRoad(
             road.worksCoins = tag.getLong("WorksCoins")
             road.worksMaterial = tag.getInt("WorksMaterial")
             for (c in tag.getLongArray("UpgradeChunks")) road.upgradeChunks.add(c)
-            for (c in tag.getLongArray("Cleared")) road.clearedChunks.add(c)
+            // Cleared under older rules: every chunk gets another look under these.
+            if (tag.getInt("ClearedVersion") == RoadClearing.VERSION) for (c in tag.getLongArray("Cleared")) road.clearedChunks.add(c)
             road.endsDone = tag.getInt("EndsDone")
             tag.getLongArray("EndPosts").toList().chunked(2).forEach { if (it.size == 2) road.endPosts[it[0].toInt()] = BlockPos.of(it[1]) }
             return road

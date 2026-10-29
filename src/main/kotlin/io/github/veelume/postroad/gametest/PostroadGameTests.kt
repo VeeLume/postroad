@@ -1185,6 +1185,9 @@ class PostroadGameTests {
         // Leaves hanging into the road from somewhere else, and a log with no leaves: a building.
         helper.setBlock(BlockPos(4, F + 2, 2), leaves)
         helper.setBlock(BlockPos(6, F + 1, 3), Blocks.OAK_LOG)
+        // A tree right beside the road (three off its line), crown over it.
+        for (y in F + 1..F + 3) helper.setBlock(BlockPos(1, y, 6), Blocks.BIRCH_LOG)
+        helper.setBlock(BlockPos(1, F + 4, 6), Blocks.BIRCH_LEAVES.defaultBlockState().setValue(net.minecraft.world.level.block.LeavesBlock.PERSISTENT, false))
         val road = io.github.veelume.postroad.roads.gen.PlannedRoad("test/clear/" + java.util.UUID.randomUUID().toString().take(6),
             helper.level.dimension().location(), "test/a", "test/b", points.map { helper.absolutePos(it) }, ByteArray(points.size))
         var found = false
@@ -1193,6 +1196,7 @@ class PostroadGameTests {
         for (y in F + 1..F + 4) helper.assertValueEqual(blockAt(helper, 2, y, 3), Blocks.AIR, "the trunk is gone at y $y")
         helper.assertValueEqual(blockAt(helper, 4, F + 2, 2), Blocks.AIR, "hanging leaves gone")
         helper.assertValueEqual(blockAt(helper, 6, F + 1, 3), Blocks.OAK_LOG, "the building's log stays")
+        for (y in F + 1..F + 3) helper.assertValueEqual(blockAt(helper, 1, y, 6), Blocks.AIR, "the tree beside the road is felled at y $y")
         helper.succeed()
     }
 
