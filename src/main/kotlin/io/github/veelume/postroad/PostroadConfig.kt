@@ -43,7 +43,8 @@ object PostroadConfig {
         "biomeswevegone:village/swamp/houses",
     )
 
-    private val SETTLE_DAYS: ModConfigSpec.IntValue
+    private val SALVAGE_LOOTED_DEFAULT: ModConfigSpec.IntValue
+    private val SALVAGE_ENCHANTED_BONUS: ModConfigSpec.IntValue
     private val LEDGER_MAX_ENTRIES: ModConfigSpec.IntValue
     private const val DEFAULT_POOL_PATTERN = "^[a-z0-9_.-]+:village/(?!.*(wandering_trader|lighthouse))[a-z0-9_/]+/houses?$"
 
@@ -59,6 +60,8 @@ object PostroadConfig {
     private val BUFF_REACH: ModConfigSpec.IntValue
     private val CHART_MAX_LENGTH: ModConfigSpec.IntValue
     private val JOIN_DISTANCE: ModConfigSpec.IntValue
+    private val SURVEY_BLOCKS_PER_COIN: ModConfigSpec.IntValue
+    private val SURVEY_TOWN_BONUS: ModConfigSpec.IntValue
     private val FREE_DISTANCE: ModConfigSpec.IntValue
     private val BLOCKS_PER_COIN: ModConfigSpec.IntValue
     private val TIER_FACTOR_DIRT: ModConfigSpec.IntValue
@@ -92,10 +95,13 @@ object PostroadConfig {
     val SPEC: ModConfigSpec
 
     init {
-        BUILDER.push("freshLoot")
-        SETTLE_DAYS = BUILDER
-            .comment("In-game days after which loot taken from containers or mobs stops counting as fresh.")
-            .defineInRange("settleDays", 3, 0, 1000)
+        BUILDER.push("salvage")
+        SALVAGE_LOOTED_DEFAULT = BUILDER
+            .comment("Coins for a piece of looted gear whose material has no salvage_material rate. 0 leaves such gear unsold.")
+            .defineInRange("lootedDefault", 1, 0, 1000)
+        SALVAGE_ENCHANTED_BONUS = BUILDER
+            .comment("Coins added for looted gear that is enchanted.")
+            .defineInRange("enchantedBonus", 1, 0, 1000)
         BUILDER.pop()
 
         BUILDER.push("ledger")
@@ -142,6 +148,8 @@ object PostroadConfig {
         BUILDER.push("chart")
         CHART_MAX_LENGTH = BUILDER.comment("A charting walk longer than this many blocks is abandoned.").defineInRange("maxLength", 4000, 100, 100000)
         JOIN_DISTANCE = BUILDER.comment("Blocks within which a walk's end attaches to an existing path, and a depot or sign attaches to a path.").defineInRange("joinDistance", 8, 1, 64)
+        SURVEY_BLOCKS_PER_COIN = BUILDER.comment("Blocks of road charted for the first time per coin paid to whoever charts it. 0 pays nothing.").defineInRange("surveyBlocksPerCoin", 150, 0, 100000)
+        SURVEY_TOWN_BONUS = BUILDER.comment("Coins for each town a charted road connects to the travel network for the first time.").defineInRange("surveyTownBonus", 2, 0, 1000)
         BUILDER.pop()
 
         BUILDER.push("travel")
@@ -196,7 +204,8 @@ object PostroadConfig {
         SPEC = BUILDER.build()
     }
 
-    val settleDays: Int get() = SETTLE_DAYS.get()
+    val salvageLootedDefault: Long get() = SALVAGE_LOOTED_DEFAULT.get().toLong()
+    val salvageEnchantedBonus: Long get() = SALVAGE_ENCHANTED_BONUS.get().toLong()
     val ledgerMaxEntries: Int get() = LEDGER_MAX_ENTRIES.get()
     val courierPostShare: Int get() = COURIER_POST_SHARE.get()
     val poolPattern: String get() = POOL_PATTERN.get()
@@ -211,6 +220,8 @@ object PostroadConfig {
     val buffReach: Int get() = BUFF_REACH.get()
     val chartMaxLength: Int get() = CHART_MAX_LENGTH.get()
     val joinDistance: Double get() = JOIN_DISTANCE.get().toDouble()
+    val surveyBlocksPerCoin: Int get() = SURVEY_BLOCKS_PER_COIN.get()
+    val surveyTownBonus: Long get() = SURVEY_TOWN_BONUS.get().toLong()
     val freeDistance: Double get() = FREE_DISTANCE.get().toDouble()
     val blocksPerCoin: Double get() = BLOCKS_PER_COIN.get().toDouble()
     val tierFactorDirt: Double get() = TIER_FACTOR_DIRT.get() / 100.0

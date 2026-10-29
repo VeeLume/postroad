@@ -2,7 +2,7 @@ package io.github.veelume.postroad.mailbox
 
 import com.mojang.serialization.MapCodec
 import io.github.veelume.postroad.advancement.PostroadAdvancements
-import io.github.veelume.postroad.loot.FreshLoot
+import io.github.veelume.postroad.network.GameDay
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.network.PlaceResolver
 import net.minecraft.core.BlockPos
@@ -89,7 +89,7 @@ class MailboxBlock(properties: Properties) : HorizontalDirectionalBlock(properti
         val container = network.mailboxStorage(placeId)
         val name = network.places[placeId]?.name ?: "Mailbox"
         val incoming = network.parcelsTo(placeId)
-        val today = FreshLoot.dayOf(serverLevel)
+        val today = GameDay.of(serverLevel)
         for (parcel in incoming) {
             val from = network.places[parcel.from]?.name ?: parcel.from
             val key = if (parcel.isDue(today)) "jade.postroad.mailbox.held" else "jade.postroad.mailbox.transit"

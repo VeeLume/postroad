@@ -21,18 +21,25 @@ live in `docs/` (one per increment). This file is about the code.
 - `registry/Registries.kt` — every DeferredRegister (blocks, items, block entities, data
   components, creative tab, data maps, loot-modifier codecs).
 - `network/` — `Network` (the single SavedData: places, depots, storage, accounts, ledger),
-  `Place`/`LedgerEntry`, `PlaceResolver` (depot position → place).
+  `Place`/`LedgerEntry`, `PlaceResolver` (depot position → place), `GameDay` (the world clock in days).
 - `names/` — culture data (`data/postroad/cultures/*.json`) and the deterministic name generator.
 - `depot/` — depot block, block entity (holds only its place id), and `DepotInteraction`
   (all click behaviour, server side).
-- `loot/` — fresh-loot data component, the global loot modifier that stamps it (unstackables and
-  buyback stackables only), `FreshLootSettling` (takes settled/unwanted stamps off), client tooltip.
+- `loot/` — the `Looted` mark (unstackable container loot; undated, never removed) and `LootedModifier`, the global
+  loot modifier that sets it (block and mob drops and `gameplay/`, `equipment/`, `spawners/` tables excluded: farmable).
+  `FreshLoot` is the stamp up to 0.2.6, still registered because old items carry it (an unknown component fails to
+  load); `FreshLootMigration` turns it into the mark wherever a player meets it.
+- `salvage/` — `Salvage` (the one price rule: `postroad:salvage` rates, looted gear by its repair material through
+  `postroad:salvage_material`, an enchanted bonus; never resources), `SatchelItem`/`SatchelMenu` (a one-row scratch
+  grid sold by vanilla's container-button packet and handed back on close; coins in it are paid in), `SalvageTooltip`
+  (client). The depot's sell path uses the same rule.
 - `worldgen/CourierPostInjector` — appends the courier post to village house pools at server start.
 - `roads/` — `Tier`, `RoadRules` (data file `data/postroad/roads/rules.json`, reload listener), `RoadClassifier`
   (ground sampling + walk verdict), `RoadBuff` (movement-speed modifier every 10 ticks, player and mount; only within `roads.buffReach` of a `Network`
   path, looked up through `Network.nearRoad`'s per-chunk index; the ground decides the tier).
   `RoadPath`/`PathLink`/`RoadNode` (the travel graph, stored on `Network`), `Charting` (per-player
-  sessions, sampling + particles, record/link/attach), `ChartingMapItem` + payloads + `ChartingClient`
+  sessions, sampling + particles, record/link/attach; road no charted path covers yet is paid to the walker,
+  `chart.surveyBlocksPerCoin` plus `surveyTownBonus` per town brought on), `ChartingMapItem` + payloads + `ChartingClient`
   (client-side state holder with no client imports; `ClientSetup` plugs the screen opener in).
 - `roads/gen/` — generated roads. `Terrain` (cells of 3 blocks = the piece grid; coarse map 12: height, flags, biome family) with two forms:
   `TerrainGrid` (dense, tests) and `TiledTerrain` (lazy tiles from a `TileSampler`, BLOCKED/ROAD in an overlay).
@@ -116,14 +123,14 @@ live in `docs/` (one per increment). This file is about the code.
   from/to — roads end at street exits, not the depot) and every node, link end and charted path in its
   `TownArea` (village box + 16, else 48 around the depot; `TravelService.townAnchors`). Several roads end on one
   street-exit block and a walk or sign links to whichever comes first, so an uncharted one there must not cut it off.
-- `travel/` — `Fares`, `TravelService` (open list, depart: fare, fresh-loot mailing, teleport), `SignNodes`
+- `travel/` — `Fares`, `TravelService` (open list, depart: fare, teleport — the inventory travels along), `SignNodes`
   (map-on-sign links/unlinks, right-click on a linked sign opens travel, sneak + right-click reaches the editor,
   dye/ink/wax still apply, breaking drops the node; block tag `#postroad:sign_nodes`), payloads + `TravelClient`.
 - `mailbox/` — the player's mailbox block; contents are in `Network`, the block entity only holds its place id.
 - `mail/MailService` — parcels: lane split, arrival days, delivery on day change; `network/Parcel`.
 - `menu/` — `DepotMenu` (one 54-slot grid, backing container swapped per tab; ints via data
   slots, names via `DepotStatePayload`), `DepotState` + the two payloads, `PostroadNetworking`.
-- `client/` — `DepotScreen`, `ClientSetup`. Only referenced from the `Dist.CLIENT` branch in `Postroad`.
+- `client/` — `DepotScreen`, `SatchelScreen` (a one-row chest, the sell button on the inventory label's line), `ClientSetup`. Only referenced from the `Dist.CLIENT` branch in `Postroad`.
   `DepotScreen`'s body is the vanilla 6-row chest to the pixel (176×222, so it fits at every GUI
   scale); the depot's controls sit in a panel attached to its right, outside the rectangle a recipe
   viewer can see — hence `columnArea()`, the `hasClickedOutside` override (a click on the column

@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": {
+    "minecraft:iron_ingot": 1,
+    "minecraft:gold_ingot": 1,
+    "minecraft:diamond": 3,
+    "minecraft:netherite_ingot": 6
+  }
+}

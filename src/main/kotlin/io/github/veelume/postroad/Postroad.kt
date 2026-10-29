@@ -4,7 +4,7 @@ import io.github.veelume.postroad.command.PostroadCommands
 import io.github.veelume.postroad.depot.DepotEvents
 import io.github.veelume.postroad.client.ClientSetup
 import io.github.veelume.postroad.menu.PostroadNetworking
-import io.github.veelume.postroad.loot.FreshLootSettling
+import io.github.veelume.postroad.loot.FreshLootMigration
 import io.github.veelume.postroad.mail.MailService
 import io.github.veelume.postroad.names.CultureRegistry
 import io.github.veelume.postroad.roads.Charting
@@ -79,9 +79,9 @@ object Postroad {
         FORGE_BUS.addListener(AddReloadListenerEvent::class.java, Consumer { it.addListener(CultureRegistry); it.addListener(RoadRules); it.addListener(PlannerRules); it.addListener(RoadStyles); it.addListener(io.github.veelume.postroad.roads.gen.RoadPieces) })
         FORGE_BUS.addListener(PlayerTickEvent.Post::class.java, Consumer(RoadBuff::onPlayerTick))
         FORGE_BUS.addListener(PlayerTickEvent.Post::class.java, Consumer(Charting::onPlayerTick))
-        FORGE_BUS.addListener(PlayerTickEvent.Post::class.java, Consumer(FreshLootSettling::onPlayerTick))
-        FORGE_BUS.addListener(PlayerContainerEvent.Open::class.java, Consumer(FreshLootSettling::onContainerOpen))
-        FORGE_BUS.addListener(EntityJoinLevelEvent::class.java, Consumer(FreshLootSettling::onEntityJoin))
+        FORGE_BUS.addListener(PlayerTickEvent.Post::class.java, Consumer(FreshLootMigration::onPlayerTick))
+        FORGE_BUS.addListener(PlayerContainerEvent.Open::class.java, Consumer(FreshLootMigration::onContainerOpen))
+        FORGE_BUS.addListener(EntityJoinLevelEvent::class.java, Consumer(FreshLootMigration::onEntityJoin))
         FORGE_BUS.addListener(LivingDeathEvent::class.java, Consumer(Charting::onDeath))
         FORGE_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent::class.java, Consumer(Charting::onLogout))
         FORGE_BUS.addListener(PlayerEvent.PlayerChangedDimensionEvent::class.java, Consumer(Charting::onChangedDimension))

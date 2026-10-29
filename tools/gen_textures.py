@@ -109,9 +109,21 @@ def charting_map():
     im.save(ROOT / "item/charting_map.png")
 
 
+def satchel():
+    im = img()
+    d = ImageDraw.Draw(im)
+    # strap, then a leather bag with a flap and a brass buckle
+    d.arc((3, 0, 12, 9), 180, 360, fill=(92, 58, 30, 255))
+    d.rectangle((2, 5, 13, 14), fill=(150, 96, 52, 255), outline=(92, 58, 30, 255))
+    d.rectangle((2, 5, 13, 8), fill=(122, 76, 40, 255), outline=(92, 58, 30, 255))
+    d.rectangle((7, 8, 8, 10), fill=(214, 168, 52, 255))
+    im.save(ROOT / "item/satchel.png")
+
+
 coin()
 charter()
 charting_map()
+satchel()
 mailbox_side()
 mailbox_top()
 mailbox_front()

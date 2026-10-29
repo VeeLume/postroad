@@ -2,8 +2,8 @@ package io.github.veelume.postroad.mail
 
 import io.github.veelume.postroad.Postroad
 import io.github.veelume.postroad.PostroadConfig
-import io.github.veelume.postroad.loot.FreshLoot
-import io.github.veelume.postroad.loot.FreshLootSettling
+import io.github.veelume.postroad.loot.FreshLootMigration
+import io.github.veelume.postroad.network.GameDay
 import io.github.veelume.postroad.network.LedgerEntry
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.network.Parcel
@@ -51,7 +51,7 @@ object MailService {
         val network = Network.get(server)
         require(network.postalUnlocked) { "postal network not unlocked" }
         require(network.isDestination(toPlace)) { "not a destination" }
-        val today = FreshLoot.dayOf(server.overworld())
+        val today = GameDay.of(server.overworld())
         val bulk = outbox.filter { !it.isEmpty && it.isStackable }.map { it.copy() }
         val valuables = outbox.filter { !it.isEmpty && !it.isStackable }.map { it.copy() }
         val created = ArrayList<Parcel>(2)
@@ -125,8 +125,8 @@ object MailService {
 
     fun onServerStarted(event: ServerStartedEvent) {
         val server = event.server
-        val today = FreshLoot.dayOf(server.overworld())
-        FreshLootSettling.settleNetwork(server, today)
+        val today = GameDay.of(server.overworld())
+        FreshLootMigration.migrateNetwork(server)
         deliverDue(server, today)
         Network.get(server).lastDeliveryDay = today
     }
@@ -134,10 +134,9 @@ object MailService {
     fun onServerTick(event: ServerTickEvent.Post) {
         val server = event.server
         if (server.tickCount % 20 != 0) return
-        val today = FreshLoot.dayOf(server.overworld())
+        val today = GameDay.of(server.overworld())
         val network = Network.get(server)
         if (network.lastDeliveryDay == today) return
-        FreshLootSettling.settleNetwork(server, today)
         deliverDue(server, today)
         network.lastDeliveryDay = today
     }

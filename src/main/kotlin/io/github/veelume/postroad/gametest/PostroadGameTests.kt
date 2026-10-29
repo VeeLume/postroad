@@ -3,8 +3,10 @@ package io.github.veelume.postroad.gametest
 import io.github.veelume.postroad.Postroad
 import io.github.veelume.postroad.depot.DepotBlockEntity
 import io.github.veelume.postroad.loot.FreshLoot
-import io.github.veelume.postroad.loot.FreshLootSettling
+import io.github.veelume.postroad.loot.FreshLootMigration
+import io.github.veelume.postroad.loot.Looted
 import io.github.veelume.postroad.mail.MailService
+import io.github.veelume.postroad.network.GameDay
 import io.github.veelume.postroad.network.Parcel
 import io.github.veelume.postroad.names.Culture
 import io.github.veelume.postroad.names.NameGenerator
@@ -12,7 +14,10 @@ import io.github.veelume.postroad.network.LedgerEntry
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.network.Place
 import io.github.veelume.postroad.registry.PostroadBlocks
+import io.github.veelume.postroad.registry.PostroadComponents
 import io.github.veelume.postroad.registry.PostroadItems
+import io.github.veelume.postroad.salvage.Salvage
+import io.github.veelume.postroad.salvage.SatchelMenu
 import net.minecraft.core.BlockPos
 import net.minecraft.gametest.framework.GameTest
 import net.minecraft.gametest.framework.GameTestHelper
@@ -78,100 +83,128 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
-    fun buyback_accepts_fresh_loot_only(helper: GameTestHelper) {
+    fun salvage_buys_looted_gear_and_treasure_only(helper: GameTestHelper) {
+        fun looted(stack: ItemStack) = stack.also { Looted.mark(it) }
+        val cfg = io.github.veelume.postroad.PostroadConfig
+        helper.assertTrue(Salvage.quote(ItemStack(Items.DIAMOND_SWORD)) == null, "crafted gear is not bought")
+        helper.assertValueEqual(Salvage.quote(looted(ItemStack(Items.DIAMOND_SWORD))), 3L, "looted diamond gear by its material")
+        helper.assertValueEqual(Salvage.quote(looted(ItemStack(Items.IRON_CHESTPLATE))), 1L, "looted iron armour by its material")
+        helper.assertValueEqual(Salvage.quote(looted(ItemStack(Items.BOW))), cfg.salvageLootedDefault, "looted gear without a material rate")
+        val sharpness = helper.level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT)
+            .getHolderOrThrow(net.minecraft.world.item.enchantment.Enchantments.SHARPNESS)
+        val enchanted = looted(ItemStack(Items.IRON_SWORD)).also { it.enchant(sharpness, 1) }
+        helper.assertValueEqual(Salvage.quote(enchanted), 1L + cfg.salvageEnchantedBonus, "enchanted looted gear adds the bonus")
+        helper.assertValueEqual(Salvage.quote(ItemStack(Items.SADDLE)), 3L, "treasure is bought marked or not")
+        helper.assertValueEqual(Salvage.quote(ItemStack(Items.HEART_OF_THE_SEA, 2)), 20L, "a stack is quoted whole")
+        helper.assertTrue(Salvage.quote(ItemStack(Items.ENCHANTED_BOOK)) == null, "a book from the enchanting table is not bought")
+        helper.assertValueEqual(Salvage.quote(looted(ItemStack(Items.ENCHANTED_BOOK))), 3L, "a looted book is")
+        helper.assertTrue(Salvage.quote(ItemStack(Items.DIAMOND, 5)) == null, "resources are never bought")
+        helper.assertTrue(Salvage.quote(ItemStack(PostroadItems.COIN.get(), 5)) == null, "coins are paid in, not sold")
+
+        // The depot buys the same way on a click.
         helper.setBlock(depotPos, PostroadBlocks.DEPOT.get())
         val player = sneakingPlayer(helper)
-        val today = FreshLoot.dayOf(helper.level)
         helper.runAfterDelay(5) {
             val network = Network.get(helper.level.server)
             val account = Network.playerAccount(player.gameProfile.name)
             val before = network.balance(account)
-
-            val stale = ItemStack(Items.EMERALD, 3).also { FreshLoot.stamp(it, FreshLoot.ORIGIN_CONTAINER, today - 100) }
-            player.setItemInHand(InteractionHand.MAIN_HAND, stale)
+            player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack(Items.DIAMOND_SWORD))
             helper.useBlock(depotPos, player)
-            helper.assertValueEqual(network.balance(account), before, "settled loot must not be bought")
-            helper.assertTrue(!player.mainHandItem.isEmpty, "settled loot must not be consumed")
-
-            val unmarked = ItemStack(Items.EMERALD, 3)
-            player.setItemInHand(InteractionHand.MAIN_HAND, unmarked)
+            helper.assertValueEqual(network.balance(account), before, "crafted sword refused")
+            helper.assertTrue(!player.mainHandItem.isEmpty, "refused item kept")
+            player.setItemInHand(InteractionHand.MAIN_HAND, looted(ItemStack(Items.DIAMOND_SWORD)))
             helper.useBlock(depotPos, player)
-            helper.assertValueEqual(network.balance(account), before, "unmarked items must not be bought")
-
-            val fresh = ItemStack(Items.EMERALD, 3).also { FreshLoot.stamp(it, FreshLoot.ORIGIN_CONTAINER, today) }
-            player.setItemInHand(InteractionHand.MAIN_HAND, fresh)
-            helper.useBlock(depotPos, player)
-            helper.assertValueEqual(network.balance(account), before + 24L, "3 fresh emeralds at 8 coins")
-            helper.assertTrue(player.mainHandItem.isEmpty, "fresh loot was not consumed")
-            helper.assertValueEqual(network.ledger.last().op, LedgerEntry.OP_BUYBACK, "ledger op")
+            helper.assertValueEqual(network.balance(account), before + 3L, "looted sword sold")
+            helper.assertTrue(player.mainHandItem.isEmpty, "sold item consumed")
+            helper.assertValueEqual(network.ledger.last().op, LedgerEntry.OP_SALVAGE, "ledger op")
             helper.succeed()
         }
     }
 
     @GameTest(template = ARENA)
-    fun container_loot_is_stamped_fresh(helper: GameTestHelper) {
+    fun satchel_sells_the_row_and_pays_in_coins(helper: GameTestHelper) {
+        val player = helper.makeMockServerPlayerInLevel()
+        val network = Network.get(helper.level.server)
+        val account = Network.playerAccount(player.gameProfile.name)
+        val before = network.balance(account)
+        val menu = SatchelMenu(0, player.inventory)
+        menu.slots[0].set(ItemStack(Items.SADDLE))
+        menu.slots[1].set(ItemStack(PostroadItems.COIN.get(), 4))
+        menu.slots[2].set(ItemStack(Items.COBBLESTONE, 10))
+        menu.slots[3].set(ItemStack(Items.GOLDEN_HELMET).also { Looted.mark(it) })
+        helper.assertValueEqual(menu.total(), 3L + 4L + 1L, "row total: saddle, coins, looted helmet")
+
+        menu.clickMenuButton(player, SatchelMenu.BUTTON_SELL)
+        helper.assertValueEqual(network.balance(account), before + 8L, "wallet credited")
+        helper.assertTrue(menu.slots[0].item.isEmpty && menu.slots[1].item.isEmpty && menu.slots[3].item.isEmpty, "sold and paid-in stacks taken")
+        helper.assertValueEqual(menu.slots[2].item.count, 10, "what it does not buy stays")
+        val ops = network.ledger.takeLast(2).map { it.op }.toSet()
+        helper.assertValueEqual(ops, setOf(LedgerEntry.OP_SALVAGE, LedgerEntry.OP_PAY_IN), "one salvage and one pay-in entry")
+
+        menu.removed(player)
+        helper.assertValueEqual(player.inventory.countItem(Items.COBBLESTONE), 10, "left-overs handed back on close")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun container_loot_marks_unstackables_only(helper: GameTestHelper) {
         val chestPos = BlockPos(1, 1, 1)
         helper.setBlock(chestPos, Blocks.CHEST)
         val chest = helper.getBlockEntity<ChestBlockEntity>(chestPos)
         chest.setLootTable(BuiltInLootTables.SIMPLE_DUNGEON, 42L)
         chest.unpackLootTable(null)
 
-        var wanted = 0
+        var unstackables = 0
         for (slot in 0 until chest.containerSize) {
             val stack = chest.getItem(slot)
             if (stack.isEmpty) continue
-            if (FreshLoot.wanted(stack)) wanted++
-            val fresh = FreshLoot.isFresh(stack, FreshLoot.dayOf(helper.level))
-            helper.assertValueEqual(fresh, FreshLoot.wanted(stack), "stamp on ${stack.itemHolder.registeredName}")
+            if (!stack.isStackable) unstackables++
+            helper.assertValueEqual(Looted.isLooted(stack), !stack.isStackable, "mark on ${stack.itemHolder.registeredName}")
         }
-        helper.assertTrue(wanted > 0, "loot table produced nothing the stamp is for")
+        helper.assertTrue(unstackables > 0, "loot table produced nothing the mark is for")
         helper.succeed()
     }
 
     @GameTest(template = ARENA)
-    fun settling_removes_settled_and_unwanted_stamps(helper: GameTestHelper) {
-        val today = FreshLoot.dayOf(helper.level)
-        fun stamped(item: ItemLike, day: Long) =
-            ItemStack(item, 1).also { FreshLoot.stamp(it, FreshLoot.ORIGIN_CONTAINER, day) }
+    fun old_fresh_loot_stamps_migrate(helper: GameTestHelper) {
+        fun stamped(item: ItemLike, origin: String) =
+            ItemStack(item, 1).also { it.set(PostroadComponents.FRESH_LOOT.get(), FreshLoot(origin, 7)) }
 
-        val fresh = stamped(Items.EMERALD, today)
-        helper.assertTrue(!FreshLoot.settle(fresh, today) && FreshLoot.of(fresh) != null, "fresh buyback loot lost its stamp")
-        val unstackable = stamped(Items.WOODEN_SWORD, today)
-        helper.assertTrue(!FreshLoot.settle(unstackable, today) && FreshLoot.of(unstackable) != null, "fresh unstackable lost its stamp")
-        val settled = stamped(Items.EMERALD, today - 100)
-        helper.assertTrue(FreshLoot.settle(settled, today) && FreshLoot.of(settled) == null, "settled stamp stayed")
-        helper.assertTrue(ItemStack.isSameItemSameComponents(settled, ItemStack(Items.EMERALD)), "settled emerald does not stack with a mined one")
-        val junk = stamped(Items.ROTTEN_FLESH, today)
-        helper.assertTrue(FreshLoot.settle(junk, today) && FreshLoot.of(junk) == null, "stamp on unbought stackable stayed")
+        val gear = stamped(Items.IRON_SWORD, FreshLoot.ORIGIN_CONTAINER)
+        helper.assertTrue(FreshLoot.migrate(gear) && Looted.isLooted(gear) && !gear.has(PostroadComponents.FRESH_LOOT.get()), "container gear became looted")
+        val dropped = stamped(Items.IRON_SWORD, "entity")
+        helper.assertTrue(FreshLoot.migrate(dropped) && !Looted.isLooted(dropped), "a mob drop is not looted")
+        val emerald = stamped(Items.EMERALD, FreshLoot.ORIGIN_CONTAINER)
+        helper.assertTrue(FreshLoot.migrate(emerald) && ItemStack.isSameItemSameComponents(emerald, ItemStack(Items.EMERALD)), "a stackable stacks with a mined one again")
+        helper.assertTrue(!FreshLoot.migrate(ItemStack(Items.EMERALD)), "nothing to migrate")
 
-        // Network storage is settled in place by the day-change pass.
+        // Network storage is migrated in place at server start.
         val network = Network.get(helper.level.server)
-        val placeId = "test/settle"
-        val storage = network.storageFor(placeId)
-        storage.setItem(0, stamped(Items.ROTTEN_FLESH, today))
-        storage.setItem(1, stamped(Items.EMERALD, today))
-        FreshLootSettling.settleNetwork(helper.level.server, today)
-        helper.assertTrue(FreshLoot.of(storage.getItem(0)) == null, "stored junk kept its stamp")
-        helper.assertTrue(FreshLoot.of(storage.getItem(1)) != null, "stored fresh loot lost its stamp")
+        val storage = network.storageFor("test/migrate")
+        storage.setItem(0, stamped(Items.GOLDEN_SWORD, FreshLoot.ORIGIN_CONTAINER))
+        FreshLootMigration.migrateNetwork(helper.level.server)
+        helper.assertTrue(Looted.isLooted(storage.getItem(0)), "stored loot migrated")
         storage.clearContent()
         helper.succeed()
     }
 
     @GameTest(template = ARENA)
-    fun any_container_table_is_stamped_but_block_drops_are_not(helper: GameTestHelper) {
+    fun container_tables_are_marked_but_block_drops_and_gifts_are_not(helper: GameTestHelper) {
         val level = helper.level
         val origin = Vec3.atCenterOf(helper.absolutePos(BlockPos(3, 1, 3)))
         val registries = level.server.reloadableRegistries()
+        val chestParams = LootParams.Builder(level).withParameter(LootContextParams.ORIGIN, origin).create(LootContextParamSets.CHEST)
 
-        // A table whose path is not under chests/ (modded structures look like this). The
-        // armorer's gift is all unstackable, so every item of it is stamped.
-        val gift = registries.getLootTable(BuiltInLootTables.ARMORER_GIFT)
-        val giftParams = LootParams.Builder(level).withParameter(LootContextParams.ORIGIN, origin).create(LootContextParamSets.CHEST)
-        val giftLoot = gift.getRandomItems(giftParams).filter { !it.isEmpty }
+        // A villager's gift is all unstackable, but gameplay/ tables are excluded: they can be had again and again.
+        val giftLoot = registries.getLootTable(BuiltInLootTables.ARMORER_GIFT).getRandomItems(chestParams).filter { !it.isEmpty }
         helper.assertTrue(giftLoot.isNotEmpty(), "gift table produced nothing")
-        helper.assertTrue(giftLoot.all { FreshLoot.of(it) != null }, "container loot without chests/ prefix was not stamped")
+        helper.assertTrue(giftLoot.none { Looted.isLooted(it) }, "a gameplay/ table was marked")
 
-        // A block drop must stay unstamped.
+        val outpost = registries.getLootTable(BuiltInLootTables.PILLAGER_OUTPOST)
+        val gear = (0 until 20).flatMap { outpost.getRandomItems(chestParams) }.filter { !it.isEmpty && !it.isStackable }
+        helper.assertTrue(gear.isNotEmpty(), "outpost tables produced no unstackable in 20 rolls")
+        helper.assertTrue(gear.all { Looted.isLooted(it) }, "container loot was not marked")
+
         val stone = registries.getLootTable(Blocks.STONE.lootTable)
         val blockParams = LootParams.Builder(level)
             .withParameter(LootContextParams.ORIGIN, origin)
@@ -180,7 +213,7 @@ class PostroadGameTests {
             .create(LootContextParamSets.BLOCK)
         val drops = stone.getRandomItems(blockParams).filter { !it.isEmpty }
         helper.assertTrue(drops.isNotEmpty(), "stone dropped nothing")
-        helper.assertTrue(drops.none { FreshLoot.of(it) != null }, "block drop was stamped as loot")
+        helper.assertTrue(drops.none { Looted.isLooted(it) }, "block drop was marked")
         helper.succeed()
     }
 
@@ -238,7 +271,7 @@ class PostroadGameTests {
             val server = helper.level.server
             val network = Network.get(server)
             network.postalUnlocked = true
-            val today = FreshLoot.dayOf(helper.level)
+            val today = GameDay.of(helper.level)
             val sender = "mail-test-sender-" + java.util.UUID.randomUUID().toString().take(8)
             val outbox = listOf(ItemStack(Items.COBBLESTONE, 40), ItemStack(Items.IRON_SWORD))
 
@@ -275,7 +308,7 @@ class PostroadGameTests {
             helper.assertValueEqual(held.size, 1, "parcel held while the destination storage is full")
 
             storage.setItem(0, ItemStack.EMPTY)
-            MailService.deliverDue(server, FreshLoot.dayOf(helper.level))
+            MailService.deliverDue(server, GameDay.of(helper.level))
             helper.assertValueEqual(storage.countItem(Items.COBBLESTONE), 5, "delivered after space freed")
             helper.assertTrue(network.parcelsFor(sender).isEmpty(), "held parcel cleared")
             helper.succeed()
@@ -468,6 +501,34 @@ class PostroadGameTests {
     }
 
     @GameTest(template = ARENA)
+    fun survey_pays_for_road_nobody_charted(helper: GameTestHelper) {
+        val network = Network.get(helper.level.server)
+        val player = helper.makeMockServerPlayerInLevel()
+        val dim = helper.level.dimension().location()
+        val charting = io.github.veelume.postroad.roads.Charting
+        // Out of every other test's way: high up and far south.
+        val walk = (0..10).map { helper.absolutePos(BlockPos(it * 30, 200, 7000)) }
+        helper.assertValueEqual(charting.newRoadLength(network, dim, walk, 0, 10) { true }.toInt(), 300, "all of it is new")
+        helper.assertValueEqual(charting.newRoadLength(network, dim, walk, 0, 10) { it != 5 }.toInt(), 240, "a sample off the road breaks both its segments")
+
+        val old = io.github.veelume.postroad.roads.RoadPath("test-survey-" + java.util.UUID.randomUUID().toString().take(6), dim,
+            walk.subList(0, 6).toMutableList(), MutableList(6) { io.github.veelume.postroad.roads.Tier.DIRT }, "tester", 0)
+        network.addPath(old)
+        helper.assertValueEqual(charting.newRoadLength(network, dim, walk, 0, 10) { true }.toInt(), 120, "the charted half is not paid again")
+        old.charted = false
+        helper.assertValueEqual(charting.newRoadLength(network, dim, walk, 0, 10) { true }.toInt(), 300, "an uncharted road does not count as charted")
+        network.removePath(old.id)
+
+        val account = Network.playerAccount(player.gameProfile.name)
+        val before = network.balance(account)
+        val cfg = io.github.veelume.postroad.PostroadConfig
+        charting.paySurvey(player, network, 0, cfg.surveyBlocksPerCoin * 2.0, 1)
+        helper.assertValueEqual(network.balance(account), before + 2 + cfg.surveyTownBonus, "two coins of road and one town")
+        helper.assertValueEqual(network.ledger.last().op, LedgerEntry.OP_SURVEY, "ledger op")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
     fun routing_fares_and_journey(helper: GameTestHelper) {
         val network = Network.get(helper.level.server)
         val player = helper.makeMockServerPlayerInLevel()
@@ -499,8 +560,7 @@ class PostroadGameTests {
         val paved = fares.fare(1000.0, io.github.veelume.postroad.roads.Tier.PAVED)
         helper.assertTrue(paved < dirt, "paved is cheaper than dirt for the same distance")
 
-        // The journey: fresh loot is mailed, fare charged, player moved.
-        network.postalUnlocked = true
+        // The journey: fare charged, player moved, inventory along.
         val depotPos = BlockPos(3, 1, 3)
         helper.setBlock(depotPos, PostroadBlocks.DEPOT.get())
         helper.runAfterDelay(5) {
@@ -509,20 +569,18 @@ class PostroadGameTests {
             network.nodes[town.id] = town
             val start = pA.points[0]
             player.setPos(start.x + 0.5, start.y.toDouble(), start.z + 0.5)
-            val today = FreshLoot.dayOf(helper.level)
-            val fresh = ItemStack(Items.EMERALD, 5).also { FreshLoot.stamp(it, FreshLoot.ORIGIN_CONTAINER, today) }
-            player.inventory.setItem(0, fresh)
+            val today = GameDay.of(helper.level)
+            player.inventory.setItem(0, ItemStack(Items.IRON_SWORD).also { Looted.mark(it) })
             player.inventory.setItem(1, ItemStack(Items.BREAD, 3))
             val account = Network.playerAccount(player.gameProfile.name)
             network.credit(account, 100, today, "test", LedgerEntry.OP_GRANT, "test")
             val before = network.balance(account)
             val expectedFare = fares.fare(1000.0, io.github.veelume.postroad.roads.Tier.PAVED)
 
-            helper.assertTrue(io.github.veelume.postroad.travel.TravelService.depart(player, a.id, town.id, false), "journey accepted")
-            helper.assertTrue(player.inventory.getItem(0).isEmpty, "fresh loot left the inventory")
+            helper.assertTrue(io.github.veelume.postroad.travel.TravelService.depart(player, a.id, town.id), "journey accepted")
+            helper.assertTrue(Looted.isLooted(player.inventory.getItem(0)), "loot travels with the player")
             helper.assertValueEqual(player.inventory.getItem(1).count, 3, "bread stays")
             helper.assertValueEqual(network.balance(account), before - expectedFare, "fare charged")
-            helper.assertValueEqual(network.storageFor(placeId).countItem(Items.EMERALD), 5, "loot mailed to the town (instant: stackable)")
             helper.assertTrue(player.blockPosition().distSqr(helper.absolutePos(depotPos)) < 25.0, "player arrived next to the depot")
             helper.succeed()
         }

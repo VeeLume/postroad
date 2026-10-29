@@ -40,14 +40,14 @@ data class TravelStatePayload(val state: TravelState) : CustomPacketPayload {
 }
 
 /** Client → server: go. */
-data class TravelActionPayload(val fromNodeId: String, val toNodeId: String, val express: Boolean) : CustomPacketPayload {
+data class TravelActionPayload(val fromNodeId: String, val toNodeId: String) : CustomPacketPayload {
     override fun type(): CustomPacketPayload.Type<TravelActionPayload> = TYPE
 
     companion object {
         val TYPE: CustomPacketPayload.Type<TravelActionPayload> = CustomPacketPayload.Type(Postroad.id("travel_action"))
         val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, TravelActionPayload> = StreamCodec.of(
-            { buf, p -> buf.writeUtf(p.fromNodeId); buf.writeUtf(p.toNodeId); buf.writeBoolean(p.express) },
-            { buf -> TravelActionPayload(buf.readUtf(), buf.readUtf(), buf.readBoolean()) },
+            { buf, p -> buf.writeUtf(p.fromNodeId); buf.writeUtf(p.toNodeId) },
+            { buf -> TravelActionPayload(buf.readUtf(), buf.readUtf()) },
         )
     }
 }
@@ -80,7 +80,7 @@ object TravelNetworking {
         }
         registrar.playToServer(TravelActionPayload.TYPE, TravelActionPayload.STREAM_CODEC) { payload, context ->
             val player = context.player() as? ServerPlayer ?: return@playToServer
-            TravelService.depart(player, payload.fromNodeId, payload.toNodeId, payload.express)
+            TravelService.depart(player, payload.fromNodeId, payload.toNodeId)
         }
         registrar.playToServer(TravelRenamePayload.TYPE, TravelRenamePayload.STREAM_CODEC) { payload, context ->
             val player = context.player() as? ServerPlayer ?: return@playToServer

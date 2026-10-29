@@ -1,7 +1,6 @@
 package io.github.veelume.postroad.network
 
 import io.github.veelume.postroad.Postroad
-import io.github.veelume.postroad.loot.FreshLoot
 import io.github.veelume.postroad.names.CultureRegistry
 import io.github.veelume.postroad.names.NameGenerator
 import net.minecraft.core.BlockPos
@@ -29,7 +28,7 @@ object PlaceResolver {
         network.places[id]?.let { return it }
         val taken = network.places.values.mapTo(HashSet()) { it.name }
         val name = NameGenerator.generate(level.seed, id, CultureRegistry.get(culture), taken)
-        val place = Place(id, name, culture, type, level.dimension().location(), anchor, FreshLoot.dayOf(level))
+        val place = Place(id, name, culture, type, level.dimension().location(), anchor, GameDay.of(level))
         network.addPlace(place)
         Postroad.LOGGER.info("New place '{}' ({}, {}) at {}", name, type, culture, anchor.toShortString())
         return place
@@ -108,7 +107,7 @@ object PlaceResolver {
         val id = "mailbox/$dimension/${pos.x}/${pos.y}/${pos.z}"
         if (network.places[id] == null) {
             network.addPlace(
-                Place(id, "$owner's mailbox", CultureRegistry.DEFAULT, Place.TYPE_MAILBOX, dimension, pos, FreshLoot.dayOf(level), owner.lowercase()),
+                Place(id, "$owner's mailbox", CultureRegistry.DEFAULT, Place.TYPE_MAILBOX, dimension, pos, GameDay.of(level), owner.lowercase()),
             )
             Postroad.LOGGER.info("New mailbox for {} at {}", owner, pos.toShortString())
         }

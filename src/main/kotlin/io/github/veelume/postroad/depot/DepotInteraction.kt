@@ -1,13 +1,13 @@
 package io.github.veelume.postroad.depot
 
 import io.github.veelume.postroad.advancement.PostroadAdvancements
-import io.github.veelume.postroad.loot.FreshLoot
 import io.github.veelume.postroad.menu.DepotMenu
+import io.github.veelume.postroad.network.GameDay
 import io.github.veelume.postroad.network.LedgerEntry
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.network.Place
-import io.github.veelume.postroad.registry.PostroadDataMaps
 import io.github.veelume.postroad.registry.PostroadItems
+import io.github.veelume.postroad.salvage.Salvage
 import net.minecraft.ChatFormatting
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerLevel
@@ -68,7 +68,7 @@ object DepotInteraction {
         if (stack.isEmpty) return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION
         val place = depot.place(level) ?: run { unregistered(player); return ItemInteractionResult.CONSUME }
         val network = touch(level, player)
-        val day = FreshLoot.dayOf(level)
+        val day = GameDay.of(level)
         val actor = player.gameProfile.name
         val account = Network.playerAccount(actor)
 
@@ -87,26 +87,17 @@ object DepotInteraction {
             return ItemInteractionResult.CONSUME
         }
 
-        val rate = stack.itemHolder.getData(PostroadDataMaps.BUYBACK)
         // Refusals go to chat, not the action bar: they carry the reason and are easy to miss otherwise.
-        if (rate == null) {
+        if (Salvage.quote(stack) == null) {
             player.displayClientMessage(
                 Component.translatable("message.postroad.depot.not_bought", stack.hoverName).withStyle(ChatFormatting.YELLOW),
                 false,
             )
             return ItemInteractionResult.CONSUME
         }
-        if (!FreshLoot.isFresh(stack, day)) {
-            val key = if (FreshLoot.of(stack) == null) "message.postroad.depot.unmarked" else "message.postroad.depot.settled"
-            player.displayClientMessage(
-                Component.translatable(key, stack.hoverName).withStyle(ChatFormatting.YELLOW),
-                false,
-            )
-            return ItemInteractionResult.CONSUME
-        }
         val count = stack.count
         val name = stack.hoverName
-        val amount = Buyback.sell(network, actor, place.name, stack, day) ?: 0L
+        val amount = Salvage.sell(network, actor, place.name, listOf(stack), day).coins
         stack.shrink(count)
         player.displayClientMessage(
             Component.translatable("message.postroad.depot.bought", count, name, amount, network.balance(account)),

@@ -2,7 +2,7 @@ package io.github.veelume.postroad.roads.gen
 
 import io.github.veelume.postroad.Postroad
 import io.github.veelume.postroad.PostroadConfig
-import io.github.veelume.postroad.loot.FreshLoot
+import io.github.veelume.postroad.network.GameDay
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.roads.PathLink
 import io.github.veelume.postroad.roads.RoadPath
@@ -567,7 +567,7 @@ object RoadGen {
         val storage = RoadPlanStorage.get(server)
         val network = Network.get(server)
         val level = server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, result.dimension)) ?: server.overworld()
-        val day = FreshLoot.dayOf(level)
+        val day = GameDay.of(level)
         var towns = 0
         var roads = 0
         var junctions = 0

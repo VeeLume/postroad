@@ -6,7 +6,6 @@ import io.github.veelume.postroad.travel.TravelRenamePayload
 import net.minecraft.client.gui.components.EditBox
 import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.gui.components.Button
-import net.minecraft.client.gui.components.Tooltip
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.network.chat.Component
 import net.neoforged.neoforge.network.PacketDistributor
@@ -14,11 +13,9 @@ import net.neoforged.neoforge.network.PacketDistributor
 /** The travel list: reachable nodes by distance, fare shown, seven per page. */
 class TravelScreen : Screen(Component.translatable("screen.postroad.travel.title")) {
     private var page = 0
-    private var express = false
     private val rows = ArrayList<Button>()
     private lateinit var prev: Button
     private lateinit var next: Button
-    private lateinit var expressButton: Button
     private var nameBox: EditBox? = null
     private var renameButton: Button? = null
 
@@ -35,13 +32,7 @@ class TravelScreen : Screen(Component.translatable("screen.postroad.travel.title
         }
         prev = addRenderableWidget(Button.builder(Component.literal("<"), Button.OnPress { page--; refresh() }).bounds(cx - 120, top + perPage * 22 + 4, 20, 20).build())
         next = addRenderableWidget(Button.builder(Component.literal(">"), Button.OnPress { page++; refresh() }).bounds(cx + 100, top + perPage * 22 + 4, 20, 20).build())
-        expressButton = addRenderableWidget(
-            Button.builder(Component.empty(), Button.OnPress { express = !express; refresh() })
-                .bounds(cx - 96, top + perPage * 22 + 4, 120, 20)
-                .tooltip(Tooltip.create(Component.translatable("screen.postroad.travel.express.tooltip")))
-                .build(),
-        )
-        addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), Button.OnPress { onClose() }).bounds(cx + 28, top + perPage * 22 + 4, 68, 20).build())
+        addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), Button.OnPress { onClose() }).bounds(cx - 34, top + perPage * 22 + 4, 68, 20).build())
         if (state.renamable) {
             val box = EditBox(font, cx - 120, top + perPage * 22 + 28, 170, 20, Component.translatable("screen.postroad.travel.name"))
             box.setMaxLength(32)
@@ -77,13 +68,12 @@ class TravelScreen : Screen(Component.translatable("screen.postroad.travel.title
         next.visible = pages > 1
         prev.active = page > 0
         next.active = page < pages - 1
-        expressButton.message = Component.translatable(if (express) "screen.postroad.travel.express_on" else "screen.postroad.travel.express_off")
     }
 
     private fun pick(row: Int) {
         val state = TravelClient.state
         val entry = state.entries.getOrNull(page * perPage + row) ?: return
-        PacketDistributor.sendToServer(TravelActionPayload(state.fromNodeId, entry.nodeId, express))
+        PacketDistributor.sendToServer(TravelActionPayload(state.fromNodeId, entry.nodeId))
         onClose()
     }
 

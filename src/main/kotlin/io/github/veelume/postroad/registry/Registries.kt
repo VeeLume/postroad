@@ -6,10 +6,13 @@ import io.github.veelume.postroad.Postroad
 import io.github.veelume.postroad.depot.DepotBlock
 import io.github.veelume.postroad.depot.DepotBlockEntity
 import io.github.veelume.postroad.loot.FreshLoot
-import io.github.veelume.postroad.loot.FreshLootModifier
+import io.github.veelume.postroad.loot.LootedModifier
 import io.github.veelume.postroad.mailbox.MailboxBlock
 import io.github.veelume.postroad.mailbox.MailboxBlockEntity
 import io.github.veelume.postroad.roads.ChartingMapItem
+import io.github.veelume.postroad.salvage.SalvageRate
+import io.github.veelume.postroad.salvage.SatchelItem
+import io.github.veelume.postroad.salvage.SatchelMenu
 import net.minecraft.core.component.DataComponentType
 import net.minecraft.core.registries.Registries
 import net.minecraft.network.chat.Component
@@ -65,6 +68,9 @@ object PostroadItems {
     /** Charts roads into paths. Craftable: paper, string, feather, ink sac. */
     val CHARTING_MAP: DeferredItem<ChartingMapItem> = REGISTER.registerItem("charting_map", ::ChartingMapItem, Item.Properties().stacksTo(1))
 
+    /** Sells looted gear and treasure on the spot, straight into the wallet. Craftable: leather, string, paper. */
+    val SATCHEL: DeferredItem<SatchelItem> = REGISTER.registerItem("satchel", ::SatchelItem, Item.Properties().stacksTo(1))
+
     /** Unlocks the postal network for the whole group when used on a depot. Quest reward, no recipe. */
     val POSTAL_CHARTER: DeferredItem<Item> =
         REGISTER.registerSimpleItem("postal_charter", Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON))
@@ -89,9 +95,17 @@ object PostroadComponents {
     val REGISTER: DeferredRegister.DataComponents =
         DeferredRegister.createDataComponents(Registries.DATA_COMPONENT_TYPE, Postroad.MOD_ID)
 
+    /** The old fresh-loot stamp: only read, to migrate it ([FreshLoot]). */
     val FRESH_LOOT: DeferredHolder<DataComponentType<*>, DataComponentType<FreshLoot>> =
         REGISTER.registerComponentType("fresh_loot") { builder ->
             builder.persistent(FreshLoot.CODEC).networkSynchronized(FreshLoot.STREAM_CODEC)
+        }
+
+    /** [io.github.veelume.postroad.loot.Looted]: unstackable container loot. */
+    val LOOTED: DeferredHolder<DataComponentType<*>, DataComponentType<net.minecraft.util.Unit>> =
+        REGISTER.registerComponentType("looted") { builder ->
+            builder.persistent(Codec.unit(net.minecraft.util.Unit.INSTANCE))
+                .networkSynchronized(net.minecraft.network.codec.StreamCodec.unit(net.minecraft.util.Unit.INSTANCE))
         }
 }
 
@@ -111,6 +125,7 @@ object PostroadCreativeTabs {
                     output.accept(PostroadItems.POSTAL_CHARTER.get())
                     output.accept(PostroadItems.MAILBOX.get())
                     output.accept(PostroadItems.CHARTING_MAP.get())
+                    output.accept(PostroadItems.SATCHEL.get())
                 }
                 .build()
         },
@@ -118,14 +133,21 @@ object PostroadCreativeTabs {
 }
 
 object PostroadDataMaps {
-    /** Coins the depot pays per unit of a fresh-loot item. Synced to clients for tooltips. Data: `data/<ns>/data_maps/item/buyback.json`. */
-    val BUYBACK: DataMapType<Item, Int> =
-        DataMapType.builder(Postroad.id("buyback"), Registries.ITEM, Codec.intRange(0, Int.MAX_VALUE))
+    /** What the satchel pays per unit of an item ([io.github.veelume.postroad.salvage.Salvage]). Synced for tooltips. Data: `data/<ns>/data_maps/item/salvage.json`. */
+    val SALVAGE: DataMapType<Item, SalvageRate> =
+        DataMapType.builder(Postroad.id("salvage"), Registries.ITEM, SalvageRate.CODEC)
+            .synced(SalvageRate.CODEC, false)
+            .build()
+
+    /** Coins for a looted piece of gear by its repair material. Synced. Data: `data/<ns>/data_maps/item/salvage_material.json`. */
+    val SALVAGE_MATERIAL: DataMapType<Item, Int> =
+        DataMapType.builder(Postroad.id("salvage_material"), Registries.ITEM, Codec.intRange(0, Int.MAX_VALUE))
             .synced(Codec.intRange(0, Int.MAX_VALUE), false)
             .build()
 
     fun register(event: RegisterDataMapTypesEvent) {
-        event.register(BUYBACK)
+        event.register(SALVAGE)
+        event.register(SALVAGE_MATERIAL)
     }
 }
 
@@ -133,8 +155,8 @@ object PostroadLootModifiers {
     val REGISTER: DeferredRegister<MapCodec<out IGlobalLootModifier>> =
         DeferredRegister.create(NeoForgeRegistries.Keys.GLOBAL_LOOT_MODIFIER_SERIALIZERS, Postroad.MOD_ID)
 
-    val FRESH_LOOT: DeferredHolder<MapCodec<out IGlobalLootModifier>, MapCodec<FreshLootModifier>> =
-        REGISTER.register("fresh_loot", Supplier { FreshLootModifier.CODEC })
+    val LOOTED: DeferredHolder<MapCodec<out IGlobalLootModifier>, MapCodec<LootedModifier>> =
+        REGISTER.register("looted", Supplier { LootedModifier.CODEC })
 }
 
 object PostroadMenus {
@@ -143,5 +165,10 @@ object PostroadMenus {
     val DEPOT: DeferredHolder<MenuType<*>, MenuType<DepotMenu>> = REGISTER.register(
         "depot",
         Supplier { IMenuTypeExtension.create { id, inventory, buf -> DepotMenu.client(id, inventory, buf) } },
+    )
+
+    val SATCHEL: DeferredHolder<MenuType<*>, MenuType<SatchelMenu>> = REGISTER.register(
+        "satchel",
+        Supplier { MenuType({ id, inventory -> SatchelMenu(id, inventory) }, net.minecraft.world.flag.FeatureFlags.DEFAULT_FLAGS) },
     )
 }

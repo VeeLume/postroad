@@ -3,8 +3,7 @@ package io.github.veelume.postroad.travel
 import io.github.veelume.postroad.Postroad
 import io.github.veelume.postroad.PostroadConfig
 import io.github.veelume.postroad.advancement.PostroadAdvancements
-import io.github.veelume.postroad.loot.FreshLoot
-import io.github.veelume.postroad.mail.MailService
+import io.github.veelume.postroad.network.GameDay
 import io.github.veelume.postroad.network.LedgerEntry
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.roads.Charting
@@ -18,12 +17,11 @@ import net.minecraft.network.chat.Component
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.world.item.ItemStack
 import net.neoforged.neoforge.network.PacketDistributor
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.world.level.levelgen.structure.BoundingBox
 
-/** Opening the travel list at a node, and the journey itself: fare, fresh loot, teleport. */
+/** Opening the travel list at a node, and the journey itself: fare and teleport. */
 object TravelService {
 
     /** Sends the travel screen for [fromNodeId] to the player. */
@@ -62,7 +60,7 @@ object TravelService {
     }
 
     /** The journey. Validates everything again server-side; the client only chose. */
-    fun depart(player: ServerPlayer, fromNodeId: String, toNodeId: String, express: Boolean): Boolean {
+    fun depart(player: ServerPlayer, fromNodeId: String, toNodeId: String): Boolean {
         val level = player.serverLevel()
         val network = Network.get(player.server)
         val from = network.nodes[fromNodeId] ?: return false
@@ -78,33 +76,12 @@ object TravelService {
             return false
         }
         val name = player.gameProfile.name
-        val today = FreshLoot.dayOf(level)
+        val today = GameDay.of(level)
         val fare = Fares.fare(route.length, route.worstTier)
         if (!network.canAfford(name, fare)) {
             val short = fare - network.balance(Network.playerAccount(name)) - network.balance(Network.ROAD_FUND)
             player.displayClientMessage(Component.translatable("message.postroad.travel.unaffordable", fare, short).withStyle(ChatFormatting.RED), false)
             return false
-        }
-
-        // Fresh loot never teleports: it is mailed to the destination's town.
-        val loot = (0 until player.inventory.containerSize).filter { FreshLoot.isFresh(player.inventory.getItem(it), today) }
-        if (loot.isNotEmpty()) {
-            val townId = destinationTown(network, to, ends)
-            if (townId != null && network.postalUnlocked) {
-                val items = loot.map { player.inventory.getItem(it).copy() }
-                val fromPlace = from.placeId ?: destinationTown(network, from, ends) ?: townId
-                val parcels = MailService.send(player.server, name, fromPlace, townId, items, express)
-                loot.forEach { player.inventory.setItem(it, ItemStack.EMPTY) }
-                val valuables = parcels.firstOrNull { it.lane == io.github.veelume.postroad.network.Parcel.LANE_VALUABLES }
-                val days = valuables?.let { it.arrivalDay - today } ?: 0L
-                player.displayClientMessage(
-                    Component.translatable("message.postroad.travel.loot_mailed", items.sumOf { it.count }, network.places[townId]?.name ?: townId, days)
-                        .withStyle(ChatFormatting.GOLD),
-                    false,
-                )
-            } else {
-                player.displayClientMessage(Component.translatable("message.postroad.travel.loot_kept").withStyle(ChatFormatting.YELLOW), false)
-            }
         }
 
         if (fare > 0) {
@@ -122,15 +99,6 @@ object TravelService {
         )
         Postroad.LOGGER.info("{} travelled {} → {} ({} blocks, fare {})", name, from.name, to.name, route.length.toInt(), fare)
         return true
-    }
-
-    /** The town a node belongs to: its own place, else the nearest town node along the paths. */
-    fun destinationTown(network: Network, node: RoadNode, townEnds: Map<String, List<Routing.Anchor>> = emptyMap()): String? {
-        node.placeId?.let { return it }
-        val routes = Routing.routes(network, node.id, townEnds)
-        return routes.entries
-            .mapNotNull { (id, route) -> network.nodes[id]?.placeId?.let { it to route.length } }
-            .minByOrNull { it.second }?.first
     }
 
     /**

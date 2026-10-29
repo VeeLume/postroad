@@ -1,0 +1,11 @@
+{
+  "type": "postroad:looted",
+  "conditions": [],
+  "rules": [
+    { "prefix": "blocks/", "looted": false },
+    { "prefix": "shearing/", "looted": false },
+    { "prefix": "gameplay/", "looted": false },
+    { "prefix": "equipment/", "looted": false },
+    { "prefix": "spawners/", "looted": false }
+  ]
+}

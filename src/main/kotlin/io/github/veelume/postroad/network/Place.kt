@@ -75,7 +75,10 @@ data class LedgerEntry(
 
     companion object {
         const val OP_PAY_IN = "pay_in"
-        const val OP_BUYBACK = "buyback"
+        /** Worlds before 0.3 also hold `buyback` entries: fresh loot the depot bought. */
+        const val OP_SALVAGE = "salvage"
+        /** The network paying for road charted for the first time. */
+        const val OP_SURVEY = "survey"
         const val OP_GRANT = "grant"
         const val OP_CHARTER = "charter"
         const val OP_EXPRESS = "express"

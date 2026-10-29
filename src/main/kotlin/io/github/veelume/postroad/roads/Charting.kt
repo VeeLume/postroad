@@ -3,7 +3,7 @@ package io.github.veelume.postroad.roads
 import io.github.veelume.postroad.Postroad
 import io.github.veelume.postroad.PostroadConfig
 import io.github.veelume.postroad.advancement.PostroadAdvancements
-import io.github.veelume.postroad.loot.FreshLoot
+import io.github.veelume.postroad.network.GameDay
 import io.github.veelume.postroad.network.LedgerEntry
 import io.github.veelume.postroad.network.Network
 import net.minecraft.ChatFormatting
@@ -21,7 +21,8 @@ import java.util.UUID
  * Free-form charting, Via Romana's way: start anywhere, walk, finish anywhere. The server
  * samples the walk every few blocks and shows each sample as a particle column (green road,
  * grey not). Finishing records a [RoadPath] per network if the walk is road enough, attaches
- * it to existing paths it started or ended next to, and hooks up any depot it passed.
+ * it to existing paths it started or ended next to, and hooks up any depot it passed. Road nobody
+ * had charted before, and towns it brings onto the network, are paid for ([paySurvey]).
  */
 object Charting {
 
@@ -112,9 +113,10 @@ object Charting {
             points = session.points,
             tiers = session.tiers,
             recordedBy = player.gameProfile.name.lowercase(),
-            recordedDay = FreshLoot.dayOf(level),
+            recordedDay = GameDay.of(level),
         )
         val join = PostroadConfig.joinDistance
+        val surveyed = newRoadLength(network, path.dimension, path.points, 0, path.points.size - 1) { path.tiers[it] != null }
         val startLink = network.nearestPathPoint(path.dimension, path.points.first(), join, exclude = path.id)
         val endLink = network.nearestPathPoint(path.dimension, path.points.last(), join, exclude = path.id)
         network.addPath(path)
@@ -125,6 +127,7 @@ object Charting {
         network.record(LedgerEntry(path.recordedDay, player.gameProfile.name, LedgerEntry.OP_PATH, 0, "network",
             "${path.length.toInt()} blocks, ${path.tier?.key ?: "?"}, ${towns.size} town(s)"))
         PostroadAdvancements.award(player, PostroadAdvancements.PATH_CHARTED)
+        paySurvey(player, network, path.recordedDay, surveyed, towns.size)
         val linked = listOfNotNull(startLink, endLink).size
         player.displayClientMessage(
             Component.translatable("message.postroad.chart.recorded", path.length.toInt(), percent(verdict.roadShare),
@@ -153,6 +156,8 @@ object Charting {
             if (share >= PostroadConfig.chartMarkShare && hits.count { it != null } > bestHits.count { it != null }) { best = path; bestHits = hits }
         }
         val path = best ?: return null
+        val covered = bestHits.filterNotNull()
+        val surveyed = newRoadLength(network, dimension, path.points, covered.min(), covered.max()) { true }
         for ((k, idx) in bestHits.withIndex()) {
             if (idx == null) continue
             session.tiers[k]?.let { path.tiers[idx] = it }
@@ -160,12 +165,43 @@ object Charting {
         path.charted = true
         val towns = network.attachTowns(path, join)
         network.setDirty()
-        network.record(LedgerEntry(FreshLoot.dayOf(session.level), player.gameProfile.name, LedgerEntry.OP_PATH, 0, "network",
+        val day = GameDay.of(session.level)
+        network.record(LedgerEntry(day, player.gameProfile.name, LedgerEntry.OP_PATH, 0, "network",
             "${path.length.toInt()} blocks, generated road ${path.id} charted, ${towns.size} town(s)"))
         PostroadAdvancements.award(player, PostroadAdvancements.PATH_CHARTED)
+        paySurvey(player, network, day, surveyed, towns.size)
         player.displayClientMessage(Component.translatable("message.postroad.chart.marked", path.length.toInt(), towns.size).withStyle(ChatFormatting.GOLD), false)
         Postroad.LOGGER.info("{} charted generated road {} ({} blocks, towns {})", player.gameProfile.name, path.id, path.length.toInt(), towns)
         return path
+    }
+
+    /**
+     * Blocks of [points] between [from] and [to] that no charted path covers yet: segments between two
+     * consecutive points that are both road ([isRoad]) and both farther than joinDistance from every
+     * charted path. Called before the walk's own path is charted, so it never counts itself.
+     */
+    fun newRoadLength(network: Network, dimension: net.minecraft.resources.ResourceLocation, points: List<BlockPos>, from: Int, to: Int, isRoad: (Int) -> Boolean): Double {
+        val reach = PostroadConfig.joinDistance
+        val charted = network.paths.values.filter { it.charted && it.dimension == dimension }
+        val fresh = BooleanArray(points.size) { i ->
+            i in from..to && isRoad(i) && charted.none { other -> other.nearestIndex(points[i])?.let { it.second <= reach } == true }
+        }
+        var total = 0.0
+        for (i in from until to) if (fresh[i] && fresh[i + 1]) total += RoadPath.distance(points[i], points[i + 1])
+        return total
+    }
+
+    /** The network pays the surveyor: a coin per `surveyBlocksPerCoin` blocks of new road, plus a bonus per town brought on. */
+    fun paySurvey(player: ServerPlayer, network: Network, day: Long, blocks: Double, towns: Int) {
+        val per = PostroadConfig.surveyBlocksPerCoin
+        val coins = (if (per > 0) Math.round(blocks / per) else 0L) + towns * PostroadConfig.surveyTownBonus
+        if (coins <= 0) return
+        val name = player.gameProfile.name
+        network.credit(Network.playerAccount(name), coins, day, name, LedgerEntry.OP_SURVEY, "${blocks.toInt()} new blocks, $towns town(s)")
+        player.displayClientMessage(
+            Component.translatable("message.postroad.chart.paid", coins, blocks.toInt(), towns, network.balance(Network.playerAccount(name))).withStyle(ChatFormatting.GOLD),
+            false,
+        )
     }
 
     /** Where the road was missing: the longest run of non-road samples, in blocks from the start. */

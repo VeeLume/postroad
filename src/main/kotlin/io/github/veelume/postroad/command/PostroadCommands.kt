@@ -4,12 +4,15 @@ import com.mojang.brigadier.arguments.IntegerArgumentType
 import com.mojang.brigadier.arguments.LongArgumentType
 import com.mojang.brigadier.arguments.StringArgumentType
 import com.mojang.brigadier.context.CommandContext
+import io.github.veelume.postroad.PostroadConfig
 import io.github.veelume.postroad.advancement.PostroadAdvancements
 import io.github.veelume.postroad.depot.DepotInteraction
-import io.github.veelume.postroad.loot.FreshLoot
+import io.github.veelume.postroad.loot.Looted
+import io.github.veelume.postroad.network.GameDay
 import io.github.veelume.postroad.network.LedgerEntry
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.registry.PostroadDataMaps
+import io.github.veelume.postroad.salvage.Salvage
 import net.minecraft.commands.CommandSourceStack
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
@@ -157,7 +160,7 @@ object PostroadCommands {
     private fun mail(ctx: CommandContext<CommandSourceStack>): Int {
         val player = ctx.source.playerOrException
         val network = Network.get(ctx.source.server)
-        val today = FreshLoot.dayOf(ctx.source.level)
+        val today = GameDay.of(ctx.source.level)
         val parcels = network.parcelsFor(player.gameProfile.name)
         for (parcel in parcels) {
             val town = network.places[parcel.to]?.name ?: parcel.to
@@ -643,29 +646,31 @@ object PostroadCommands {
             return 0
         }
         network.postalUnlocked = true
-        network.record(LedgerEntry(FreshLoot.dayOf(ctx.source.level), ctx.source.textName, LedgerEntry.OP_CHARTER, 0, "network", "command"))
+        network.record(LedgerEntry(GameDay.of(ctx.source.level), ctx.source.textName, LedgerEntry.OP_CHARTER, 0, "network", "command"))
         ctx.source.sendSuccess({ Component.translatable("message.postroad.charter.unlocked", ctx.source.textName, "command") }, true)
         return 1
     }
 
-    /** Every item the depot buys, cheapest first. Literal text: it is data, and it must not depend on client lang files. */
+    /** What the satchel buys, cheapest first. Literal text: it is data, and it must not depend on client lang files. */
     private fun rates(ctx: CommandContext<CommandSourceStack>): Int {
-        val map = BuiltInRegistries.ITEM.getDataMap(PostroadDataMaps.BUYBACK)
-        if (map.isEmpty()) {
-            ctx.source.sendSuccess({ Component.literal("The depot buys nothing (buyback data map is empty).") }, false)
-            return 0
-        }
-        val lines = map.entries
+        val items = BuiltInRegistries.ITEM.getDataMap(PostroadDataMaps.SALVAGE)
+        val materials = BuiltInRegistries.ITEM.getDataMap(PostroadDataMaps.SALVAGE_MATERIAL)
+        val lines = items.entries
+            .filter { it.value.coins > 0 }
+            .sortedWith(compareBy({ it.value.coins }, { it.key.location().toString() }))
+            .map { (key, rate) -> "${rate.coins} × ${key.location()}${if (rate.looted) " (looted)" else ""}" }
+        ctx.source.sendSuccess({ Component.literal("The satchel buys ${lines.size} items (coins per unit):") }, false)
+        lines.chunked(6).forEach { chunk -> ctx.source.sendSuccess({ Component.literal(chunk.joinToString("  ·  ")) }, false) }
+        val gear = materials.entries
             .sortedWith(compareBy({ it.value }, { it.key.location().toString() }))
-            .map { (key, coins) -> "$coins × ${key.location()}" }
-        ctx.source.sendSuccess({ Component.literal("Depot buys ${lines.size} items (coins per unit, fresh loot only):") }, false)
-        lines.chunked(6).forEach { chunk ->
-            ctx.source.sendSuccess({ Component.literal(chunk.joinToString("  ·  ")) }, false)
-        }
+            .joinToString("  ·  ") { (key, coins) -> "$coins × ${key.location()}" }
+        ctx.source.sendSuccess({
+            Component.literal("Other looted gear by material: $gear; anything else ${PostroadConfig.salvageLootedDefault}, enchanted +${PostroadConfig.salvageEnchantedBonus}.")
+        }, false)
         return lines.size
     }
 
-    /** What the depot would make of the item in the main hand. */
+    /** What the satchel would make of the item in the main hand. */
     private fun inspect(ctx: CommandContext<CommandSourceStack>): Int {
         val player = ctx.source.playerOrException
         val stack = player.mainHandItem
@@ -673,21 +678,11 @@ object PostroadCommands {
             ctx.source.sendSuccess({ Component.translatable("command.postroad.inspect.empty") }, false)
             return 0
         }
-        val today = FreshLoot.dayOf(ctx.source.level)
-        val mark = FreshLoot.of(stack)
-        val freshness: Component = when {
-            mark == null -> Component.translatable("command.postroad.inspect.unmarked")
-            FreshLoot.daysLeft(mark, today) > 0 ->
-                Component.translatable("command.postroad.inspect.fresh", mark.origin, FreshLoot.daysLeft(mark, today))
-            else -> Component.translatable("command.postroad.inspect.settled", mark.origin)
-        }
-        val rate = stack.itemHolder.getData(PostroadDataMaps.BUYBACK)
-        val price: Component = if (rate == null) {
-            Component.translatable("command.postroad.inspect.no_rate")
-        } else {
-            Component.translatable("command.postroad.inspect.rate", rate, rate.toLong() * stack.count)
-        }
-        ctx.source.sendSuccess({ Component.translatable("command.postroad.inspect", stack.count, stack.hoverName, freshness, price) }, false)
+        val mark: Component = Component.translatable(if (Looted.isLooted(stack)) "command.postroad.inspect.looted" else "command.postroad.inspect.unmarked")
+        val coins = Salvage.quote(stack)
+        val price: Component = if (coins == null) Component.translatable("command.postroad.inspect.no_rate")
+        else Component.translatable("command.postroad.inspect.rate", coins)
+        ctx.source.sendSuccess({ Component.translatable("command.postroad.inspect", stack.count, stack.hoverName, mark, price) }, false)
         return 1
     }
 
@@ -716,7 +711,7 @@ object PostroadCommands {
         val network = Network.get(ctx.source.server)
         val resolved = if (account.contains(':')) account else Network.playerAccount(account)
         network.credit(
-            resolved, amount, FreshLoot.dayOf(ctx.source.level),
+            resolved, amount, GameDay.of(ctx.source.level),
             ctx.source.textName, LedgerEntry.OP_GRANT, "command",
         )
         ctx.source.sendSuccess(

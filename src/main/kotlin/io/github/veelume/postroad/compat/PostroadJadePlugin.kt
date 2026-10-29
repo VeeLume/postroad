@@ -1,9 +1,9 @@
 package io.github.veelume.postroad.compat
 
 import io.github.veelume.postroad.Postroad
-import io.github.veelume.postroad.loot.FreshLoot
 import io.github.veelume.postroad.mailbox.MailboxBlock
 import io.github.veelume.postroad.mailbox.MailboxBlockEntity
+import io.github.veelume.postroad.network.GameDay
 import io.github.veelume.postroad.network.Network
 import net.minecraft.ChatFormatting
 import net.minecraft.nbt.CompoundTag
@@ -48,7 +48,7 @@ object MailboxProvider : IBlockComponentProvider, IServerDataProvider<BlockAcces
         val level = accessor.level as? ServerLevel ?: return
         val placeId = entity.placeId ?: return
         val network = Network.get(level.server)
-        val today = FreshLoot.dayOf(level)
+        val today = GameDay.of(level)
         val storage = network.mailboxStorage(placeId)
         data.putInt("Stored", (0 until storage.containerSize).sumOf { storage.getItem(it).count })
         val lines = ListTag()

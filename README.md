@@ -14,9 +14,11 @@ Kotlin until play shows it is needed.
   drawn deterministically from the culture its style belongs to.
 - **Depots.** Each village gets a **pit stop** where its road arrives: a small
   roofed stand with the depot, the town's sign and a mailbox's counterpart.
-  A depot stores for the whole network, buys fresh loot, and keeps accounts.
+  A depot stores for the whole network and keeps accounts.
 - **Mail.** Parcels travel by distance, arriving after a number of in-game days;
   bulk goods take one lane, valuables another. Players have their own mailboxes.
+- **Coins.** Charting road nobody had charted pays coins, and a salvage satchel
+  sells looted gear and treasure on the spot. Coins only ever buy movement.
 - **Travel.** Signposts at junctions and towns are nodes on the road graph. Walk
   a road once to chart it, then travel it for a fare in coins, discounted by the
   quality of the road.
@@ -52,13 +54,13 @@ and placeholder textures. Edit the generator, not the file it writes.
 `postroad-common.toml` holds the gameplay numbers (fares, mail days, buff
 strengths, plan radius) and the ones worth tuning per server (how much terrain
 is generated ahead of the planner, what the builder may spend per tick). Road
-costs, palettes, piece shapes, cultures and buyback rates are data files under
+costs, palettes, piece shapes, cultures and salvage rates are data files under
 `data/postroad/`, meant to be overridden from the modpack.
 
 ## Scope rule
 
 The mod owns only what datapacks and scripts cannot do. Recipes, loot tables,
-tags, buyback rates and pool weights are data files, meant to be overridden
+tags, salvage rates and pool weights are data files, meant to be overridden
 from the modpack, not compiled in.
 
 ## License

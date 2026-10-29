@@ -1,9 +1,9 @@
 package io.github.veelume.postroad.client
 
-import io.github.veelume.postroad.loot.FreshLootTooltip
 import io.github.veelume.postroad.map.MapOverlayClient
 import io.github.veelume.postroad.map.MapOverlayState
 import io.github.veelume.postroad.registry.PostroadMenus
+import io.github.veelume.postroad.salvage.SalvageTooltip
 import net.neoforged.fml.ModList
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent
@@ -16,8 +16,9 @@ object ClientSetup {
     fun register() {
         MOD_BUS.addListener(RegisterMenuScreensEvent::class.java, Consumer { event ->
             event.register(PostroadMenus.DEPOT.get(), ::DepotScreen)
+            event.register(PostroadMenus.SATCHEL.get(), ::SatchelScreen)
         })
-        FreshLootTooltip.register()
+        SalvageTooltip.register()
         RoadDebugRenderer.register()
         io.github.veelume.postroad.roads.ChartingClient.screenOpener = Runnable { net.minecraft.client.Minecraft.getInstance().setScreen(ChartingScreen()) }
         io.github.veelume.postroad.travel.TravelClient.screenOpener = Runnable { net.minecraft.client.Minecraft.getInstance().setScreen(TravelScreen()) }

@@ -1,13 +1,13 @@
 package io.github.veelume.postroad.menu
 
 import io.github.veelume.postroad.advancement.PostroadAdvancements
-import io.github.veelume.postroad.depot.Buyback
-import io.github.veelume.postroad.loot.FreshLoot
 import io.github.veelume.postroad.mail.MailService
+import io.github.veelume.postroad.network.GameDay
 import io.github.veelume.postroad.network.Network
 import io.github.veelume.postroad.network.Parcel
 import io.github.veelume.postroad.registry.PostroadBlocks
 import io.github.veelume.postroad.registry.PostroadMenus
+import io.github.veelume.postroad.salvage.Salvage
 import net.minecraft.ChatFormatting
 import net.minecraft.core.BlockPos
 import net.minecraft.network.RegistryFriendlyByteBuf
@@ -139,7 +139,7 @@ class DepotMenu private constructor(
 
     private fun sendState() {
         val s = server ?: return
-        val today = FreshLoot.dayOf(s.level)
+        val today = GameDay.of(s.level)
         val lines = s.network.parcelsFor(playerName).map { parcel ->
             val town = s.network.places[parcel.to]?.name ?: parcel.to
             val key = if (parcel.isDue(today)) "command.postroad.mail.held" else "command.postroad.mail.transit"
@@ -149,7 +149,7 @@ class DepotMenu private constructor(
         val hasValuables = marked.any { !slots[it].item.isStackable }
         val destination = destinations.getOrNull(destinationIndex)
         val (days, cost) = if (hasValuables && destination != null) MailService.valuablesQuote(s.network, s.placeId, destination) else 0L to 0L
-        val quotes = marked.mapNotNull { Buyback.quote(slots[it].item, today) }
+        val quotes = marked.mapNotNull { Salvage.quote(slots[it].item) }
         state = DepotState(
             townName = s.network.places[s.placeId]?.name ?: "",
             pageNames = pages.map { s.network.places[it]?.name ?: it },
@@ -196,10 +196,9 @@ class DepotMenu private constructor(
             }
             ACTION_SELECT_LOOT -> {
                 selectModeData.set(1)
-                val today = FreshLoot.dayOf(s.level)
                 for (index in 0 until slots.size) {
                     val slot = slots[index]
-                    if (slot.hasItem() && FreshLoot.isFresh(slot.item, today) && (index >= GRID || slot.mayPickup(player))) selected.add(index)
+                    if (slot.hasItem() && Salvage.quote(slot.item) != null && (index >= GRID || slot.mayPickup(player))) selected.add(index)
                 }
                 sendState()
             }
@@ -247,7 +246,7 @@ class DepotMenu private constructor(
         val valuables = parcels.firstOrNull { it.lane == Parcel.LANE_VALUABLES }
         val town = s.network.places[destination]?.name ?: destination
         val count = items.sumOf { it.count }
-        val remaining = valuables?.let { it.arrivalDay - FreshLoot.dayOf(s.level) } ?: 0L
+        val remaining = valuables?.let { it.arrivalDay - GameDay.of(s.level) } ?: 0L
         val message = when {
             valuables == null || remaining <= 0 -> if (useExpress) Component.translatable("screen.postroad.depot.sent_express", count, town, cost)
                 else Component.translatable("screen.postroad.depot.sent_bulk", count, town)
@@ -261,14 +260,15 @@ class DepotMenu private constructor(
 
     /** Sells the marked stacks the depot buys; the rest stay marked. */
     private fun sell(s: ServerSide, player: Player) {
-        val today = FreshLoot.dayOf(s.level)
+        val today = GameDay.of(s.level)
         val placeName = s.network.places[s.placeId]?.name ?: ""
         var sold = 0
         var coins = 0L
         for (index in selected.toList()) {
             val slot = slots[index]
             if (!slot.hasItem() || (index < GRID && !slot.mayPickup(player))) continue
-            val amount = Buyback.sell(s.network, playerName, placeName, slot.item, today) ?: continue
+            if (Salvage.quote(slot.item) == null) continue
+            val amount = Salvage.sell(s.network, playerName, placeName, listOf(slot.item), today).coins
             slot.set(ItemStack.EMPTY)
             selected.remove(index)
             sold++
