@@ -136,12 +136,13 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
                 quad(px - h, pz - h, px - h, pz + h, px + h, pz + h, px + h, pz - h, color)
             }
         }
-        val w = (2.0 * scale / 0.05).coerceIn(2.0, 5.0).toFloat()
+        // GUI units, which are several screen pixels each at the usual GUI scales: keep it thin.
+        val w = (1.0 * scale / 0.05).coerceIn(1.0, 2.5).toFloat()
         val strokes = roads.map { r -> r to screenPoints(r) }
             .sortedBy { (r, _) -> (if (r.plannedId in highlighted) 1 else 0) + (if (r.plannedId == selectedRoad || r === hoveredRoad) 2 else 0) }
         for ((r, pts) in strokes) {
             val emphasis = r.plannedId.isNotEmpty() && (r.plannedId == selectedRoad || r === hoveredRoad)
-            stroke(pts, w + if (emphasis) 5f else 2f, if (emphasis) SELECTED else CASING)
+            stroke(pts, w + if (emphasis) 3f else 1f, if (emphasis) SELECTED else CASING)
         }
         for ((r, pts) in strokes) {
             val base = TIER_COLORS.getOrElse(r.tier) { TIER_COLORS[0] }
