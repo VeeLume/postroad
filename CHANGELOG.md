@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.1
+
+- **Mailboxes announce mail.** When mail lands in your mailbox you get a chat message and a
+  chime. Mail that arrived while you were away reminds you when you log in, until you open
+  the mailbox.
+- **Pick a parcel's destination on a map.** The destination between the arrows opens a
+  picker: towns and mailboxes on the map, and a list with a search box (a few letters and
+  Enter are enough) that shows each one's distance and how long unstackables take.
+- `mail.showMailboxPositions` (on by default) puts other players' mailboxes on that map.
+  Off, they are listed by name with a distance rounded to 100 blocks, for servers where a
+  mailbox would give away someone's base.
+
 ## 0.3.0
 
 - **Charting pays.** Road nobody has charted yet earns a coin per 150 blocks
