@@ -527,6 +527,8 @@ class PostroadGameTests {
         val offered = menu.state.destinations.indexOfFirst { it.name == friend.name }
         helper.assertTrue(offered >= 0, "the friend's mailbox is offered")
         helper.assertValueEqual(menu.state.destinations[offered].kind, io.github.veelume.postroad.menu.DepotDestination.KIND_MAILBOX, "as a player mailbox")
+        val hidden = !io.github.veelume.postroad.PostroadConfig.showMailboxPositions
+        helper.assertValueEqual(menu.state.destinations[offered].dimension.isEmpty(), hidden, "with a position only if the config shows mailboxes")
         menu.handleAction(io.github.veelume.postroad.menu.DepotMenu.ACTION_DESTINATION_SET, offered)
         helper.assertValueEqual(menu.state.destinationNames.getOrNull(menu.state.destinationIndex), friend.name, "and picked")
         menu.handleAction(io.github.veelume.postroad.menu.DepotMenu.ACTION_SEND, 0)

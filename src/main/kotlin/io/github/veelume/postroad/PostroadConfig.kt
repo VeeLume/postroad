@@ -58,6 +58,7 @@ object PostroadConfig {
     private val VALUABLES_BLOCKS_PER_DAY: ModConfigSpec.IntValue
     private val INSTANT_DISTANCE: ModConfigSpec.IntValue
     private val EXPRESS_COINS_PER_DAY: ModConfigSpec.IntValue
+    private val SHOW_MAILBOX_POSITIONS: ModConfigSpec.BooleanValue
     private val BUFF_DIRT: ModConfigSpec.IntValue
     private val BUFF_GRAVEL: ModConfigSpec.IntValue
     private val BUFF_PAVED: ModConfigSpec.IntValue
@@ -148,6 +149,10 @@ object PostroadConfig {
         EXPRESS_COINS_PER_DAY = BUILDER
             .comment("Coins per day skipped when a parcel is sent express. 0 disables express.")
             .defineInRange("expressCoinsPerDay", 5, 0, 100000)
+        SHOW_MAILBOX_POSITIONS = BUILDER
+            .comment("Show other players' mailboxes on the destination map with their exact distance. Off for servers where",
+                "a mailbox would give away someone's base: they are listed by name with a distance rounded to 100 blocks.")
+            .define("showMailboxPositions", true)
         BUILDER.pop()
 
         BUILDER.push("roads")
@@ -231,6 +236,7 @@ object PostroadConfig {
     val valuablesBlocksPerDay: Double get() = VALUABLES_BLOCKS_PER_DAY.get().toDouble()
     val instantDistance: Double get() = INSTANT_DISTANCE.get().toDouble()
     val expressCoinsPerDay: Long get() = EXPRESS_COINS_PER_DAY.get().toLong()
+    val showMailboxPositions: Boolean get() = SHOW_MAILBOX_POSITIONS.get()
     val buffDirt: Double get() = BUFF_DIRT.get() / 100.0
     val buffGravel: Double get() = BUFF_GRAVEL.get() / 100.0
     val buffPaved: Double get() = BUFF_PAVED.get() / 100.0

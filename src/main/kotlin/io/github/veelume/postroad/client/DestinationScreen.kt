@@ -90,8 +90,10 @@ class DestinationScreen(private val parent: Screen, private val menu: DepotMenu)
                 else -> "screen.postroad.destination.kind.town"
             },
         )
+        // With mail.showMailboxPositions off, other players' mailboxes come without a position and with a rounded distance.
+        val distance = if (d.kind == DepotDestination.KIND_MAILBOX && d.dimension.isEmpty()) "~${d.distance}" else d.distance.toString()
         return Component.literal(d.name).append("\n")
-            .append(Component.translatable("screen.postroad.destination.details", kind, d.distance, timing(d)).withStyle(net.minecraft.ChatFormatting.GRAY))
+            .append(Component.translatable("screen.postroad.destination.details", kind, distance, timing(d)).withStyle(net.minecraft.ChatFormatting.GRAY))
     }
 
     private fun refresh() {

@@ -153,7 +153,8 @@ live in `docs/` (one per increment). This file is about the code.
   `RoadMapWidget` (the road map: the `Atlas` under charted roads in tier colours, towns the player has seen, pan/zoom,
   pickable markers and roads), shared by `TravelScreen` (destinations on the map plus a short list), `RoadWorksScreen` and `DestinationScreen`
   (the depot's "send to" picker: map + searchable list from `DepotState.destinations`, opened over the depot screen
-  with the menu left open, picks through `ACTION_DESTINATION_SET`).
+  with the menu left open, picks through `ACTION_DESTINATION_SET`; with `mail.showMailboxPositions` off, other players'
+  mailboxes are sent without a position and with a distance rounded to 100, so they stay off the map).
   `Atlas`: what this client has seen, sampled every 2 blocks in vanilla map colours from every chunk it loads, in
   512-block regions saved as PNGs under `<game dir>/postroad/atlas/<server>/<dimension>/`; unexplored land stays dark. Only referenced from the `Dist.CLIENT` branch in `Postroad`.
   `DepotScreen`'s body is the vanilla 6-row chest to the pixel (176×222, so it fits at every GUI

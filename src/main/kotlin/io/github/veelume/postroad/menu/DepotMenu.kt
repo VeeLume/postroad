@@ -199,8 +199,14 @@ class DepotMenu private constructor(
                 else -> DepotDestination.KIND_TOWN
             }
             val distance = s.network.distanceBetween(s.placeId, id)
-            DepotDestination(place?.name ?: id, kind, place?.dimension?.toString() ?: "", place?.pos?.x ?: 0, place?.pos?.z ?: 0,
-                distance.toInt(), MailService.valuablesDays(distance))
+            if (kind == DepotDestination.KIND_MAILBOX && !io.github.veelume.postroad.PostroadConfig.showMailboxPositions) {
+                // Another player's mailbox is their base: no position, and a distance too coarse to triangulate.
+                val rounded = (Math.round(distance / MAILBOX_DISTANCE_STEP) * MAILBOX_DISTANCE_STEP).toInt()
+                DepotDestination(place?.name ?: id, kind, "", 0, 0, rounded, MailService.valuablesDays(distance))
+            } else {
+                DepotDestination(place?.name ?: id, kind, place?.dimension?.toString() ?: "", place?.pos?.x ?: 0, place?.pos?.z ?: 0,
+                    distance.toInt(), MailService.valuablesDays(distance))
+            }
         }
     }
 
@@ -410,6 +416,9 @@ class DepotMenu private constructor(
         const val ACTION_ROAD_WORKS = 15
         /** Picks destination number `value` outright (the destination picker). */
         const val ACTION_DESTINATION_SET = 16
+
+        /** Blocks other players' mailbox distances are rounded to. */
+        private const val MAILBOX_DISTANCE_STEP = 100.0
 
         fun client(id: Int, inventory: Inventory, buf: RegistryFriendlyByteBuf): DepotMenu =
             DepotMenu(id, inventory, buf.readBlockPos(), null)
