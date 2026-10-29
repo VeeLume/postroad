@@ -1179,7 +1179,8 @@ class PostroadGameTests {
         val points = listOf(BlockPos(1, F + 1, 3), BlockPos(4, F + 1, 3))
         layRoad(helper, floorY, points)
         val leaves = Blocks.OAK_LEAVES.defaultBlockState().setValue(net.minecraft.world.level.block.LeavesBlock.PERSISTENT, false)
-        // A tree on the road, its crown above the headroom.
+        // A tree on the road, its crown above the headroom; it has turned the road block under it to dirt.
+        helper.setBlock(BlockPos(2, F, 3), Blocks.DIRT)
         for (y in F + 1..F + 4) helper.setBlock(BlockPos(2, y, 3), Blocks.OAK_LOG)
         helper.setBlock(BlockPos(2, F + 5, 3), leaves)
         // Leaves hanging into the road from somewhere else, and a log with no leaves: a building.

@@ -623,24 +623,26 @@ object PostroadCommands {
         return n
     }
 
-    /** Clears the trees off the roads of the chunk the player stands in, done or not, and says what it saw. */
+    /** Clears the trees off the roads of the 3x3 chunks round the player, done or not, and says what it saw per road. */
     private fun roadsTrees(ctx: CommandContext<CommandSourceStack>): Int {
         val player = ctx.source.playerOrException
         val level = player.serverLevel()
         val storage = io.github.veelume.postroad.roads.gen.RoadPlanStorage.get(ctx.source.server)
         val dim = level.dimension().location()
-        val chunk = player.chunkPosition().toLong()
-        val roads = storage.roadsInChunk(dim, chunk)
-        if (roads.isEmpty()) { ctx.source.sendFailure(Component.literal("No planned road in this chunk.")); return 0 }
-        val keepOut = io.github.veelume.postroad.roads.gen.RoadClearing.protectedBoxes(storage, dim, chunk)
-        for (road in roads) {
-            val s = io.github.veelume.postroad.roads.gen.RoadClearing.Stats()
-            val n = io.github.veelume.postroad.roads.gen.RoadClearing.clear(level, road, chunk, keepOut, s)
-            if (n >= 0) { road.clearedChunks.add(chunk); storage.setDirty() }
-            ctx.source.sendSuccess({ Component.literal("${road.id}: ${s.columns} column(s) by the line, ${s.keptOut} kept out (village or stop), road in ${s.road}; " +
-                "${s.logs} log(s) over the road, ${s.felled} felled, ${s.cleared} leaves and plants cleared${if (n < 0) "; no road found" else ""}") }, false)
+        val stats = LinkedHashMap<String, io.github.veelume.postroad.roads.gen.RoadClearing.Stats>()
+        val center = player.chunkPosition()
+        for (dz in -1..1) for (dx in -1..1) {
+            val chunk = net.minecraft.world.level.ChunkPos.asLong(center.x + dx, center.z + dz)
+            val keepOut = io.github.veelume.postroad.roads.gen.RoadClearing.protectedBoxes(storage, dim, chunk)
+            for (road in storage.roadsInChunk(dim, chunk)) {
+                val s = stats.getOrPut(road.id) { io.github.veelume.postroad.roads.gen.RoadClearing.Stats() }
+                if (io.github.veelume.postroad.roads.gen.RoadClearing.clear(level, road, chunk, keepOut, s) >= 0) { road.clearedChunks.add(chunk); storage.setDirty() }
+            }
         }
-        return roads.size
+        if (stats.isEmpty()) { ctx.source.sendFailure(Component.literal("No planned road within a chunk of here.")); return 0 }
+        for ((id, s) in stats) ctx.source.sendSuccess({ Component.literal("$id: ${s.columns} column(s) by the line, ${s.keptOut} kept out (village or stop), road block in ${s.road}; " +
+            "${s.logs} log(s) over or beside it, ${s.felled} felled, ${s.cleared} leaves and plants cleared") }, false)
+        return stats.size
     }
 
     /** Every chunk of every upgraded road goes through the swap again (it only touches blocks still of a lower tier). */

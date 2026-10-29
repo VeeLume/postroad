@@ -28,7 +28,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
  */
 object RoadClearing {
     /** Raised whenever what counts as cleared changes; older records are dropped on load. */
-    const val VERSION = 2
+    const val VERSION = 3
 
     private class Job(val dimension: ResourceLocation, val chunk: Long)
 
@@ -123,9 +123,10 @@ object RoadClearing {
                         if (state.`is`(BlockTags.LOGS) || state.`is`(BlockTags.LEAVES)) continue
                         if (rules.classify(state) != null) { surface = y; break }
                     }
-                    if (surface == Int.MIN_VALUE) continue
-                    found = true
-                    stats.road++
+                    if (surface != Int.MIN_VALUE) { found = true; stats.road++ }
+                    // A tree turns the road block under its trunk to dirt, and a road laid by an older layout
+                    // misses some columns: those use the road's planned level, which is the line's.
+                    else surface = lineY - 1
                     for (y in surface + 1..surface + HEADROOM) {
                         val pos = BlockPos(x, y, z)
                         val state = level.getBlockState(pos)
