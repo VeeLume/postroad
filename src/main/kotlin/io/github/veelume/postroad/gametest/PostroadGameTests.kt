@@ -130,6 +130,7 @@ class PostroadGameTests {
         val menu = SatchelMenu(0, player.inventory)
         menu.slots[0].set(ItemStack(Items.SADDLE))
         menu.slots[1].set(ItemStack(PostroadItems.COIN.get(), 4))
+        helper.assertTrue(!menu.slots[2].mayPlace(ItemStack(Items.COBBLESTONE, 10)), "the row refuses what the satchel does not buy")
         menu.slots[2].set(ItemStack(Items.COBBLESTONE, 10))
         menu.slots[3].set(ItemStack(Items.GOLDEN_HELMET).also { Looted.mark(it) })
         helper.assertValueEqual(menu.total(), 3L + 4L + 1L, "row total: saddle, coins, looted helmet")

@@ -17,15 +17,17 @@ import net.minecraft.world.item.ItemStack
 /**
  * One row of goods above the player's inventory. Nothing is kept: the row is a scratch space, sold by
  * [BUTTON_SELL] (vanilla's container-button packet) and handed back on close, like a crafting grid.
- * Coins in the row are paid in. Both sides quote with [Salvage], so the screen shows the server's price.
+ * It takes only what [Salvage] buys, and coins, which are paid in. Both sides quote with [Salvage], so
+ * the screen shows the server's price on every slot before anything is moved.
  */
 class SatchelMenu(containerId: Int, val playerInventory: Inventory) : AbstractContainerMenu(PostroadMenus.SATCHEL.get(), containerId) {
     private val goods = SimpleContainer(SLOTS)
 
     init {
         for (col in 0 until SLOTS) {
+            // Only what the satchel takes goes in, so the row never holds anything it will not sell.
             addSlot(object : Slot(goods, col, 8 + col * 18, 18) {
-                override fun mayPlace(stack: ItemStack): Boolean = !stack.`is`(PostroadItems.SATCHEL.get())
+                override fun mayPlace(stack: ItemStack): Boolean = Salvage.takes(stack)
             })
         }
         for (row in 0 until 3) for (col in 0 until 9) {
@@ -70,7 +72,7 @@ class SatchelMenu(containerId: Int, val playerInventory: Inventory) : AbstractCo
         val stack = slot.item
         val copy = stack.copy()
         val moved = if (index < SLOTS) moveItemStackTo(stack, SLOTS, slots.size, true)
-        else !stack.`is`(PostroadItems.SATCHEL.get()) && moveItemStackTo(stack, 0, SLOTS, false)
+        else Salvage.takes(stack) && moveItemStackTo(stack, 0, SLOTS, false)
         if (!moved) return ItemStack.EMPTY
         if (stack.isEmpty) slot.setByPlayer(ItemStack.EMPTY) else slot.setChanged()
         return copy
