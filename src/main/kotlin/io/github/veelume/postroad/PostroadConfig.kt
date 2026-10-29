@@ -43,6 +43,10 @@ object PostroadConfig {
         "biomeswevegone:village/swamp/houses",
     )
 
+    private val WORKS_COINS_GRAVEL: ModConfigSpec.IntValue
+    private val WORKS_COINS_PAVED: ModConfigSpec.IntValue
+    private val WORKS_MATERIAL: ModConfigSpec.IntValue
+    private val WORKS_CHUNKS_PER_TICK: ModConfigSpec.IntValue
     private val SALVAGE_LOOTED_DEFAULT: ModConfigSpec.IntValue
     private val SALVAGE_ENCHANTED_BONUS: ModConfigSpec.IntValue
     private val LEDGER_MAX_ENTRIES: ModConfigSpec.IntValue
@@ -96,6 +100,13 @@ object PostroadConfig {
     val SPEC: ModConfigSpec
 
     init {
+        BUILDER.push("roadWorks")
+        WORKS_COINS_GRAVEL = BUILDER.comment("Coins per 100 blocks of road to upgrade it from dirt to gravel.").defineInRange("coinsPer100BlocksGravel", 2, 0, 10000)
+        WORKS_COINS_PAVED = BUILDER.comment("Coins per 100 blocks of road to upgrade it from gravel to paved.").defineInRange("coinsPer100BlocksPaved", 4, 0, 10000)
+        WORKS_MATERIAL = BUILDER.comment("Items of the next tier's main road block (gravel, stone bricks, ... by the road's palette) per 100 blocks of road.").defineInRange("materialPer100Blocks", 32, 0, 10000)
+        WORKS_CHUNKS_PER_TICK = BUILDER.comment("Loaded chunks of upgraded roads swapped to the new palette per server tick at most.").defineInRange("chunksPerTick", 2, 1, 64)
+        BUILDER.pop()
+
         BUILDER.push("salvage")
         SALVAGE_LOOTED_DEFAULT = BUILDER
             .comment("Coins for a piece of looted gear whose material has no salvage_material rate. 0 leaves such gear unsold.")
@@ -206,6 +217,10 @@ object PostroadConfig {
         SPEC = BUILDER.build()
     }
 
+    val worksCoinsGravel: Int get() = WORKS_COINS_GRAVEL.get()
+    val worksCoinsPaved: Int get() = WORKS_COINS_PAVED.get()
+    val worksMaterial: Int get() = WORKS_MATERIAL.get()
+    val worksChunksPerTick: Int get() = WORKS_CHUNKS_PER_TICK.get()
     val salvageLootedDefault: Long get() = SALVAGE_LOOTED_DEFAULT.get().toLong()
     val salvageEnchantedBonus: Long get() = SALVAGE_ENCHANTED_BONUS.get().toLong()
     val ledgerMaxEntries: Int get() = LEDGER_MAX_ENTRIES.get()

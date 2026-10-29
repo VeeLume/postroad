@@ -58,7 +58,7 @@ object RoadPieceLayer {
         return if (v === p.piece) p else PiecePlacement(v, p.transform, p.x, p.base, p.z, p.index, p.roadId)
     }
 
-    private fun stateOf(b: PieceBlock, p: PiecePlacement, style: RoadStyle, seed: Long, pos: BlockPos): BlockState = when (b.role) {
+    fun stateOf(b: PieceBlock, p: PiecePlacement, style: RoadStyle, seed: Long, pos: BlockPos): BlockState = when (b.role) {
         // Rolled per 2x2 patch, not per block: an independent roll at every column is white noise,
         // which reads as confetti rather than as wear. Patches make the accent look like use.
         RoadPiece.ROLE_SURFACE -> style.surface.pick(Random(Mth.getSeed(pos.x shr 1, 0, pos.z shr 1) xor seed))

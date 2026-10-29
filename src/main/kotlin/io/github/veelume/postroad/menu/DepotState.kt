@@ -99,6 +99,7 @@ object PostroadNetworking {
         io.github.veelume.postroad.travel.TravelNetworking.register(registrar)
         io.github.veelume.postroad.roads.gen.RoadDebug.register(registrar)
         io.github.veelume.postroad.map.MapOverlay.register(registrar)
+        io.github.veelume.postroad.roads.gen.RoadWorksNetworking.register(registrar)
         registrar.playToClient(DepotStatePayload.TYPE, DepotStatePayload.STREAM_CODEC) { payload, context ->
             (context.player().containerMenu as? DepotMenu)?.state = payload.state
         }

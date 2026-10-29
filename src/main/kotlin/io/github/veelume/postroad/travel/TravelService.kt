@@ -40,6 +40,8 @@ object TravelService {
             fund = network.balance(Network.ROAD_FUND),
             renamable = from.kind == RoadNode.KIND_SIGN,
             freeJourneyIn = readyIn,
+            fromX = from.pos.x,
+            fromZ = from.pos.z,
         )
         // A client without the mod (or a game test's mock player) has no screen to open.
         if (player.connection.hasChannel(TravelStatePayload.TYPE)) PacketDistributor.sendToPlayer(player, TravelStatePayload(state))
@@ -62,7 +64,7 @@ object TravelService {
             .map { (node, route) ->
                 val free = Fares.usesFreeJourney(route.length, ready)
                 TravelEntry(node.id, node.name, route.length.toInt(), route.worstTier?.key ?: "dirt",
-                    Fares.price(route.length, route.worstTier, ready), if (free) Fares.cooldown(route.length) else 0L)
+                    Fares.price(route.length, route.worstTier, ready), if (free) Fares.cooldown(route.length) else 0L, node.pos.x, node.pos.z)
             }
             .sortedBy { it.length }
     }

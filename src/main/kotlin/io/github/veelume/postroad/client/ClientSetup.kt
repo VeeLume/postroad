@@ -22,6 +22,10 @@ object ClientSetup {
         RoadDebugRenderer.register()
         io.github.veelume.postroad.roads.ChartingClient.screenOpener = Runnable { net.minecraft.client.Minecraft.getInstance().setScreen(ChartingScreen()) }
         io.github.veelume.postroad.travel.TravelClient.screenOpener = Runnable { net.minecraft.client.Minecraft.getInstance().setScreen(TravelScreen()) }
+        io.github.veelume.postroad.roads.gen.RoadWorksClient.screenOpener = Runnable {
+            val mc = net.minecraft.client.Minecraft.getInstance()
+            (mc.screen as? RoadWorksScreen)?.refresh() ?: mc.setScreen(RoadWorksScreen())
+        }
         // The next server sends its own; until then the maps must not show the last one's towns.
         FORGE_BUS.addListener(ClientPlayerNetworkEvent.LoggingOut::class.java, Consumer { MapOverlayClient.update(MapOverlayState.EMPTY) })
         val minimap = ModList.get().isLoaded("xaerominimap")

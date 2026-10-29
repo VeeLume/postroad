@@ -228,6 +228,7 @@ class DepotMenu private constructor(
                 if (node == null) player.displayClientMessage(Component.translatable("message.postroad.travel.no_node"), true)
                 else (player as? ServerPlayer)?.let { io.github.veelume.postroad.travel.TravelService.open(it, node.id) }
             }
+            ACTION_ROAD_WORKS -> if (!s.mailbox) (player as? ServerPlayer)?.let { io.github.veelume.postroad.roads.gen.RoadWorksNetworking.open(it, s.placeId) }
             ACTION_EXPRESS -> { expressData.set(if (express) 0 else 1); sendState() }
             ACTION_SELL -> sell(s, player)
             ACTION_DUMP -> dump(player)
@@ -385,6 +386,7 @@ class DepotMenu private constructor(
         const val ACTION_TRAVEL = 14
         const val ACTION_EXPRESS = 12
         const val ACTION_SELL = 13
+        const val ACTION_ROAD_WORKS = 15
 
         fun client(id: Int, inventory: Inventory, buf: RegistryFriendlyByteBuf): DepotMenu =
             DepotMenu(id, inventory, buf.readBlockPos(), null)

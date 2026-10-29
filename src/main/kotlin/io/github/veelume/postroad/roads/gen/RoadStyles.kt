@@ -31,6 +31,12 @@ class Palette(private val entries: List<Pair<BlockState, Int>>) {
     }
 
     val isEmpty: Boolean get() = entries.isEmpty()
+
+    /** Every block the palette can pick. */
+    val blocks: Set<Block> get() = entries.mapTo(HashSet()) { it.first.block }
+
+    /** The block it picks most often: what this palette is made of. */
+    val main: BlockState get() = entries.maxByOrNull { it.second }?.first ?: Blocks.DIRT_PATH.defaultBlockState()
 }
 
 /** One family's look: road centre, shoulders, lamppost. */

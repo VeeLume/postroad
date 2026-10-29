@@ -113,6 +113,11 @@ live in `docs/` (one per increment). This file is about the code.
   in a row are skipped for good. Structures tagged `#postroad:passable` (landscape structures such as BWG's
   plateaus and arches, underground ones whose box reaches the surface such as mineshafts) are neither town nor
   obstacle — the tag file is `data/postroad/tags/worldgen/structure/passable.json`, a pack extends it.
+  **Road works** (`RoadWorks`, `RoadWorksNetworking`): at a depot, players pool coins and the next tier's main surface block
+  (by the road's dominant family) toward a generated road of that town; prices are `roadWorks.*` per 100 blocks. Paid up, the
+  road's tier rises, its network path takes the tier, the snapshot is republished, and its chunks queue in
+  `PlannedRoad.upgradeChunks`: once loaded, `upgradeChunk` re-derives the placements (all terrain variants of each piece) and
+  swaps every block that is still a lower tier's for its role, properties kept, nothing regraded. A re-planned road keeps its tier.
   **Pit stops** (`docs/increment-8.md`): `PitStops` runs in the chunk-load builder's tick like the junction signs.
   Each town's depot is a schematic (`structure/pit_stop_<style>.nbt`) beside the end of its first road the builder
   reaches (or a street exit when no road will come), bound to the predicted place in `Network` before the depot
@@ -135,13 +140,15 @@ live in `docs/` (one per increment). This file is about the code.
 - `mail/MailService` — parcels: lane split, arrival days, delivery on day change; `network/Parcel`.
 - `menu/` — `DepotMenu` (one 54-slot grid, backing container swapped per tab; ints via data
   slots, names via `DepotStatePayload`), `DepotState` + the two payloads, `PostroadNetworking`.
-- `client/` — `DepotScreen`, `SatchelScreen` (a one-row chest, the sell button on the inventory label's line), `ClientSetup`. Only referenced from the `Dist.CLIENT` branch in `Postroad`.
+- `client/` — `DepotScreen`, `SatchelScreen` (a one-row chest, the sell button on the inventory label's line), `ClientSetup`,
+  `RoadMapWidget` (the schematic map of `MapOverlayClient`'s towns and roads: tier colours, pan/zoom, pickable markers and roads),
+  shared by `TravelScreen` (destinations on the map plus a short list) and `RoadWorksScreen`. Only referenced from the `Dist.CLIENT` branch in `Postroad`.
   `DepotScreen`'s body is the vanilla 6-row chest to the pixel (176×222, so it fits at every GUI
   scale); the depot's controls sit in a panel attached to its right, outside the rectangle a recipe
   viewer can see — hence `columnArea()`, the `hasClickedOutside` override (a click on the column
   must not throw the carried stack) and `compat/PostroadEmiPlugin`.
-- `map/MapOverlay` — what map mods show: towns with a depot and every `Network` path (simplified
-  polyline, charted or not, end-town names from the plan). Sent on login and to everyone when a cheap fingerprint
+- `map/MapOverlay` — what map mods and the road map show: towns with a depot and every `Network` path (simplified
+  polyline, charted or not, end-town names, plan id and tier from the plan). Sent on login and to everyone when a cheap fingerprint
   changes (every 5 s); only to connections with the channel (game-test mock players have none). `MapOverlayClient`
   holds it client-side, no client imports. `map.roadsBeyondExplored` decides whether roads show on unexplored map.
 - `advancement/PostroadAdvancements` — mod-granted milestones (impossible trigger) for FTB Quests.

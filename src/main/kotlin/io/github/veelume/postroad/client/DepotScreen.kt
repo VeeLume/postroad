@@ -38,6 +38,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
     private lateinit var expressButton: Button
     private lateinit var sellButton: Button
     private lateinit var travelButton: Button
+    private lateinit var worksButton: Button
 
     init {
         imageWidth = BODY_W
@@ -83,6 +84,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
 
         homeButton = button("screen.postroad.depot.set_home", DepotMenu.ACTION_SET_HOME, BX, TOWN_Y, HALF, "screen.postroad.depot.set_home.tooltip")
         travelButton = button("screen.postroad.depot.travel", DepotMenu.ACTION_TRAVEL, BX + HALF + 2, TOWN_Y, HALF, "screen.postroad.depot.travel.tooltip")
+        worksButton = button("screen.postroad.depot.works", DepotMenu.ACTION_ROAD_WORKS, BX, WORKS_Y, BW, "screen.postroad.depot.works.tooltip")
         updateWidgets()
     }
 
@@ -98,6 +100,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         nextPage.visible = paged
         homeButton.visible = !menu.isRemotePage() && !menu.atMailbox
         travelButton.visible = !menu.isRemotePage() && !menu.atMailbox
+        worksButton.visible = !menu.isRemotePage() && !menu.atMailbox
         homeButton.active = state.homeName != state.townName
 
         selectButton.message = Component.translatable(if (menu.selectMode) "screen.postroad.depot.select_done" else "screen.postroad.depot.select")
@@ -253,14 +256,15 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
 
         // Rows: 2 px apart inside a group, 8 px between groups; the last ends 2 px above the frame.
         private const val PAGE_Y = 10
-        private const val MOVE_Y = 36
-        private const val SELECT_Y = 62
-        private const val LOOT_Y = 82
-        private const val DEST_Y = 108
-        private const val EXPRESS_Y = 128
-        private const val SEND_Y = 148
-        private const val SELL_Y = 168
-        private const val TOWN_Y = 194
+        private const val MOVE_Y = 32
+        private const val SELECT_Y = 54
+        private const val LOOT_Y = 74
+        private const val DEST_Y = 98
+        private const val EXPRESS_Y = 118
+        private const val SEND_Y = 138
+        private const val SELL_Y = 158
+        private const val TOWN_Y = 178
+        private const val WORKS_Y = 197
 
         private const val PANEL = 0xFFC6C6C6.toInt()
         private const val LOCKED = 0x99404040.toInt()

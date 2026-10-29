@@ -8,23 +8,25 @@ import net.minecraft.server.level.ServerPlayer
 import net.neoforged.neoforge.network.registration.PayloadRegistrar
 
 /** One destination: [fare] is what it costs now; [cooldown] the ticks of cooldown it starts when it uses the free journey, else 0. */
-data class TravelEntry(val nodeId: String, val name: String, val length: Int, val tier: String, val fare: Long, val cooldown: Long = 0L)
+data class TravelEntry(val nodeId: String, val name: String, val length: Int, val tier: String, val fare: Long, val cooldown: Long = 0L, val x: Int = 0, val z: Int = 0)
 
 /** [freeJourneyIn]: ticks until the player's free journey is ready, 0 when it is, -1 when free journeys are off. */
-data class TravelState(val fromNodeId: String, val fromName: String, val entries: List<TravelEntry>, val wallet: Long, val fund: Long, val renamable: Boolean = false, val freeJourneyIn: Long = 0L) {
+data class TravelState(val fromNodeId: String, val fromName: String, val entries: List<TravelEntry>, val wallet: Long, val fund: Long, val renamable: Boolean = false, val freeJourneyIn: Long = 0L,
+                       val fromX: Int = 0, val fromZ: Int = 0) {
     companion object {
         val EMPTY = TravelState("", "", emptyList(), 0L, 0L)
         val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, TravelState> = StreamCodec.of(
             { buf, s ->
                 buf.writeUtf(s.fromNodeId); buf.writeUtf(s.fromName)
-                buf.writeCollection(s.entries) { b, e -> b.writeUtf(e.nodeId); b.writeUtf(e.name); b.writeVarInt(e.length); b.writeUtf(e.tier); b.writeVarLong(e.fare); b.writeVarLong(e.cooldown) }
+                buf.writeCollection(s.entries) { b, e -> b.writeUtf(e.nodeId); b.writeUtf(e.name); b.writeVarInt(e.length); b.writeUtf(e.tier); b.writeVarLong(e.fare); b.writeVarLong(e.cooldown); b.writeVarInt(e.x); b.writeVarInt(e.z) }
                 buf.writeVarLong(s.wallet); buf.writeVarLong(s.fund); buf.writeBoolean(s.renamable); buf.writeVarLong(s.freeJourneyIn)
+                buf.writeVarInt(s.fromX); buf.writeVarInt(s.fromZ)
             },
             { buf ->
                 TravelState(
                     buf.readUtf(), buf.readUtf(),
-                    buf.readList { b -> TravelEntry(b.readUtf(), b.readUtf(), b.readVarInt(), b.readUtf(), b.readVarLong(), b.readVarLong()) },
-                    buf.readVarLong(), buf.readVarLong(), buf.readBoolean(), buf.readVarLong(),
+                    buf.readList { b -> TravelEntry(b.readUtf(), b.readUtf(), b.readVarInt(), b.readUtf(), b.readVarLong(), b.readVarLong(), b.readVarInt(), b.readVarInt()) },
+                    buf.readVarLong(), buf.readVarLong(), buf.readBoolean(), buf.readVarLong(), buf.readVarInt(), buf.readVarInt(),
                 )
             },
         )

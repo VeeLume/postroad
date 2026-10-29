@@ -610,6 +610,10 @@ object RoadGen {
                 continue
             }
             fresh.replans = old.replans + 1
+            // Road works belong to the pair, not to one geometry: the new line is laid at the tier paid for.
+            fresh.tier = old.tier
+            fresh.worksCoins = old.worksCoins
+            fresh.worksMaterial = old.worksMaterial
             storage.removeRoad(id)
             network.removePath(id)
             removed++

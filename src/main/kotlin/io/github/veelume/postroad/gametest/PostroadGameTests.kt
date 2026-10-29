@@ -511,7 +511,9 @@ class PostroadGameTests {
         val box = helper.getBlockEntity<io.github.veelume.postroad.mailbox.MailboxBlockEntity>(boxPos)
         box.claim(helper.level, player.gameProfile.name)
         val mine = box.placeId ?: return helper.fail("mailbox not registered")
-        val friend = Place("test/mailbox/" + java.util.UUID.randomUUID().toString().take(8), "Friend's mailbox", "common", Place.TYPE_MAILBOX,
+        // Named per run: the test world outlives a run, and a box left by a failed one must not be picked.
+        val tag = java.util.UUID.randomUUID().toString().take(8)
+        val friend = Place("test/mailbox/$tag", "Friend $tag's mailbox", "common", Place.TYPE_MAILBOX,
             helper.level.dimension().location(), helper.absolutePos(BlockPos(6, 1, 6)), 0, "friend")
         network.addPlace(friend)
         network.mailboxStorage(mine).setItem(0, ItemStack(Items.OAK_LOG, 12))
@@ -1108,6 +1110,64 @@ class PostroadGameTests {
 
     private fun isStair(b: net.minecraft.world.level.block.Block) = b is net.minecraft.world.level.block.StairBlock
     private fun isSlab(b: net.minecraft.world.level.block.Block) = b is net.minecraft.world.level.block.SlabBlock
+
+    @GameTest(template = ARENA)
+    fun road_works_swap_a_laid_road_to_the_next_tier(helper: GameTestHelper) {
+        val styles = io.github.veelume.postroad.roads.gen.RoadStyles.current
+        // A flat stretch and a two-block rise: surface, shoulders and stairs.
+        val floorY = shapeFloor(helper) { x, _ -> when { x >= 4 -> 2; x >= 3 -> 1; else -> 0 } }
+        val points = listOf(BlockPos(1, F + 1, 3), BlockPos(4, F + 3, 3))
+        layRoad(helper, floorY, points)
+        val dirt = styles.style(0, 0); val gravel = styles.style(0, 1)
+        val road = io.github.veelume.postroad.roads.gen.PlannedRoad("test/works/" + java.util.UUID.randomUUID().toString().take(6),
+            helper.level.dimension().location(), "test/a", "test/b", points.map { helper.absolutePos(it) }, ByteArray(points.size))
+        // Something a player put on the road stays.
+        helper.setBlock(BlockPos(1, F, 4), Blocks.OAK_PLANKS)
+        road.tier = 1
+        for (chunk in road.chunks()) io.github.veelume.postroad.roads.gen.RoadWorks.upgradeChunk(helper.level, road, chunk)
+
+        val old = dirt.surface.blocks + dirt.edge.blocks + dirt.stairs.block
+        for (x in 0..6) for (z in 0..6) for (y in F..F + 3) {
+            val b = blockAt(helper, x, y, z)
+            helper.assertTrue(b !in old, "a dirt-tier block is left at ($x, $y, $z): $b")
+        }
+        helper.assertTrue(blockAt(helper, 1, F, 3) in gravel.surface.blocks, "the flat stretch is gravel now: ${blockAt(helper, 1, F, 3)}")
+        val stair = stateAt(helper, 3, F + 1, 3)
+        helper.assertValueEqual(stair.block, gravel.stairs.block, "the step is the gravel tier's stair")
+        helper.assertValueEqual(stair.getValue(net.minecraft.world.level.block.StairBlock.FACING), net.minecraft.core.Direction.EAST, "and still faces up the slope")
+        helper.assertValueEqual(blockAt(helper, 1, F, 4), Blocks.OAK_PLANKS, "the player's planks stay")
+        helper.succeed()
+    }
+
+    @GameTest(template = ARENA)
+    fun road_works_pool_coins_and_material_then_upgrade(helper: GameTestHelper) {
+        val works = io.github.veelume.postroad.roads.gen.RoadWorks
+        val player = helper.makeMockServerPlayerInLevel()
+        val network = Network.get(helper.level.server)
+        val points = (0..10).map { helper.absolutePos(BlockPos(it * 50, 1, 9000)) }
+        val road = io.github.veelume.postroad.roads.gen.PlannedRoad("test/works/" + java.util.UUID.randomUUID().toString().take(6),
+            helper.level.dimension().location(), "test/a", "test/b", points, ByteArray(points.size))
+        val price = works.price(road) ?: return helper.fail("no price at dirt")
+        helper.assertTrue(price.coins > 0 && price.materialCount > 0, "a 500-block road costs coins and material: $price")
+        val account = Network.playerAccount(player.gameProfile.name)
+        network.credit(account, price.coins + 5, 0, "test", LedgerEntry.OP_GRANT, "test")
+        val before = network.balance(account)
+
+        helper.assertValueEqual(works.fund(player, road, 1), 1L, "one coin in")
+        helper.assertValueEqual(works.fund(player, road, Long.MAX_VALUE), price.coins - 1, "the rest, and not a coin more")
+        helper.assertValueEqual(network.balance(account), before - price.coins, "paid from the wallet")
+        helper.assertValueEqual(road.tier, 0, "coins alone do not upgrade")
+
+        val placeId = "test/works/" + java.util.UUID.randomUUID().toString().take(6)
+        player.inventory.setItem(0, ItemStack(price.material, price.materialCount + 3))
+        helper.assertValueEqual(works.deliver(player, road, placeId), price.materialCount, "delivers what is needed")
+        helper.assertValueEqual(player.inventory.getItem(0).count, 3, "and leaves the rest")
+        helper.assertValueEqual(road.tier, 1, "coins and material in: one tier up")
+        helper.assertTrue(road.upgradeChunks.isNotEmpty() && road.worksCoins == 0L && road.worksMaterial == 0, "chunks queued, progress reset")
+        helper.assertTrue(works.price(road)!!.coins > price.coins, "paving costs more than gravel")
+        network.storageFor(placeId).clearContent()
+        helper.succeed()
+    }
 
     @GameTest(template = ARENA)
     fun pieces_flat_road_replaces_the_floor_top(helper: GameTestHelper) {

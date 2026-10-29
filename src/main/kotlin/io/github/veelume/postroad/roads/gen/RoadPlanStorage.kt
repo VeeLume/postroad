@@ -107,6 +107,11 @@ class PlannedRoad(
     var replans: Int = 0
     /** Road quality, an ordinal of [io.github.veelume.postroad.roads.Tier]: the palette it is laid from. Road works raise it. */
     var tier: Int = 0
+    /** Road works toward the next tier: coins paid and material delivered so far, pooled across players. */
+    var worksCoins: Long = 0
+    var worksMaterial: Int = 0
+    /** Chunks still to be swapped to [tier]'s palette after an upgrade; each goes once it is loaded. */
+    val upgradeChunks = LongOpenHashSet()
     /** Town ends the pit-stop pass has handled (stop or signpost): [END_FROM] and [END_TO] bits. */
     var endsDone: Int = 0
     /** End bit → the lowest way sign of the signpost put up at that end, so a junction sign can replace it. */
@@ -132,6 +137,9 @@ class PlannedRoad(
         tag.putBoolean("Provisional", provisional)
         tag.putInt("Replans", replans)
         tag.putInt("Tier", tier)
+        tag.putLong("WorksCoins", worksCoins)
+        tag.putInt("WorksMaterial", worksMaterial)
+        tag.putLongArray("UpgradeChunks", upgradeChunks.toLongArray())
         tag.putInt("EndsDone", endsDone)
         tag.putLongArray("EndPosts", endPosts.flatMap { (bit, pos) -> listOf(bit.toLong(), pos.asLong()) }.toLongArray())
         return tag
@@ -151,6 +159,9 @@ class PlannedRoad(
             road.provisional = tag.getBoolean("Provisional")
             road.replans = tag.getInt("Replans")
             road.tier = tag.getInt("Tier")
+            road.worksCoins = tag.getLong("WorksCoins")
+            road.worksMaterial = tag.getInt("WorksMaterial")
+            for (c in tag.getLongArray("UpgradeChunks")) road.upgradeChunks.add(c)
             road.endsDone = tag.getInt("EndsDone")
             tag.getLongArray("EndPosts").toList().chunked(2).forEach { if (it.size == 2) road.endPosts[it[0].toInt()] = BlockPos.of(it[1]) }
             return road

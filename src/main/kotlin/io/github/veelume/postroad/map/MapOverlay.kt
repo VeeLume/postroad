@@ -22,9 +22,12 @@ data class MapTown(val id: String, val name: String, val dimension: ResourceLoca
 
 /**
  * A road of the network as a simplified polyline on the ground plane. [from]/[to] are the end towns'
- * names for a generated road, both empty for a walk somebody charted by hand.
+ * names for a generated road, both empty for a walk somebody charted by hand. [plannedId] is the
+ * generated road's plan id (what road works upgrade), empty for a walk; [tier] the road's tier ordinal:
+ * the plan's for a generated road, the ground's majority for a walk.
  */
-class MapRoad(val dimension: ResourceLocation, val charted: Boolean, val from: String, val to: String, val xs: IntArray, val zs: IntArray)
+class MapRoad(val dimension: ResourceLocation, val charted: Boolean, val from: String, val to: String, val xs: IntArray, val zs: IntArray,
+              val plannedId: String = "", val tier: Int = 0)
 
 /** What the client's maps show: the network's towns and roads, the same for every player. */
 class MapOverlayState(val towns: List<MapTown>, val roads: List<MapRoad>, val roadsBeyondExplored: Boolean) {
@@ -39,6 +42,7 @@ class MapOverlayState(val towns: List<MapTown>, val roads: List<MapRoad>, val ro
                 buf.writeCollection(s.towns) { b, t -> b.writeUtf(t.id); b.writeUtf(t.name); b.writeResourceLocation(t.dimension); b.writeLong(t.pos.asLong()) }
                 buf.writeCollection(s.roads) { b, r ->
                     b.writeResourceLocation(r.dimension); b.writeBoolean(r.charted); b.writeUtf(r.from); b.writeUtf(r.to)
+                    b.writeUtf(r.plannedId); b.writeVarInt(r.tier)
                     // First point absolute, the rest as deltas: most steps along a simplified road fit a byte or two.
                     b.writeVarInt(r.xs.size)
                     for (i in r.xs.indices) {
@@ -52,13 +56,14 @@ class MapOverlayState(val towns: List<MapTown>, val roads: List<MapRoad>, val ro
                 val towns = buf.readList { b -> MapTown(b.readUtf(), b.readUtf(), b.readResourceLocation(), BlockPos.of(b.readLong())) }
                 val roads = buf.readList { b ->
                     val dim = b.readResourceLocation(); val charted = b.readBoolean(); val from = b.readUtf(); val to = b.readUtf()
+                    val plannedId = b.readUtf(); val tier = b.readVarInt()
                     val n = b.readVarInt()
                     val xs = IntArray(n); val zs = IntArray(n)
                     for (i in 0 until n) {
                         xs[i] = unzigzag(b.readVarInt()) + (if (i == 0) 0 else xs[i - 1])
                         zs[i] = unzigzag(b.readVarInt()) + (if (i == 0) 0 else zs[i - 1])
                     }
-                    MapRoad(dim, charted, from, to, xs, zs)
+                    MapRoad(dim, charted, from, to, xs, zs, plannedId, tier)
                 }
                 MapOverlayState(towns, roads, buf.readBoolean())
             },
@@ -152,7 +157,7 @@ object MapOverlay {
             h = 31 * h + path.points.hashCode()
         }
         // End-town names of generated roads come from the plan.
-        for (road in storage.roads.values) h = 31 * (31 * h + road.from.hashCode()) + road.to.hashCode()
+        for (road in storage.roads.values) h = 31 * (31 * (31 * h + road.from.hashCode()) + road.to.hashCode()) + road.tier
         return h
     }
 
@@ -166,7 +171,8 @@ object MapOverlay {
             val planned = generateSequence(path.id) { if (it.endsWith('b')) it.dropLast(1) else null }.firstNotNullOfOrNull { storage.roads[it] }
             val points = simplify(path.points, SIMPLIFY_TOLERANCE)
             MapRoad(path.dimension, path.charted, planned?.let { nameOf(it.from) } ?: "", planned?.let { nameOf(it.to) } ?: "",
-                IntArray(points.size) { points[it].x }, IntArray(points.size) { points[it].z })
+                IntArray(points.size) { points[it].x }, IntArray(points.size) { points[it].z },
+                planned?.id ?: "", planned?.tier ?: (path.tier?.ordinal ?: 0))
         }
         return MapOverlayState(towns, roads, PostroadConfig.mapRoadsBeyondExplored)
     }

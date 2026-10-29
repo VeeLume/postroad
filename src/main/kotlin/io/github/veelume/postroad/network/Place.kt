@@ -79,6 +79,8 @@ data class LedgerEntry(
         const val OP_SALVAGE = "salvage"
         /** The network paying for road charted for the first time. */
         const val OP_SURVEY = "survey"
+        /** Coins put toward a road's next tier. */
+        const val OP_ROAD_WORKS = "road_works"
         const val OP_GRANT = "grant"
         const val OP_CHARTER = "charter"
         const val OP_EXPRESS = "express"
