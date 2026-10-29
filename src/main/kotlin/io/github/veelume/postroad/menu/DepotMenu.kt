@@ -181,6 +181,7 @@ class DepotMenu private constructor(
             expressCost = cost,
             sellCount = quotes.size,
             sellValue = quotes.sum(),
+            mailChime = s.network.mailChime(playerName),
         )
         // A game test's mock player has no channel to send it on.
         (playerInventory.player as? ServerPlayer)?.takeIf { it.connection.hasChannel(DepotStatePayload.TYPE) }
@@ -257,6 +258,13 @@ class DepotMenu private constructor(
             }
             ACTION_ROAD_WORKS -> if (!s.mailbox) (player as? ServerPlayer)?.let { io.github.veelume.postroad.roads.gen.RoadWorksNetworking.open(it, s.placeId) }
             ACTION_EXPRESS -> { expressData.set(if (express) 0 else 1); sendState() }
+            ACTION_MAIL_CHIME -> if (s.mailbox) {
+                val on = !s.network.mailChime(playerName)
+                s.network.setMailChime(playerName, on)
+                // Switched on, it plays once, so the player knows what they will hear.
+                if (on) (player as? ServerPlayer)?.let { MailService.chimeFor(it) }
+                sendState()
+            }
             ACTION_SELL -> sell(s, player)
             ACTION_DUMP -> dump(player)
             ACTION_TAKE_ALL -> takeAll(player)
@@ -416,6 +424,8 @@ class DepotMenu private constructor(
         const val ACTION_ROAD_WORKS = 15
         /** Picks destination number `value` outright (the destination picker). */
         const val ACTION_DESTINATION_SET = 16
+        /** Switches the mail chime on or off for this player (mailbox only). */
+        const val ACTION_MAIL_CHIME = 17
 
         /** Blocks other players' mailbox distances are rounded to. */
         private const val MAILBOX_DISTANCE_STEP = 100.0

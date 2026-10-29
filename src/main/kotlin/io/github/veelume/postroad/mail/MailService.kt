@@ -139,10 +139,10 @@ object MailService {
         val player = server.playerList.players.firstOrNull { it.gameProfile.name.equals(owner, ignoreCase = true) } ?: return
         val sender = network.knownPlayers[parcel.sender] ?: parcel.sender
         player.sendSystemMessage(Component.translatable("message.postroad.mail.arrived", sender).withStyle(ChatFormatting.GOLD))
-        chimeFor(player)
+        if (network.mailChime(owner)) chimeFor(player)
     }
 
-    private fun chimeFor(player: ServerPlayer) =
+    fun chimeFor(player: ServerPlayer) =
         player.playNotifySound(PostroadSounds.MAIL_ARRIVED.get(), SoundSource.PLAYERS, 0.9f, 1f)
 
     // ---- scheduling -----------------------------------------------------------------------------
@@ -184,7 +184,7 @@ object MailService {
             val player = server.playerList.getPlayer(uuid) ?: continue
             if (!network.hasUnreadMail(player.gameProfile.name)) continue
             player.sendSystemMessage(Component.translatable("message.postroad.mail.waiting").withStyle(ChatFormatting.GOLD))
-            chimeFor(player)
+            if (network.mailChime(player.gameProfile.name)) chimeFor(player)
         }
     }
 

@@ -338,6 +338,16 @@ class Network : SavedData() {
         if (changed) setDirty()
     }
 
+    /** Players who switched the mail chime off at their mailbox; the chat line still comes. */
+    private val mailChimeOff: MutableSet<String> = HashSet()
+
+    fun mailChime(player: String): Boolean = player.lowercase() !in mailChimeOff
+
+    fun setMailChime(player: String, on: Boolean) {
+        val changed = if (on) mailChimeOff.remove(player.lowercase()) else mailChimeOff.add(player.lowercase())
+        if (changed) setDirty()
+    }
+
     // ---- parcels ------------------------------------------------------------------------------
 
     fun addParcel(parcel: Parcel) {
@@ -431,6 +441,7 @@ class Network : SavedData() {
         tag.put("SurveyCarry", CompoundTag().also { surveyCarry.forEach { (p, b) -> it.putDouble(p, b) } })
         tag.put("SurveyedTowns", ListTag().also { list -> surveyedTowns.forEach { list.add(net.minecraft.nbt.StringTag.valueOf(it)) } })
         tag.put("UnreadMail", ListTag().also { list -> unreadMail.forEach { list.add(net.minecraft.nbt.StringTag.valueOf(it)) } })
+        tag.put("MailChimeOff", ListTag().also { list -> mailChimeOff.forEach { list.add(net.minecraft.nbt.StringTag.valueOf(it)) } })
         tag.put("Parcels", ListTag().also { list -> parcels.forEach { if (it.items.isNotEmpty()) list.add(it.toTag(registries)) } })
         tag.put("Paths", ListTag().also { list -> paths.values.forEach { list.add(it.toTag()) } })
         tag.put("Links", ListTag().also { list -> links.forEach { list.add(it.toTag()) } })
@@ -485,6 +496,7 @@ class Network : SavedData() {
         }
         tag.getList("SurveyedTowns", Tag.TAG_STRING.toInt()).forEach { surveyedTowns.add(it.asString) }
         tag.getList("UnreadMail", Tag.TAG_STRING.toInt()).forEach { unreadMail.add(it.asString) }
+        tag.getList("MailChimeOff", Tag.TAG_STRING.toInt()).forEach { mailChimeOff.add(it.asString) }
         val journeyTag = tag.getCompound("FreeJourneyAt")
         journeyTag.allKeys.forEach { freeJourneyAt[it] = journeyTag.getLong(it) }
         val carryTag = tag.getCompound("SurveyCarry")

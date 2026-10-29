@@ -28,6 +28,8 @@ data class DepotState(
     /** Marked stacks the depot buys, and what it would pay for them. */
     val sellCount: Int,
     val sellValue: Long,
+    /** Whether this player hears the chime when mail arrives (the mailbox's toggle). */
+    val mailChime: Boolean = true,
 ) {
     val destinationNames: List<String> get() = destinations.map { it.name }
 
@@ -48,6 +50,7 @@ data class DepotState(
                 buf.writeVarLong(s.expressCost)
                 buf.writeVarInt(s.sellCount)
                 buf.writeVarLong(s.sellValue)
+                buf.writeBoolean(s.mailChime)
             },
             { buf ->
                 DepotState(
@@ -63,6 +66,7 @@ data class DepotState(
                     expressCost = buf.readVarLong(),
                     sellCount = buf.readVarInt(),
                     sellValue = buf.readVarLong(),
+                    mailChime = buf.readBoolean(),
                 )
             },
         )

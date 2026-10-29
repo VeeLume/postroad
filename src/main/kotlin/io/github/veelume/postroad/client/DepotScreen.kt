@@ -40,6 +40,7 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
     private lateinit var sellButton: Button
     private lateinit var travelButton: Button
     private lateinit var worksButton: Button
+    private lateinit var chimeButton: Button
 
     init {
         imageWidth = BODY_W
@@ -90,6 +91,8 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         homeButton = button("screen.postroad.depot.set_home", DepotMenu.ACTION_SET_HOME, BX, TOWN_Y, HALF, "screen.postroad.depot.set_home.tooltip")
         travelButton = button("screen.postroad.depot.travel", DepotMenu.ACTION_TRAVEL, BX + HALF + 2, TOWN_Y, HALF, "screen.postroad.depot.travel.tooltip")
         worksButton = button("screen.postroad.depot.works", DepotMenu.ACTION_ROAD_WORKS, BX, WORKS_Y, BW, "screen.postroad.depot.works.tooltip")
+        // A mailbox has no home or travel; its row takes the chime toggle.
+        chimeButton = button("screen.postroad.depot.chime_on", DepotMenu.ACTION_MAIL_CHIME, BX, TOWN_Y, BW, "screen.postroad.depot.chime.tooltip")
         updateWidgets()
     }
 
@@ -107,6 +110,8 @@ class DepotScreen(menu: DepotMenu, inventory: Inventory, title: Component) :
         travelButton.visible = !menu.isRemotePage() && !menu.atMailbox
         worksButton.visible = !menu.isRemotePage() && !menu.atMailbox
         homeButton.active = state.homeName != state.townName
+        chimeButton.visible = menu.atMailbox
+        chimeButton.message = Component.translatable(if (state.mailChime) "screen.postroad.depot.chime_on" else "screen.postroad.depot.chime_off")
 
         selectButton.message = Component.translatable(if (menu.selectMode) "screen.postroad.depot.select_done" else "screen.postroad.depot.select")
         val canSend = menu.unlocked && state.destinationNames.isNotEmpty()

@@ -146,6 +146,7 @@ live in `docs/` (one per increment). This file is about the code.
   opens `DepotMenu` on its own storage (`atMailbox`: no paging, travel or home), so players send each other mail from home.
   Mail landing in someone's mailbox tells the owner (chat + the `PostroadSounds.MAIL_ARRIVED` chime) and sets
   `Network`'s unread flag, which reminds them on login until they open the mailbox (`MailService.announce`/`remind`).
+  The mailbox's *Chime* button (`ACTION_MAIL_CHIME`) switches the sound off per player (`Network.mailChime`); the chat line stays.
 - `mail/MailService` — parcels: lane split, arrival days, delivery on day change; `network/Parcel`.
 - `menu/` — `DepotMenu` (one 54-slot grid, backing container swapped per tab; ints via data
   slots, names via `DepotStatePayload`), `DepotState` + the two payloads, `PostroadNetworking`.
