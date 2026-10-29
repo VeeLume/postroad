@@ -80,14 +80,15 @@ data class MapTerrainPayload(val image: MapTerrainImage) : CustomPacketPayload {
     }
 }
 
-/** Client → server: a road map opened and wants the terrain under it. */
-class MapTerrainRequestPayload : CustomPacketPayload {
-    override fun type(): CustomPacketPayload.Type<MapTerrainRequestPayload> = TYPE
+/**
+ * Client → server: a road map opened and wants the terrain under it. One instance: a unit codec
+ * encodes only the very object it was built with.
+ */
+object MapTerrainRequestPayload : CustomPacketPayload {
+    val TYPE: CustomPacketPayload.Type<MapTerrainRequestPayload> = CustomPacketPayload.Type(Postroad.id("map_terrain_request"))
+    val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, MapTerrainRequestPayload> = StreamCodec.unit(MapTerrainRequestPayload)
 
-    companion object {
-        val TYPE: CustomPacketPayload.Type<MapTerrainRequestPayload> = CustomPacketPayload.Type(Postroad.id("map_terrain_request"))
-        val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, MapTerrainRequestPayload> = StreamCodec.unit(MapTerrainRequestPayload())
-    }
+    override fun type(): CustomPacketPayload.Type<MapTerrainRequestPayload> = TYPE
 }
 
 /** Client-side holder of the last terrain picture; no client imports. The map widget polls [version]. */

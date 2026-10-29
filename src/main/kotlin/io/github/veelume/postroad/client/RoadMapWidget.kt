@@ -51,7 +51,7 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
 
     init {
         // The terrain under the map comes from the server's planner; until it arrives the map is plain.
-        PacketDistributor.sendToServer(MapTerrainRequestPayload())
+        PacketDistributor.sendToServer(MapTerrainRequestPayload)
     }
 
     private var centerX = 0.0

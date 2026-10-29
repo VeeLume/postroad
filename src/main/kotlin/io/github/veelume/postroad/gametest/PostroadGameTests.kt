@@ -1148,6 +1148,8 @@ class PostroadGameTests {
         val back = io.github.veelume.postroad.map.MapTerrainImage.STREAM_CODEC.decode(buf)
         helper.assertValueEqual(listOf(back.x0, back.z0, back.blocksPerPixel, back.width, back.height), listOf(-100, 40, 24, 7, 5), "the frame")
         helper.assertTrue(back.rgb.contentEquals(rgb), "every pixel")
+        // The request a map sends on opening: it once failed to encode and dropped the connection.
+        io.github.veelume.postroad.map.MapTerrainRequestPayload.STREAM_CODEC.encode(buf, io.github.veelume.postroad.map.MapTerrainRequestPayload)
         helper.succeed()
     }
 
