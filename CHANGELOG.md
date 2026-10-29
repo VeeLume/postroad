@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.6
+
+- Towns and roads on Xaero's maps. Towns you have explored on your World Map get a gold
+  waypoint (in the world and on the minimap within 768 blocks, further out on the world map
+  only); roads are drawn on the world map, amber where charted, slate where not, with their
+  name on hover. Roads show over explored map only; `map.roadsBeyondExplored` shows them
+  everywhere. The towns can be switched off in Xaero's waypoint options. A client without
+  this version still joins, it just has no overlay.
+- Inside a town every road counts as charted. A walk or a sign that met an uncharted road at
+  a street exit (several roads often end on the same block) used to be cut off from the town;
+  now everything inside a town's area reaches its depot. Existing worlds need no re-charting.
+- The travel list offers towns and signs players named. The road builder's junction and
+  road-end signs no longer fill it, and a sign labelled with its town's name is not listed
+  twice. Every sign can still be travelled from.
+
 ## 0.2.5
 
 - The road speed buff only applies on roads the network knows: generated roads, and roads
