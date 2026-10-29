@@ -371,6 +371,16 @@ object RoadGen {
         )
     }
 
+    /** Runs [job] on the planner thread with [level]'s worker; false when the planner is off. */
+    fun onPlannerThread(level: ServerLevel, job: (Worker) -> Unit): Boolean {
+        val exec = executor ?: return false
+        val worker = workerFor(level)
+        exec.execute {
+            try { job(worker) } catch (e: Throwable) { Postroad.LOGGER.error("A planner-thread job failed", e) }
+        }
+        return true
+    }
+
     fun workerFor(level: ServerLevel): Worker = workers.getOrPut(level.dimension().location()) {
         // "known" caches hold only tiles of generated terrain (Distant Horizons); estimates are never persisted.
         val cache = level.server.getWorldPath(LevelResource("postroad")).resolve("known$CELL_SIZE")
@@ -1001,75 +1011,8 @@ object RoadGen {
             heights[pz * size + px] = worker.terrain.heightAt(cx, cz)
             flags[pz * size + px] = worker.terrain.flagsAt(cx, cz)
         }
-        var minH = Int.MAX_VALUE
-        var maxH = Int.MIN_VALUE
-        for (h in heights) { if (h < minH) minH = h; if (h > maxH) maxH = h }
-        if (minH >= maxH) { minH = 60; maxH = 120 }
-
-        fun heightAt(px: Int, pz: Int): Int? =
-            if (px in 0 until size && pz in 0 until size) heights[pz * size + px] else null
-
-        // Land colour by height, low to high: green flats, then yellow, brown, grey rock and snow.
-        // A flat brown ramp made a mountain and a meadow look much the same, which is no use for
-        // judging whether a road went round a mountain or over it.
-        fun hypsometric(t: Double): Triple<Int, Int, Int> {
-            val stops = listOf(
-                0.00 to Triple(60, 120, 70),
-                0.25 to Triple(110, 155, 80),
-                0.45 to Triple(190, 185, 110),
-                0.65 to Triple(160, 130, 90),
-                0.82 to Triple(130, 120, 115),
-                1.00 to Triple(240, 240, 245),
-            )
-            val hi = stops.indexOfFirst { it.first >= t }.coerceAtLeast(1)
-            val low = stops[hi - 1]
-            val high = stops[hi]
-            val f = ((t - low.first) / (high.first - low.first).coerceAtLeast(1e-9)).coerceIn(0.0, 1.0)
-            return Triple(
-                (low.second.first + (high.second.first - low.second.first) * f).toInt(),
-                (low.second.second + (high.second.second - low.second.second) * f).toInt(),
-                (low.second.third + (high.second.third - low.second.third) * f).toInt(),
-            )
-        }
-
-        for (pz in 0 until size) for (px in 0 until size) {
-            val h = heights[pz * size + px]
-            val f = flags[pz * size + px]
-            val rgb = when {
-                f and Terrain.LAVA != 0 -> 0xc04010
-                f and Terrain.BLOCKED != 0 -> 0x803030
-                f and Terrain.WATER != 0 -> 0x2050a0
-                else -> {
-                    val t = ((h - minH).toDouble() / (maxH - minH).coerceAtLeast(1)).coerceIn(0.0, 1.0)
-                    val base = hypsometric(t)
-                    var r = base.first
-                    var g = base.second
-                    var b = base.third
-                    // Relief shading with the light in the north-west: the slope across the cell,
-                    // which is what turns a height map into something a person reads as terrain.
-                    val west = heightAt(px - 1, pz)
-                    val east = heightAt(px + 1, pz)
-                    val north = heightAt(px, pz - 1)
-                    val south = heightAt(px, pz + 1)
-                    if (west != null && east != null && north != null && south != null) {
-                        val slope = ((west - east) + (north - south)) / 2.0
-                        val shade = 1.0 + (slope / 6.0).coerceIn(-1.0, 1.0) * 0.45
-                        r = (r * shade).toInt().coerceIn(0, 255)
-                        g = (g * shade).toInt().coerceIn(0, 255)
-                        b = (b * shade).toInt().coerceIn(0, 255)
-                    }
-                    // Ground the planner only guessed at: tinted violet, so a road crossing one is
-                    // obvious. After a pipeline run there should be none under any road.
-                    if (f and Terrain.ESTIMATED != 0) {
-                        r = (r * 0.75 + 70).toInt().coerceIn(0, 255)
-                        b = (b * 0.75 + 90).toInt().coerceIn(0, 255)
-                        g = (g * 0.70).toInt().coerceIn(0, 255)
-                    }
-                    (r shl 16) or (g shl 8) or b
-                }
-            }
-            image.setRGB(px, pz, rgb)
-        }
+        val colors = TerrainShading.colors(heights, flags, size, size, tintEstimates = true)
+        for (pz in 0 until size) for (px in 0 until size) image.setRGB(px, pz, colors[pz * size + px])
 
         val g2 = image.createGraphics()
         fun cellX(x: Int) = (Math.floorDiv(x, CELL_SIZE) - x0) / step

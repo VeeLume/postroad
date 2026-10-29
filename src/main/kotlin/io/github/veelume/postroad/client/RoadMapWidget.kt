@@ -1,8 +1,15 @@
 package io.github.veelume.postroad.client
 
+import com.mojang.blaze3d.platform.NativeImage
+import io.github.veelume.postroad.Postroad
 import io.github.veelume.postroad.map.MapOverlayClient
 import io.github.veelume.postroad.map.MapRoad
+import io.github.veelume.postroad.map.MapTerrainClient
+import io.github.veelume.postroad.map.MapTerrainImage
+import io.github.veelume.postroad.map.MapTerrainRequestPayload
 import io.github.veelume.postroad.map.MapTown
+import net.minecraft.client.renderer.texture.DynamicTexture
+import net.neoforged.neoforge.network.PacketDistributor
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.gui.components.AbstractWidget
@@ -42,6 +49,11 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
     var hoveredRoad: MapRoad? = null; private set
     var hoveredTown: MapTown? = null; private set
 
+    init {
+        // The terrain under the map comes from the server's planner; until it arrives the map is plain.
+        PacketDistributor.sendToServer(MapTerrainRequestPayload())
+    }
+
     private var centerX = 0.0
     private var centerZ = 0.0
     /** Screen pixels per block. */
@@ -69,6 +81,14 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
 
         graphics.fill(x, y, x + width, y + height, BACKGROUND)
         graphics.enableScissor(x, y, x + width, y + height)
+        Terrain.current()?.takeIf { it.dimension == dimension }?.let { t ->
+            // Fills are batched and blits are not: flush the background first or it lands on top.
+            graphics.flush()
+            val left = sx(t.x0.toDouble()).toInt(); val top = sz(t.z0.toDouble()).toInt()
+            val right = sx(t.x1.toDouble()).toInt(); val bottom = sz(t.z1.toDouble()).toInt()
+            graphics.blit(Terrain.LOCATION, left, top, right - left, bottom - top, 0f, 0f, t.width, t.height, t.width, t.height)
+            graphics.fill(x, y, x + width, y + height, SHADE)
+        }
         val pose = graphics.pose().last().pose()
         val buffer = graphics.bufferSource().getBuffer(RenderType.gui())
         fun line(r: MapRoad, widthPx: Float, color: Int) {
@@ -78,10 +98,11 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
                 val len = hypot((bx - ax).toDouble(), (bz - az).toDouble()).toFloat()
                 if (len < 0.01f) continue
                 val nx = -(bz - az) / len * widthPx / 2; val nz = (bx - ax) / len * widthPx / 2
-                buffer.addVertex(pose, ax + nx, az + nz, 0f).setColor(color)
+                // The winding vanilla's fill uses; the other way round the quad is culled as a back face.
                 buffer.addVertex(pose, ax - nx, az - nz, 0f).setColor(color)
-                buffer.addVertex(pose, bx - nx, bz - nz, 0f).setColor(color)
+                buffer.addVertex(pose, ax + nx, az + nz, 0f).setColor(color)
                 buffer.addVertex(pose, bx + nx, bz + nz, 0f).setColor(color)
+                buffer.addVertex(pose, bx - nx, bz - nz, 0f).setColor(color)
             }
         }
         val lineWidth = (2.5 * scale / 0.05).coerceIn(1.5, 4.0).toFloat()
@@ -175,7 +196,32 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
 
     override fun updateWidgetNarration(output: NarrationElementOutput) {}
 
+    /** The server's terrain picture as a texture, rebuilt when a new one arrives. */
+    private object Terrain {
+        val LOCATION: ResourceLocation = Postroad.id("map_terrain")
+        private var version = -1
+        private var image: MapTerrainImage? = null
+
+        fun current(): MapTerrainImage? {
+            val latest = MapTerrainClient.image ?: return null
+            if (MapTerrainClient.version != version) {
+                version = MapTerrainClient.version
+                val native = NativeImage(latest.width, latest.height, false)
+                for (z in 0 until latest.height) for (x in 0 until latest.width) {
+                    val c = latest.rgb[z * latest.width + x]
+                    // NativeImage takes ABGR.
+                    native.setPixelRGBA(x, z, (0xFF shl 24) or ((c and 0xFF) shl 16) or (c and 0xFF00) or ((c shr 16) and 0xFF))
+                }
+                Minecraft.getInstance().textureManager.register(LOCATION, DynamicTexture(native))
+                image = latest
+            }
+            return image
+        }
+    }
+
     companion object {
+        /** Over the terrain, so roads and labels read against it. */
+        private val SHADE = 0x55000000
         private const val MIN_SCALE = 0.005
         private const val MAX_SCALE = 2.0
         /** From this zoom on town names are drawn; below it they show on hover only. */
