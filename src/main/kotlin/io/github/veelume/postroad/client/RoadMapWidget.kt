@@ -37,6 +37,8 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
     var selectedRoad: String? = null
     /** A marker the screen wants emphasised (the row under the mouse in its list). */
     var emphasised: String? = null
+    /** A road the screen wants emphasised (the row under the mouse in its list), by plan id. */
+    var emphasisedRoad: String? = null
     var onMarkerClick: (Marker) -> Unit = {}
     var onRoadClick: (MapRoad) -> Unit = {}
     /** Whether roads are pickable at all; only [highlighted] ones when set. */
@@ -139,16 +141,26 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
         // GUI units, which are several screen pixels each at the usual GUI scales: keep it thin.
         val w = (1.0 * scale / 0.05).coerceIn(1.0, 2.5).toFloat()
         val strokes = roads.map { r -> r to screenPoints(r) }
-            .sortedBy { (r, _) -> (if (r.plannedId in highlighted) 1 else 0) + (if (r.plannedId == selectedRoad || r === hoveredRoad) 2 else 0) }
+            .sortedBy { (r, _) -> (if (r.plannedId in highlighted) 1 else 0) + (if (r.plannedId == selectedRoad || r === hoveredRoad || r.plannedId == emphasisedRoad) 2 else 0) }
+        // With highlights (road works) the roads to pick get an amber outline and the rest step back,
+        // faint and without one; the selected or hovered one is outlined brightest.
+        fun picked(r: MapRoad) = r.plannedId.isNotEmpty() && (r.plannedId == selectedRoad || r === hoveredRoad || r.plannedId == emphasisedRoad)
+        fun background(r: MapRoad) = highlighted.isNotEmpty() && r.plannedId !in highlighted
         for ((r, pts) in strokes) {
-            val emphasis = r.plannedId.isNotEmpty() && (r.plannedId == selectedRoad || r === hoveredRoad)
-            stroke(pts, w + if (emphasis) 3f else 1f, if (emphasis) SELECTED else CASING)
+            when {
+                picked(r) -> stroke(pts, w + 3f, SELECTED)
+                r.plannedId in highlighted -> stroke(pts, w + 2f, HIGHLIGHT)
+                !background(r) -> stroke(pts, w + 1f, CASING)
+            }
         }
         for ((r, pts) in strokes) {
             val base = TIER_COLORS.getOrElse(r.tier) { TIER_COLORS[0] }
-            // In road works the other roads step back behind the town's own.
-            val faded = !r.charted || (highlighted.isNotEmpty() && r.plannedId !in highlighted)
-            stroke(pts, w, if (faded) (base and 0x00FFFFFF) or FADED_ALPHA else base)
+            val color = when {
+                background(r) -> (base and 0x00FFFFFF) or BACKGROUND_ALPHA
+                !r.charted -> (base and 0x00FFFFFF) or FADED_ALPHA
+                else -> base
+            }
+            stroke(pts, w, color)
         }
         graphics.flush()
     }
@@ -301,6 +313,8 @@ class RoadMapWidget(x: Int, y: Int, width: Int, height: Int, private val dimensi
         private const val PICK_ROAD = 5.0
         private val BACKGROUND = 0xFF1E2428.toInt()
         private val SELECTED = 0xFFFFE070.toInt()
+        private val HIGHLIGHT = 0xFFC08020.toInt()
+        private const val BACKGROUND_ALPHA = 0x48000000
         /** Dirt, gravel, paved: light enough to read on grass and forest, told apart by warmth. */
         val TIER_COLORS = intArrayOf(0xFFE2B26E.toInt(), 0xFFC4CACF.toInt(), 0xFFFFF6E2.toInt())
     }

@@ -13,6 +13,7 @@ import net.minecraft.network.chat.Component
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.world.item.ItemStack
 import net.neoforged.neoforge.network.PacketDistributor
+import kotlin.math.hypot
 
 /**
  * Road works at a depot: the road map with the town's roads highlighted, one of them selected (click
@@ -40,6 +41,7 @@ class RoadWorksScreen : Screen(Component.translatable("screen.postroad.works.tit
         map = addRenderableWidget(RoadMapWidget(MARGIN, TOP, panelX - MARGIN * 2, height - TOP - MARGIN, dimension))
         map.roadsPickable = true
         map.onRoadClick = { road -> selected = road.plannedId; refresh() }
+        map.onMarkerClick = { m -> if (state.entries.any { it.roadId == m.id }) { selected = m.id; refresh() } }
         val ids = state.entries.map { it.roadId }.toSet()
         val roads = MapOverlayClient.state.roads.filter { it.plannedId in ids }
         map.fit(roads.flatMap { r -> r.xs.indices.map { r.xs[it] to r.zs[it] } })
@@ -77,6 +79,7 @@ class RoadWorksScreen : Screen(Component.translatable("screen.postroad.works.tit
         if (state.entries.none { it.roadId == selected }) selected = state.entries.firstOrNull()?.roadId
         map.highlighted = state.entries.map { it.roadId }.toSet()
         map.selectedRoad = selected
+        map.markers = markers()
         val e = current()
         val open = e != null && e.tier < Tier.entries.size - 1
         val coinsLeft = if (e == null) 0L else e.coinsNeeded - e.coinsPaid
@@ -104,7 +107,37 @@ class RoadWorksScreen : Screen(Component.translatable("screen.postroad.works.tit
 
     private fun tierName(tier: Int): Component = Component.translatable("tier.postroad.${Tier.entries.getOrElse(tier) { Tier.DIRT }.key}")
 
+    /**
+     * The town itself as the pin, and at the far end of each of its roads the town it leads to, named:
+     * which lines are this town's roads, and where each goes, without reading the list.
+     */
+    private fun markers(): List<RoadMapWidget.Marker> {
+        val state = state()
+        val town = MapOverlayClient.state.towns.firstOrNull { it.id == state.placeId }
+        val out = ArrayList<RoadMapWidget.Marker>()
+        for (e in state.entries) {
+            val road = MapOverlayClient.state.roads.firstOrNull { it.plannedId == e.roadId } ?: continue
+            if (road.xs.isEmpty()) continue
+            val last = road.xs.size - 1
+            // The end away from this town; without its position, the end named as the other town.
+            val far = if (town != null) {
+                val d0 = hypot((road.xs[0] - town.pos.x).toDouble(), (road.zs[0] - town.pos.z).toDouble())
+                val d1 = hypot((road.xs[last] - town.pos.x).toDouble(), (road.zs[last] - town.pos.z).toDouble())
+                if (d0 > d1) 0 else last
+            } else if (road.from == state.townName) last else 0
+            val other = if (e.fromName == state.townName) e.toName else e.fromName
+            val color = RoadMapWidget.TIER_COLORS.getOrElse(e.tier) { RoadMapWidget.TIER_COLORS[0] }
+            out += RoadMapWidget.Marker(e.roadId, road.xs[far], road.zs[far], color, label = other)
+        }
+        if (town != null) out += RoadMapWidget.Marker("here", town.pos.x, town.pos.z, 0xFFFFFFFF.toInt(), active = false, label = state.townName, kind = RoadMapWidget.Kind.HERE)
+        return out
+    }
+
     override fun render(graphics: GuiGraphics, mouseX: Int, mouseY: Int, partialTick: Float) {
+        // Point the map at the road whose row is under the mouse, and at its end marker.
+        val row = rows.indexOfFirst { it.visible && it.isHovered }.takeIf { it >= 0 }?.let { state().entries.getOrNull(page * perPage + it)?.roadId }
+        map.emphasisedRoad = row
+        map.emphasised = row
         super.render(graphics, mouseX, mouseY, partialTick)
         val state = state()
         val x = panelX
